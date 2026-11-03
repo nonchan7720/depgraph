@@ -189,9 +189,61 @@ Imports outside the repository become a Package with key `ext:<spec>` and `exter
 | rule | severity | description |
 |---|---|---|
 | `import-cycle` | error | import cycle between packages |
-| `layer-violation` | error | forbidden pairs such as `handler → repository` (change in `rules.DefaultConfig`) |
+| `layer-violation` | error | a package imports a layer it must not import (`handler → repository`, ... or your own layers) |
 | `god-package` | warn | imported by 10 or more packages |
 | `duplicate-symbol` | warn | an exported function/class with the same name exists in several files |
+
+Layers, forbidden imports, severities and thresholds are set in `.depgraph.yml` (next section).
+
+### Configuration (`.depgraph.yml`)
+
+Put `.depgraph.yml` in the scanned root to declare the architecture. Every key is optional;
+`scan`, `check`, `watch`, `serve` and `hook` read it, and `watch` reloads it when it changes
+(a change of `project` needs a restart).
+
+```yaml
+project: my-repo            # project key (see Projects)
+
+layers:                     # layer name -> package path globs
+  domain: ["pkg/domain/**"]
+  services: ["pkg/services/**"]
+  infrastructure: ["pkg/infrastructure/**"]
+  interfaces: ["pkg/interfaces/**", "cmd/**"]
+
+forbidden:                  # layer -> layers it must not import
+  domain: [infrastructure, services, interfaces]
+  services: [interfaces]
+  infrastructure: [interfaces, services]
+
+rules:                      # per rule: enabled, severity (error | warn | info), options
+  import-cycle: {severity: error}
+  layer-violation: {severity: error}
+  god-package: {severity: warn, fanIn: 10}
+  duplicate-symbol: {enabled: false}
+  # duplicate-symbol: {ignore: [main, init, New]}   # names not checked (replaces the defaults)
+
+ignore: ["**/testdata/**"]  # packages left out of every rule
+```
+
+- **Package globs** match the package key (the directory from the root, `.` for the root) by
+  whole path segments: `**` is any number of segments, `*` and `?` stay within one segment.
+  `pkg/domain/**` matches `pkg/domain` and everything below it; `**/db/**` matches `db` and
+  `internal/db/sql` but not `pkg/feedback`.
+- A package may be in several layers. An import is a violation only when it crosses the pair:
+  it is not reported when both packages are in the forbidden layer, or both in the importing one.
+- `layers` replaces the default layers, and with them the default forbidden pairs; `forbidden`
+  alone refers to the default layers.
+- `ignore` excludes packages from the findings (cycles through them, fan-in from them, ...);
+  unlike `.depgraphignore` they are still scanned and shown in the UI.
+- Decoding is strict: an unknown key, rule, option, severity or a `forbidden` entry naming an
+  undefined layer is an error that names the file, instead of a setting silently ignored.
+
+Without `.depgraph.yml` the defaults are the layers `controller`, `db`, `domain`, `handler`,
+`infra`, `repository` and `usecase`, each matching a path segment of that name (plus
+`controllers`, `handlers`, `infrastructure`, `repositories`, `usecases`), with the forbidden
+pairs `handler → repository / infra / db`, `controller → repository / db`,
+`domain → infra / handler / repository` and `usecase → handler`.
+This repository's own [`.depgraph.yml`](.depgraph.yml) is an example.
 
 To query by hand:
 
@@ -210,13 +262,14 @@ RETURN p.key, count(q) AS fanIn ORDER BY fanIn DESC LIMIT 10;
 ```
 main.go                              entry point (just calls cmd.Execute())
 pkg/domain/graph/                    language-agnostic graph model, Repository / Resolver interfaces
-pkg/domain/rules/                    Finding / Config / diff, Repository interface
+pkg/domain/rules/                    rules, Config (layers, package globs), Finding / diff, Repository interface
 pkg/domain/project/                  Project, key rules / move-or-conflict decision, Repository interface
 pkg/services/analysis/               scan, apply changes, evaluate rules, LSP refinement
 pkg/infrastructure/repository/graph/ Neo4j writes and queries
 pkg/infrastructure/repository/rules/ rule evaluation in Cypher
 pkg/infrastructure/repository/project/ Project nodes
-pkg/infrastructure/workspace/        .depgraph.yml and git (origin, worktree) of a root
+pkg/infrastructure/config/           .depgraph.yml (project key, rule configuration)
+pkg/infrastructure/workspace/        project identity of a root (.depgraph.yml, git origin / worktree)
 pkg/infrastructure/resolver/         repository walk + exclude patterns
   treesitter/                        default: structural analysis (imports / declarations, gotreesitter)
   lsp/                               refinement with language servers (callHierarchy / references)
@@ -236,7 +289,7 @@ The analysis backend is pluggable through `graph.Resolver`. Priority: treesitter
 - [ ] `Commit` nodes for time-series analysis (dependency growth per AI session)
 - [ ] SCIP index import (batch precise analysis for CI)
 - [x] Multiple projects in one database (`--project`, `.depgraph.yml` `project:`, `depgraph projects`)
-- [ ] Rule configuration in `.depgraph.yml` (only `project:` is read today)
+- [x] Rule configuration in `.depgraph.yml` (layers, forbidden imports, severities, ignore)
 - [ ] MCP server mode (query directly from Claude Code / Cursor)
 
 ## Releasing

@@ -7,6 +7,7 @@ import (
 	"github.com/nonchan7720/depgraph/pkg/domain/graph"
 	"github.com/nonchan7720/depgraph/pkg/domain/project"
 	"github.com/nonchan7720/depgraph/pkg/domain/rules"
+	"github.com/nonchan7720/depgraph/pkg/infrastructure/config"
 	"github.com/nonchan7720/depgraph/pkg/infrastructure/workspace"
 	"github.com/nonchan7720/depgraph/pkg/interfaces/handler/hook"
 )
@@ -43,6 +44,14 @@ type projectData struct {
 	flagKey  string
 	// scoped returns the graph / rules repositories bound to a project key.
 	scoped func(key string) (statsReader, rules.Repository)
+	// config returns the rule configuration of a root (nil: the defaults).
+	config func(root string) (rules.Config, error)
+}
+
+// loadRules returns the rule configuration of root's .depgraph.yml.
+func loadRules(root string) (rules.Config, error) {
+	f, err := config.Load(root)
+	return f.Rules, err
 }
 
 var _ hook.ProjectData = projectData{}
@@ -56,8 +65,14 @@ func (d projectData) Load(ctx context.Context, root string) (hook.Snapshot, bool
 	if err != nil || !stored {
 		return hook.Snapshot{}, false, err
 	}
+	cfg := rules.DefaultConfig()
+	if d.config != nil {
+		if cfg, err = d.config(abs); err != nil {
+			return hook.Snapshot{}, false, err
+		}
+	}
 	g, r := d.scoped(p.Key)
-	findings, err := r.Evaluate(ctx, rules.DefaultConfig())
+	findings, err := r.Evaluate(ctx, cfg)
 	if err != nil {
 		return hook.Snapshot{}, false, err
 	}

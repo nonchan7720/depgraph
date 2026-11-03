@@ -22,6 +22,9 @@ type Service interface {
 	// Evaluate runs the rules, logs the diff against the previous run and
 	// publishes the result (notifier, report).
 	Evaluate(ctx context.Context) error
+	// SetConfig replaces the rule configuration for the next evaluations
+	// (watch reloads .depgraph.yml).
+	SetConfig(cfg rules.Config)
 	// SetNotifier registers a receiver of each evaluation (the UI). nil disables it.
 	SetNotifier(n Notifier)
 	// StartRefinement refines changed files in the background with r until

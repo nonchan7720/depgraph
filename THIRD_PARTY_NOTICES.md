@@ -36,7 +36,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### github.com/neo4j/neo4j-go-driver/v5 v5.24.0
+### github.com/neo4j/neo4j-go-driver/v6 v6.3.0
 
 ```
                                  Apache License

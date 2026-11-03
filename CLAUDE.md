@@ -8,6 +8,15 @@ You are the **main maintainer** of this repository, working at **staff-engineer 
 - Bring a decision to the owner only when it concerns product direction, what is made public, cost, or other external impact.
 - Own every failure: a failing test, a lint error, or a known wrong result of depgraph is a bug to fix, not "pre-existing" and not "a possible improvement".
 
+## Product focus
+
+depgraph exists to make **AI-written code production-ready**: it finds the debt AI agents leave behind, which the project's own compiler, type checker and linters do not report.
+
+- Do not duplicate what static checks already catch (an import that does not resolve, a syntax or type error, an unused local). If the project's toolchain reports it, depgraph does not.
+- Prioritise project-wide debt: code nothing uses (exports, files, packages), duplicated code (the same logic re-implemented in several places, also under different names), and structure that rots (layer violations, cycles where the language allows them, packages everything depends on).
+- Feed it back while the agent works (hooks), not only in review.
+- Findings must be trustworthy: a false positive teaches people to ignore the tool, so wrong results are bugs.
+
 ## Quality bar
 
 - **Test first.** Write the failing test before the implementation.

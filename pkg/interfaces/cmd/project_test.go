@@ -15,6 +15,7 @@ import (
 	"github.com/nonchan7720/depgraph/pkg/domain/project"
 	"github.com/nonchan7720/depgraph/pkg/domain/rules"
 	graphrepo "github.com/nonchan7720/depgraph/pkg/infrastructure/repository/graph"
+	"github.com/nonchan7720/depgraph/pkg/interfaces/handler/hook"
 )
 
 // fakeProjects is an in-memory project.Repository.
@@ -99,6 +100,11 @@ func TestHookProjectData(t *testing.T) {
 		scopedTo = append(scopedTo, key)
 		return fakeHookStore{stats: graph.Stats{Files: 3}}, r
 	}}
+	var sessionsOf []string
+	pd.sessions = func(key string) hook.SessionStore {
+		sessionsOf = append(sessionsOf, key)
+		return nil
+	}
 
 	// not scanned yet → no data, no evaluation
 	if _, ok, err := pd.Load(ctx, root); ok || err != nil || r.n != 0 {
@@ -108,6 +114,10 @@ func TestHookProjectData(t *testing.T) {
 	snap, ok, err := pd.Load(ctx, root)
 	if err != nil || !ok || snap.Stats.Files != 3 || len(snap.Findings) != 1 || strings.Join(scopedTo, ",") != "app" {
 		t.Fatalf("Load = %+v ok=%v err=%v scoped=%v", snap, ok, err, scopedTo)
+	}
+	// the session state is the resolved project's
+	if strings.Join(sessionsOf, ",") != "app" {
+		t.Errorf("sessions of %v, want app", sessionsOf)
 	}
 	// another live root with the same key is not this project; nothing is written
 	if _, ok, _ := pd.Load(ctx, other); ok {

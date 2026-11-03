@@ -123,8 +123,10 @@ Claude Code (read-only: it never scans and never writes CLAUDE.md).
   rules with many findings show the count and a few examples, the whole output is capped
   (about 4,000 characters) so even 50 `duplicate-symbol` findings do not flood the context
 - `prompt`: only the findings that appeared or were resolved since the last injection in the
-  same session; nothing when nothing changed. State is kept per `session_id` in
-  `<root>/.claude/.depgraph-hook-state.json` (add it to `.gitignore`)
+  same session; nothing when nothing changed. The state is kept per `session_id` in
+  Neo4j next to the project's graph (`HookSession` nodes): the 20 newest sessions of a project, none
+  older than 7 days, removed with the project (`projects rm`, `--reset`). Nothing is written into the
+  repository (the state file of earlier versions, `.claude/.depgraph-hook-state.json`, is deleted)
 - Root: `--root`, else `$CLAUDE_PROJECT_DIR`, else `cwd` of the hook input
 - The project is resolved like `scan` does (`--project`, `.depgraph.yml`, directory name,
   `@<worktree>`); only that project's findings are injected

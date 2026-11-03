@@ -117,7 +117,9 @@ depgraph projects prune [--dry-run]  # root が存在しなくなったプロジ
 - `session-start`：統計と Findings の要約（severity 順、error を先に）。件数の多いルールは
   件数と代表例数件に圧縮し、全体を約 4,000 文字に収める（`duplicate-symbol` が 50 件あっても溢れない）
 - `prompt`：同じセッションで前回注入してから新規・解消した Findings だけ。変化が無ければ何も出さない。
-  前回状態は `session_id` ごとに `<root>/.claude/.depgraph-hook-state.json` に保存（`.gitignore` に追加すること）
+  前回状態は `session_id` ごとに Neo4j のプロジェクトのグラフと並べて保存する（`HookSession` ノード）。
+  1 プロジェクトにつき新しい 20 セッションまで、7 日より古いものは残さず、プロジェクトと一緒に消える（`projects rm`・`--reset`）。
+  リポジトリには何も書かない（以前のバージョンの状態ファイル `.claude/.depgraph-hook-state.json` は削除する）
 - root は `--root`、無ければ `$CLAUDE_PROJECT_DIR`、無ければ hook 入力の `cwd`
 - プロジェクトは `scan` と同じ規則（`--project`・`.depgraph.yml`・ディレクトリ名・`@<worktree>`）で決め、
   そのプロジェクトの Findings だけを注入する

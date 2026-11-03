@@ -4,7 +4,6 @@ package container
 
 import (
 	"os"
-	"os/signal"
 	"syscall"
 )
 
@@ -14,8 +13,7 @@ func detachedProcAttr() *syscall.SysProcAttr {
 	return &syscall.SysProcAttr{CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP}
 }
 
-// IgnoreSignals makes the watchdog outlive the signals meant for depgraph:
-// it must act only once its parent is gone.
-func IgnoreSignals() {
-	signal.Ignore(os.Interrupt, syscall.SIGTERM)
+// ignoredSignals are the signals the watchdog must outlive.
+func ignoredSignals() []os.Signal {
+	return []os.Signal{os.Interrupt, syscall.SIGTERM}
 }

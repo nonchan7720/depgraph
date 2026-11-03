@@ -2,6 +2,7 @@ package imports
 
 import (
 	"context"
+	"github.com/nonchan7720/depgraph/pkg/internal/rootcache"
 	"path/filepath"
 	"strings"
 
@@ -17,7 +18,7 @@ import (
 //
 // Imports resolved into node_modules are External, keyed by package name.
 type TypeScript struct {
-	cache rootCache[*tsRoot]
+	cache rootcache.Cache[*tsRoot]
 }
 
 var _ Resolver = (*TypeScript)(nil)
@@ -73,7 +74,7 @@ func (t *TypeScript) Resolve(ctx context.Context, root, fromFile, spec string) R
 	if err := ctx.Err(); err != nil {
 		return unresolvedf(err.Error())
 	}
-	r := t.cache.get(root, loadTS)
+	r := t.cache.Get(root, loadTS)
 	if r.resolve == nil {
 		return unresolvedf(r.err)
 	}
@@ -130,14 +131,14 @@ func tsResolved(realRoot, spec, p string, isExternal bool, namespace string) Res
 
 // Invalidate implements Resolver.
 func (t *TypeScript) Invalidate(root string) {
-	for _, r := range t.cache.drop(root) {
+	for _, r := range t.cache.Drop(root) {
 		r.dispose()
 	}
 }
 
 // Close disposes every esbuild context.
 func (t *TypeScript) Close() {
-	for _, r := range t.cache.dropAll() {
+	for _, r := range t.cache.DropAll() {
 		r.dispose()
 	}
 }

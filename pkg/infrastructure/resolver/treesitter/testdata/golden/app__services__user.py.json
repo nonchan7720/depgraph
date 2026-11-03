@@ -129,5 +129,50 @@
       "target": "ext:numpy",
       "external": true
     }
-  ]
+  ],
+  "usage": {
+    "scope": ".",
+    "uses": [
+      {
+        "target": "app"
+      },
+      {
+        "target": "app",
+        "name": "models"
+      },
+      {
+        "target": "app/models.py"
+      },
+      {
+        "target": "app/models.py",
+        "name": "Base"
+      },
+      {
+        "target": "app/models.py",
+        "name": "Base.*"
+      },
+      {
+        "target": "app/models.py",
+        "name": "User"
+      },
+      {
+        "target": "app/services"
+      },
+      {
+        "target": "app/services",
+        "name": "helper"
+      },
+      {
+        "target": "app/services/helper.py"
+      },
+      {
+        "target": "app/services/helper.py",
+        "name": "thing"
+      }
+    ],
+    "keep": [
+      "Helper",
+      "Point"
+    ]
+  }
 }

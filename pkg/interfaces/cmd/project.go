@@ -44,6 +44,8 @@ type projectData struct {
 	flagKey  string
 	// scoped returns the graph / rules repositories bound to a project key.
 	scoped func(key string) (statsReader, rules.Repository)
+	// sessions returns the hook session state of a project (nil: none kept).
+	sessions func(key string) hook.SessionStore
 	// config returns the rule configuration of a root (nil: the defaults).
 	config func(root string) (rules.Config, error)
 }
@@ -80,5 +82,9 @@ func (d projectData) Load(ctx context.Context, root string) (hook.Snapshot, bool
 	if err != nil {
 		return hook.Snapshot{}, false, err
 	}
-	return hook.Snapshot{Stats: stats, Findings: findings}, true, nil
+	snap := hook.Snapshot{Stats: stats, Findings: findings}
+	if d.sessions != nil {
+		snap.Sessions = d.sessions(p.Key)
+	}
+	return snap, true, nil
 }

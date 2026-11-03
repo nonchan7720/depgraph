@@ -14,5 +14,8 @@
       "col": 4
     }
   ],
-  "imports": null
+  "imports": null,
+  "usage": {
+    "scope": "."
+  }
 }

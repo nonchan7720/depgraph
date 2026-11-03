@@ -77,6 +77,7 @@ func (s *Store) EnsureSchema(ctx context.Context) error {
 		`CREATE CONSTRAINT project_key IF NOT EXISTS FOR (p:Project) REQUIRE p.key IS UNIQUE`,
 		`CREATE CONSTRAINT package_project_key IF NOT EXISTS FOR (p:Package) REQUIRE (p.project, p.key) IS UNIQUE`,
 		`CREATE CONSTRAINT file_project_path IF NOT EXISTS FOR (f:File) REQUIRE (f.project, f.path) IS UNIQUE`,
+		`CREATE CONSTRAINT hook_session_project_id IF NOT EXISTS FOR (h:HookSession) REQUIRE (h.project, h.id) IS UNIQUE`,
 		`CREATE INDEX package_project IF NOT EXISTS FOR (p:Package) ON (p.project)`,
 		`CREATE INDEX file_project IF NOT EXISTS FOR (f:File) ON (f.project)`,
 		`CREATE INDEX symbol_project IF NOT EXISTS FOR (s:Symbol) ON (s.project)`,
@@ -131,7 +132,7 @@ func (r *Graph) query(ctx context.Context, cypher string, p map[string]any) ([]m
 // Clear deletes the project's graph data (the Project node is kept).
 func (r *Graph) Clear(ctx context.Context) error {
 	return r.run(ctx, `
-		MATCH (n) WHERE (n:Package OR n:File OR n:Symbol) AND n.project = $project
+		MATCH (n) WHERE (n:Package OR n:File OR n:Symbol OR n:HookSession) AND n.project = $project
 		DETACH DELETE n
 	`, nil)
 }
@@ -145,6 +146,8 @@ func (r *Graph) UpsertFile(ctx context.Context, fg *graph.FileGraph) error {
 		symbols = append(symbols, map[string]any{
 			"name": sym.Name, "kind": sym.Kind, "exported": sym.Exported,
 			"line": sym.Line, "endLine": sym.EndLine,
+			// code shape (duplicate-code); null for symbols without one, so not stored
+			"tokens": nonZero(sym.Tokens), "cloneHash": nonEmpty(sym.CloneHash), "fingerprints": nonEmptyList(sym.Fingerprints),
 		})
 	}
 	imports := make([]map[string]any, 0, len(fg.Imports))
@@ -168,6 +171,7 @@ func (r *Graph) UpsertFile(ctx context.Context, fg *graph.FileGraph) error {
 			  SET p.external = false
 			MERGE (f:File {project: $project, path: $path})
 			  SET f.language = $lang, f.lines = $lines, f.updatedAt = datetime()
+			SET f += $usage
 			MERGE (p)-[:CONTAINS]->(f)
 			WITH f
 			OPTIONAL MATCH (f)-[:DECLARES]->(old:Symbol)
@@ -178,6 +182,7 @@ func (r *Graph) UpsertFile(ctx context.Context, fg *graph.FileGraph) error {
 		`, r.params(map[string]any{
 			"pkg": fg.Package, "pkgName": path.Base(fg.Package),
 			"path": fg.Path, "lang": string(fg.Language), "lines": fg.Lines,
+			"usage": usageProps(fg),
 		})); err != nil {
 			return nil, err
 		}
@@ -189,7 +194,8 @@ func (r *Graph) UpsertFile(ctx context.Context, fg *graph.FileGraph) error {
 				UNWIND $symbols AS s
 				CREATE (sym:Symbol {
 					project: $project, name: s.name, kind: s.kind, exported: s.exported,
-					line: s.line, endLine: s.endLine, language: $lang, file: $path
+					line: s.line, endLine: s.endLine, language: $lang, file: $path,
+					tokens: s.tokens, cloneHash: s.cloneHash, fingerprints: s.fingerprints
 				})
 				CREATE (f)-[:DECLARES]->(sym)
 			`, r.params(map[string]any{"path": fg.Path, "symbols": symbols, "lang": string(fg.Language)})); err != nil {
@@ -331,4 +337,27 @@ func (r *Graph) Stats(ctx context.Context) (graph.Stats, error) {
 		Imports:  i64(row["imports"]),
 		Calls:    i64(row["calls"]),
 	}, nil
+}
+
+// nonZero / nonEmpty / nonEmptyList map the zero value to nil, which Cypher
+// does not store as a property.
+func nonZero(n int) any {
+	if n == 0 {
+		return nil
+	}
+	return n
+}
+
+func nonEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+func nonEmptyList(xs []int64) any {
+	if len(xs) == 0 {
+		return nil
+	}
+	return xs
 }

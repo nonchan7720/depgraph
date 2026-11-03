@@ -3,7 +3,7 @@
 package container
 
 import (
-	"os/signal"
+	"os"
 	"syscall"
 )
 
@@ -14,8 +14,7 @@ func detachedProcAttr() *syscall.SysProcAttr {
 	return &syscall.SysProcAttr{Setsid: true}
 }
 
-// IgnoreSignals makes the watchdog outlive the signals meant for depgraph:
-// it must act only once its parent is gone.
-func IgnoreSignals() {
-	signal.Ignore(syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+// ignoredSignals are the signals the watchdog must outlive.
+func ignoredSignals() []os.Signal {
+	return []os.Signal{syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP}
 }

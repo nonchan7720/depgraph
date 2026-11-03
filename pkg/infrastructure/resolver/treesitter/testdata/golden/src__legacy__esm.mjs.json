@@ -37,5 +37,29 @@
       "target": "ext:lodash",
       "external": true
     }
-  ]
+  ],
+  "usage": {
+    "scope": ".",
+    "uses": [
+      {
+        "target": "?./missing"
+      },
+      {
+        "target": "?./missing",
+        "name": "default"
+      },
+      {
+        "target": "src/legacy/app.js",
+        "name": "*",
+        "reexport": true,
+        "as": "*"
+      },
+      {
+        "target": "src/legacy/component.jsx",
+        "name": "C",
+        "reexport": true,
+        "as": "C"
+      }
+    ]
+  }
 }

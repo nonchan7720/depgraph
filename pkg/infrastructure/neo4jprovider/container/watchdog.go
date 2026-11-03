@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"sync"
 	"time"
 )
@@ -109,6 +110,12 @@ func forget(w *os.File) {
 	armedMu.Lock()
 	delete(armed, w)
 	armedMu.Unlock()
+}
+
+// IgnoreSignals makes the watchdog outlive the signals meant for depgraph
+// (ctrl-c, SIGTERM, SIGHUP on Unix): it must act only once its parent is gone.
+func IgnoreSignals() {
+	signal.Ignore(ignoredSignals()...)
 }
 
 // WatchdogMain is the watchdog process: args are the flags after

@@ -47,5 +47,8 @@
       "target": "ext:fmt",
       "external": true
     }
-  ]
+  ],
+  "usage": {
+    "scope": "."
+  }
 }

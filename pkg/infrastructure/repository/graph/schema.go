@@ -4,7 +4,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
+	"github.com/neo4j/neo4j-go-driver/v6/neo4j"
 )
 
 // isSchemaRace reports whether err only means that another session changed

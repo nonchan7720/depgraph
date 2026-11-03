@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"path"
 
-	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
+	"github.com/neo4j/neo4j-go-driver/v6/neo4j"
 
 	"github.com/nonchan7720/depgraph/pkg/domain/graph"
 )

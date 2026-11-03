@@ -9,6 +9,7 @@ import (
 
 	"github.com/nonchan7720/depgraph/pkg/domain/graph"
 	"github.com/nonchan7720/depgraph/pkg/domain/rules"
+	"github.com/nonchan7720/depgraph/pkg/domain/view"
 )
 
 // Service keeps the stored graph in sync with the repository.
@@ -34,12 +35,12 @@ type Service interface {
 
 // Notifier receives each evaluation result.
 type Notifier interface {
-	SetFindings(stats graph.Stats, findings []rules.Finding)
+	SetFindings(stats view.Stats, findings []rules.Finding)
 }
 
 // ReportWriter persists each evaluation (CLAUDE.md managed section).
 type ReportWriter interface {
-	Write(stats graph.Stats, findings []rules.Finding) error
+	Write(stats view.Stats, findings []rules.Finding) error
 }
 
 // Refinement adds precise symbol-level references to a FileGraph (LSP).
@@ -52,9 +53,16 @@ type Refinement interface {
 // ScanFunc walks root and calls fn for every supported, non-ignored file.
 type ScanFunc func(ctx context.Context, r graph.Resolver, root string, fn func(*graph.FileGraph) error) error
 
+// Store is one project's graph: written by scans and changes, read for the
+// report.
+type Store interface {
+	graph.Repository
+	view.Reader
+}
+
 // Deps are the service's collaborators.
 type Deps struct {
-	Repo     graph.Repository
+	Repo     Store
 	Rules    rules.Repository
 	Resolver graph.Resolver
 	Scan     ScanFunc

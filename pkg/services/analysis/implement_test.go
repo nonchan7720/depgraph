@@ -14,6 +14,7 @@ import (
 
 	"github.com/nonchan7720/depgraph/pkg/domain/graph"
 	"github.com/nonchan7720/depgraph/pkg/domain/rules"
+	"github.com/nonchan7720/depgraph/pkg/domain/view"
 )
 
 // ---- fakes ------------------------------------------------------------------
@@ -93,14 +94,14 @@ func (f *fakeRepo) PruneOrphanExternals(context.Context) error {
 	f.log("PruneOrphanExternals")
 	return nil
 }
-func (f *fakeRepo) Stats(context.Context) (graph.Stats, error) {
+func (f *fakeRepo) Stats(context.Context) (view.Stats, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return graph.Stats{Files: int64(len(f.files))}, nil
+	return view.Stats{Files: int64(len(f.files))}, nil
 }
-func (f *fakeRepo) Overview(context.Context) (*graph.Overview, error) { return &graph.Overview{}, nil }
-func (f *fakeRepo) PackageDetail(context.Context, string) (*graph.PackageDetail, error) {
-	return &graph.PackageDetail{}, nil
+func (f *fakeRepo) Overview(context.Context) (*view.Overview, error) { return &view.Overview{}, nil }
+func (f *fakeRepo) PackageDetail(context.Context, string) (*view.PackageDetail, error) {
+	return &view.PackageDetail{}, nil
 }
 
 type fakeRules struct {
@@ -131,7 +132,7 @@ type fakeNotifier struct {
 	findings [][]rules.Finding
 }
 
-func (n *fakeNotifier) SetFindings(_ graph.Stats, fs []rules.Finding) {
+func (n *fakeNotifier) SetFindings(_ view.Stats, fs []rules.Finding) {
 	n.mu.Lock()
 	n.findings = append(n.findings, fs)
 	n.mu.Unlock()
@@ -141,7 +142,7 @@ type fakeReport struct {
 	n int
 }
 
-func (r *fakeReport) Write(graph.Stats, []rules.Finding) error { r.n++; return nil }
+func (r *fakeReport) Write(view.Stats, []rules.Finding) error { r.n++; return nil }
 
 func writeFile(t *testing.T, root, rel string) {
 	t.Helper()

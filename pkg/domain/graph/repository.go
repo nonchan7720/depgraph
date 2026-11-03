@@ -2,9 +2,9 @@ package graph
 
 import "context"
 
-// Repository persists FileGraphs and answers the read queries the services
-// and the UI need. Updates are per file: a file's subgraph is replaced as a
-// whole, package-level IMPORTS edges are derived from file imports.
+// Repository persists FileGraphs. Updates are per file: a file's subgraph is
+// replaced as a whole, package-level IMPORTS edges are derived from file
+// imports. The read side is view.Reader.
 type Repository interface {
 	Clear(ctx context.Context) error
 	UpsertFile(ctx context.Context, fg *FileGraph) error
@@ -16,8 +16,4 @@ type Repository interface {
 	RebuildAllPackageImports(ctx context.Context) error
 	PruneEmptyPackages(ctx context.Context) error
 	PruneOrphanExternals(ctx context.Context) error
-
-	Stats(ctx context.Context) (Stats, error)
-	Overview(ctx context.Context) (*Overview, error)
-	PackageDetail(ctx context.Context, key string) (*PackageDetail, error)
 }

@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nonchan7720/depgraph/pkg/domain/graph"
 	"github.com/nonchan7720/depgraph/pkg/domain/rules"
+	"github.com/nonchan7720/depgraph/pkg/domain/view"
 )
 
 func f(rule, sev, msg string) rules.Finding {
@@ -65,7 +65,7 @@ func TestSummarizeOrdersBySeverityAndCompresses(t *testing.T) {
 		fs = append(fs, f("duplicate-symbol", "warn", fmt.Sprintf("dup%02d in a.go, b.go", i)))
 	}
 	fs = append(fs, f("god-package", "warn", "pkg/x imported by 12"), f("import-cycle", "error", "a -> b -> a"))
-	out := Summarize(graph.Stats{Packages: 3, Files: 9, Symbols: 40, Imports: 5}, fs, DefaultLimits())
+	out := Summarize(view.Stats{Packages: 3, Files: 9, Symbols: 40, Imports: 5}, fs, DefaultLimits())
 
 	for _, want := range []string{"3 packages, 9 files, 40 symbols", "1 error, 51 warn", "a -> b -> a", "duplicate-symbol (50", "and 45 more"} {
 		if !strings.Contains(out, want) {
@@ -92,7 +92,7 @@ func TestSummarizeCapsLength(t *testing.T) {
 		}
 	}
 	lim := DefaultLimits()
-	out := Summarize(graph.Stats{}, fs, lim)
+	out := Summarize(view.Stats{}, fs, lim)
 	if len(out) > lim.MaxChars {
 		t.Errorf("len = %d, want <= %d", len(out), lim.MaxChars)
 	}
@@ -103,7 +103,7 @@ func TestSummarizeCapsLength(t *testing.T) {
 
 // The unused-code rules come after the architecture rules, with a hint.
 func TestSummarizeUnusedRules(t *testing.T) {
-	out := Summarize(graph.Stats{}, []rules.Finding{
+	out := Summarize(view.Stats{}, []rules.Finding{
 		rules.UnusedExport("a.ts", 1, "function", "f"),
 		rules.UnreachableFile("old.ts", nil, false),
 		f("duplicate-symbol", "warn", "dup"),
@@ -118,7 +118,7 @@ func TestSummarizeUnusedRules(t *testing.T) {
 }
 
 func TestSummarizeNoFindings(t *testing.T) {
-	out := Summarize(graph.Stats{Packages: 1}, nil, DefaultLimits())
+	out := Summarize(view.Stats{Packages: 1}, nil, DefaultLimits())
 	if !strings.Contains(out, "No architectural violations") {
 		t.Errorf("summary = %q", out)
 	}
@@ -218,7 +218,7 @@ func (p *fakeProject) Load(_ context.Context, root string) (Snapshot, bool, erro
 	if !ok {
 		return Snapshot{}, false, nil
 	}
-	return Snapshot{Stats: graph.Stats{Packages: 2}, Findings: fs, Sessions: &p.sessions}, true, nil
+	return Snapshot{Stats: view.Stats{Packages: 2}, Findings: fs, Sessions: &p.sessions}, true, nil
 }
 
 func TestRunSessionStartThenPrompt(t *testing.T) {
@@ -336,7 +336,7 @@ func TestParseEvent(t *testing.T) {
 }
 
 func TestSummarizeDuplicateCodeHint(t *testing.T) {
-	out := Summarize(graph.Stats{}, []rules.Finding{{Rule: "duplicate-code", Severity: "warn", Message: "identical logic in 2 places"}}, DefaultLimits())
+	out := Summarize(view.Stats{}, []rules.Finding{{Rule: "duplicate-code", Severity: "warn", Message: "identical logic in 2 places"}}, DefaultLimits())
 	if !strings.Contains(out, "extract and reuse") {
 		t.Errorf("summary:\n%s", out)
 	}

@@ -4,10 +4,11 @@ import (
 	"context"
 
 	"github.com/nonchan7720/depgraph/pkg/domain/graph"
+	"github.com/nonchan7720/depgraph/pkg/domain/view"
 )
 
-// graph.Overview returns all packages and package-level import edges.
-func (r *Graph) Overview(ctx context.Context) (*graph.Overview, error) {
+// view.Overview returns all packages and package-level import edges.
+func (r *Graph) Overview(ctx context.Context) (*view.Overview, error) {
 	rows, err := r.query(ctx, `
 		MATCH (p:Package {project: $project})
 		RETURN p.key AS key, p.name AS name, coalesce(p.external, false) AS external,
@@ -20,9 +21,9 @@ func (r *Graph) Overview(ctx context.Context) (*graph.Overview, error) {
 	if err != nil {
 		return nil, err
 	}
-	ov := &graph.Overview{Packages: []graph.PackageNode{}, Edges: []graph.Edge{}}
+	ov := &view.Overview{Packages: []view.PackageNode{}, Edges: []view.Edge{}}
 	for _, row := range rows {
-		ov.Packages = append(ov.Packages, graph.PackageNode{
+		ov.Packages = append(ov.Packages, view.PackageNode{
 			Key: str(row["key"]), Name: str(row["name"]), External: row["external"].(bool),
 			Files: i64(row["files"]), Symbols: i64(row["symbols"]),
 			FanIn: i64(row["fanIn"]), FanOut: i64(row["fanOut"]),
@@ -36,14 +37,14 @@ func (r *Graph) Overview(ctx context.Context) (*graph.Overview, error) {
 		return nil, err
 	}
 	for _, row := range rows {
-		ov.Edges = append(ov.Edges, graph.Edge{From: str(row["from"]), To: str(row["to"])})
+		ov.Edges = append(ov.Edges, view.Edge{From: str(row["from"]), To: str(row["to"])})
 	}
 	return ov, nil
 }
 
-// graph.PackageDetail returns files/symbols for one package.
-func (r *Graph) PackageDetail(ctx context.Context, key string) (*graph.PackageDetail, error) {
-	d := &graph.PackageDetail{Key: key, Files: []graph.FileDetail{}, ImportedBy: []string{}, Imports: []string{}}
+// view.PackageDetail returns files/symbols for one package.
+func (r *Graph) PackageDetail(ctx context.Context, key string) (*view.PackageDetail, error) {
+	d := &view.PackageDetail{Key: key, Files: []view.FileDetail{}, ImportedBy: []string{}, Imports: []string{}}
 	rows, err := r.query(ctx, `
 		MATCH (p:Package {project: $project, key: $key})-[:CONTAINS]->(f:File)
 		OPTIONAL MATCH (f)-[:DECLARES]->(s:Symbol)
@@ -58,7 +59,7 @@ func (r *Graph) PackageDetail(ctx context.Context, key string) (*graph.PackageDe
 		return nil, err
 	}
 	for _, row := range rows {
-		fd := graph.FileDetail{Path: str(row["path"]), Language: str(row["language"]), Lines: i64(row["lines"]), Symbols: []graph.Symbol{}, Imports: []string{}}
+		fd := view.FileDetail{Path: str(row["path"]), Language: str(row["language"]), Lines: i64(row["lines"]), Symbols: []graph.Symbol{}, Imports: []string{}}
 		if syms, ok := row["syms"].([]any); ok {
 			for _, x := range syms {
 				m, ok := x.(map[string]any)

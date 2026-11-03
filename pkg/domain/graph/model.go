@@ -84,55 +84,6 @@ type FileGraph struct {
 	Usage *Usage `json:"usage,omitempty"`
 }
 
-// Stats holds basic graph counts.
-type Stats struct {
-	Packages int64
-	Files    int64
-	Symbols  int64
-	Imports  int64
-	Calls    int64 // symbol-level CALLS edges (filled by LSP)
-}
-
-// PackageNode is a package as shown in the UI.
-type PackageNode struct {
-	Key      string `json:"key"`
-	Name     string `json:"name"`
-	External bool   `json:"external"`
-	Files    int64  `json:"files"`
-	Symbols  int64  `json:"symbols"`
-	FanIn    int64  `json:"fanIn"`
-	FanOut   int64  `json:"fanOut"`
-}
-
-// Edge is a package-level import edge.
-type Edge struct {
-	From string `json:"from"`
-	To   string `json:"to"`
-}
-
-// Overview is the package-level graph.
-type Overview struct {
-	Packages []PackageNode `json:"packages"`
-	Edges    []Edge        `json:"edges"`
-}
-
-// FileDetail is a file with its symbols and imports.
-type FileDetail struct {
-	Path     string   `json:"path"`
-	Language string   `json:"language"`
-	Lines    int64    `json:"lines"`
-	Symbols  []Symbol `json:"symbols"`
-	Imports  []string `json:"imports"`
-}
-
-// PackageDetail is one package's files, symbols and neighbors.
-type PackageDetail struct {
-	Key        string       `json:"key"`
-	Files      []FileDetail `json:"files"`
-	ImportedBy []string     `json:"importedBy"`
-	Imports    []string     `json:"imports"`
-}
-
 // StalePaths returns the stored file paths that were not seen by the latest
 // full scan (deleted while depgraph was not running, newly ignored, or left
 // over from another --root), sorted.

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/nonchan7720/depgraph/pkg/domain/graph"
+	"github.com/nonchan7720/depgraph/pkg/domain/view"
 )
 
 func testStore(t *testing.T) (*Store, context.Context) {
@@ -145,7 +146,7 @@ func TestProjectIsolation(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	want := graph.Stats{Packages: 2, Files: 2, Symbols: 2, Imports: 4}
+	want := view.Stats{Packages: 2, Files: 2, Symbols: 2, Imports: 4}
 	for _, r := range []*Graph{a, b} {
 		if st, err := r.Stats(ctx); err != nil || st != want {
 			t.Fatalf("%s stats = %+v, %v; want %+v", r.project, st, err, want)
@@ -175,7 +176,7 @@ func TestProjectIsolation(t *testing.T) {
 	if paths, err := b.FilePaths(ctx); err != nil || len(paths) != 0 {
 		t.Fatalf("b paths = %v, %v", paths, err)
 	}
-	if st, err := b.Stats(ctx); err != nil || st != (graph.Stats{}) {
+	if st, err := b.Stats(ctx); err != nil || st != (view.Stats{}) {
 		t.Fatalf("b stats after delete = %+v, %v", st, err)
 	}
 	if st, err := a.Stats(ctx); err != nil || st != want {

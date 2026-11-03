@@ -4,9 +4,9 @@ import (
 	"context"
 	"path/filepath"
 
-	"github.com/nonchan7720/depgraph/pkg/domain/graph"
 	"github.com/nonchan7720/depgraph/pkg/domain/project"
 	"github.com/nonchan7720/depgraph/pkg/domain/rules"
+	"github.com/nonchan7720/depgraph/pkg/domain/view"
 	"github.com/nonchan7720/depgraph/pkg/infrastructure/config"
 	"github.com/nonchan7720/depgraph/pkg/infrastructure/workspace"
 	"github.com/nonchan7720/depgraph/pkg/interfaces/handler/hook"
@@ -32,7 +32,7 @@ func resolveProject(ctx context.Context, repo project.Repository, root, flagKey 
 
 // statsReader is what the hook reads from a project's graph.
 type statsReader interface {
-	Stats(ctx context.Context) (graph.Stats, error)
+	Stats(ctx context.Context) (view.Stats, error)
 }
 
 // projectData is the hook.ProjectData of a multi-project database: root's

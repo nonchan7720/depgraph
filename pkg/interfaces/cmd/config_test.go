@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nonchan7720/depgraph/pkg/domain/graph"
 	"github.com/nonchan7720/depgraph/pkg/domain/project"
 	"github.com/nonchan7720/depgraph/pkg/domain/rules"
+	"github.com/nonchan7720/depgraph/pkg/domain/view"
 	"github.com/nonchan7720/depgraph/pkg/infrastructure/config"
 	graphrepo "github.com/nonchan7720/depgraph/pkg/infrastructure/repository/graph"
 	"github.com/nonchan7720/depgraph/pkg/services/analysis"
@@ -96,7 +96,7 @@ func TestHookProjectDataUsesConfig(t *testing.T) {
 	repo := fakeProjects{"app": project.Project{Key: "app", Root: root}}
 	r := &recordingRules{}
 	pd := projectData{projects: repo, scoped: func(string) (statsReader, rules.Repository) {
-		return fakeHookStore{stats: graph.Stats{Files: 1}}, r
+		return fakeHookStore{stats: view.Stats{Files: 1}}, r
 	}, config: loadRules}
 	if _, ok, err := pd.Load(ctx, root); !ok || err != nil {
 		t.Fatalf("Load: ok=%v err=%v", ok, err)

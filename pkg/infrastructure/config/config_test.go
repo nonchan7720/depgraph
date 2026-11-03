@@ -142,7 +142,7 @@ func TestParseErrors(t *testing.T) {
 		{"unknown top-level key", "projct: x\n", `field projct not found`},
 		{"unknown rule", "rules:\n  no-such-rule: {severity: warn}\n", `unknown rule "no-such-rule"`},
 		{"unknown rule option", "rules:\n  import-cycle: {fanIn: 3}\n", `rules.import-cycle: unknown option "fanIn"`},
-		{"typo option", "rules:\n  god-package: {fanin: 3}\n", `unknown option "fanin" (allowed: enabled, severity, fanIn)`},
+		{"typo option", "rules:\n  god-package: {fanin: 3}\n", `unknown option "fanin" (allowed: enabled, severity, fanIn, fanOut)`},
 		{"bad severity", "rules:\n  god-package: {severity: fatal}\n", `severity "fatal"`},
 		{"rule not a mapping", "rules:\n  god-package: warn\n", `rules.god-package: want a mapping`},
 		{"bad fanIn", "rules:\n  god-package: {fanIn: many}\n", `rules.god-package`},
@@ -220,5 +220,15 @@ func TestParseDuplicateCodeOptions(t *testing.T) {
 		if _, err := Parse([]byte("rules:\n  duplicate-code: " + bad + "\n")); err == nil {
 			t.Errorf("%s: want an error", bad)
 		}
+	}
+}
+
+func TestParseGodPackageFanOut(t *testing.T) {
+	f, err := Parse([]byte("rules:\n  god-package: {fanIn: 8, fanOut: 2}\n"))
+	if err != nil || f.Rules.GodPackageFanIn != 8 || f.Rules.GodPackageFanOut != 2 {
+		t.Fatalf("parse: %+v %v", f.Rules, err)
+	}
+	if _, err := Parse([]byte("rules:\n  god-package: {fanOut: 0}\n")); err == nil {
+		t.Error("fanOut 0 must be an error")
 	}
 }

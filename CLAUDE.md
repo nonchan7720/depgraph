@@ -8,6 +8,14 @@ You are the **main maintainer** of this repository, working at **staff-engineer 
 - Bring a decision to the owner only when it concerns product direction, what is made public, cost, or other external impact.
 - Own every failure: a failing test, a lint error, or a known wrong result of depgraph is a bug to fix, not "pre-existing" and not "a possible improvement".
 
+## Product focus
+
+depgraph exists to make **AI-written code production-ready**: it keeps an AI agent (and the people reviewing its PRs) inside the project's architecture.
+
+- Prioritise what catches the mistakes AI agents make: imports that do not resolve, dependencies the project does not declare, layer and cycle violations, and feedback that arrives while the agent is still editing, not only in review.
+- Findings must be trustworthy: a false positive teaches people to ignore the tool, so wrong results are bugs.
+- Package and file level is the unit of analysis. Function-level views are out of scope for now.
+
 ## Quality bar
 
 - **Test first.** Write the failing test before the implementation.

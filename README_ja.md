@@ -165,7 +165,8 @@ API: `GET /api/graph`（パッケージ・辺・findings・stats）、`GET /api/
 ```
 (Project {key, name, root, origin, base, worktree, lastScanAt})
 (Package {project, key, name, external})
-(File    {project, path, language, lines, updatedAt})
+(File    {project, path, language, lines, updatedAt,
+          scope, entry, generated, uses, exports, keep})   # 未使用コード系ルール用の usage
 (Symbol  {project, name, kind, exported, line, endLine, language, file})
 
 (Package)-[:CONTAINS]->(File)-[:DECLARES]->(Symbol)
@@ -178,6 +179,9 @@ API: `GET /api/graph`（パッケージ・辺・findings・stats）、`GET /api/
 `Package.key` はリポジトリルートからのディレクトリパス（ルートは `.`）。
 リポジトリ外への import は `ext:<パッケージ>` という key の `external=true` な Package になります（これもプロジェクトごと。`elkjs/lib/elk-api` はパッケージ `ext:elkjs`）。
 どこにも解決できない import は Package も辺も作りません（プロジェクトのコンパイラ / 型チェックが報告します）。
+
+File の usage プロパティはそのファイル自身から分かることだけです: どのファイル / パッケージのどの名前を使うか（`uses`）、別名で export している名前（`exports`）、意図して残す名前（`keep`: Python の `__all__`、デコレータ付き定義）、生成コード / vendored か、エントリポイントである理由（`entry`）。
+ファイルと一緒に置き換わるので `watch` の差分更新でも正しく保たれ、未使用コード系ルールが評価時にプロジェクト全体で突き合わせます。
 
 ## Import resolution
 
@@ -200,6 +204,22 @@ import は各エコシステム自身の解決方法で、プロジェクトの�
 | `duplicate-code` | warn | 名前に関係なく、同じロジックが複数箇所にある（完全に同じ、または少し手を加えた複製。下記） |
 | `god-package` | warn | 10 パッケージ以上から import されている |
 | `duplicate-symbol` | warn | 同名の exported function/class が複数ファイルに存在 |
+| `unused-export` | warn | プロジェクト内の誰も（自ファイルでさえ）使っていない export（Go: main 以外のパッケージの exported な関数と型。メソッドは対象外 / TS・JS: `export` された宣言。re-export・barrel を辿る / Python: モジュール直下の public な関数とクラス） |
+| `unreachable-file` | warn | どのエントリポイントからも import で辿れない TS/JS/Python ファイル。誰も import していないファイルごとに 1 件で、そのファイル経由でしか辿れないファイルを併記 |
+| `unreachable-package` | warn | `main` パッケージ・テスト・ライブラリモジュールの公開パッケージのどれからも import されない Go パッケージ |
+
+### 未使用コード
+
+`unused-export` と `unreachable-*` はプロジェクト全体を見て初めて分かるものだけを報告します。コンパイラ・`go vet` / staticcheck・`tsc --noUnusedLocals`・eslint・ruff が見るのは未使用のローカル変数や非公開の名前で、誰も import しない export は見えません。
+誤検知はバグなので、import グラフの外から読み込まれる兆候があるファイルはエントリポイント（到達可能で、export は外から使われる扱い。報告しない）とします。
+
+- Go: `main` パッケージ、`_test.go`。`main` パッケージを持たないモジュールはライブラリで、`internal/` 以外のパッケージは公開 API。exported なメソッドは報告しません（interface が必要とする可能性があるため）。ドキュメントだけのパッケージも報告しません。`//go:embed` が埋め込むファイルは使用中です。
+- TS/JS: `package.json` の `main` / `module` / `browser` / `types` / `bin` / `exports` と `scripts` が実行するファイル（`dist/` のパスは `tsconfig.json` を見てソースに戻す）、HTML の `<script src>` とページテンプレートが名前で指すスクリプト、設定ファイル（`*.config.*`・`.*rc.*`）、テスト・stories・型テスト・`testdata/`・`.d.ts`、`scripts/` `bin/` `tools/` `docs/` `public/` `static/`、`examples/` とベンチマーク、パッケージ直下または `src/` 直下の `index` / `main` / `server` / `app` / `cli`、ファイルベースルーティング（Next.js・Remix・Gatsby・Expo Router などの `app/`・`pages/`・`routes/`）、Docusaurus の theme コンポーネント、React Email のテンプレート、MDX が import するファイル。プロジェクトが依存として宣言していないパッケージの import（`@site/...` のようなバンドラ / サイトジェネレータのエイリアス）は捨てずに、プロジェクト内のパスと突き合わせます。Vue・Svelte・Astro・Qwik・Marko・Ember・auto-import を使うパッケージはコンポーネントファイルを解析しないため対象外。shadcn/ui がコピーするコンポーネント群は vendored コードとして報告しません。
+- Python: `__main__.py`、`__main__` ガード、`conftest.py`、`test_*.py`、`tests/`、マイグレーション、`setup.py` / `manage.py` / `wsgi.py` / `asgi.py`、`pyproject.toml` / `setup.cfg` の scripts・entry points の対象、Django プロジェクトでは自動検出されるモジュール（`models`・`admin`・`apps`・`urls`・`views`・`wagtail_hooks` など）。`__init__.py` は到達不能として報告しません。`__all__` の名前とデコレータ付き定義（ルート・fixture・タスク）は使用中とみなします。
+- 共通: Dockerfile・Procfile・Makefile・compose・CI ワークフロー・`mise.toml`・シェルスクリプトが実行するファイルやモジュール（`node dist/server.js`・`python -m pkg.tool`・`uvicorn app.main:app`）、文字列中のパスやドット区切りモジュール名（`new URL('./worker.ts', ...)`・`"app.tasks.send"`・`importlib.import_module(f"app.plugins.{name}")`・`` import(`./locales/${l}`) ``）、あらゆる言語の文字列中のソースファイル名（JS をバンドルする Go プログラムの `"render.js"`）。
+- ヘッダで生成コードと宣言しているファイルは報告しません。
+
+depgraph から見えない方法で読み込まれるファイル（名前で読み込むプラグイン、外部ツールが実行するファイル）には `depgraph:entry` コメント（`// depgraph:entry`・`# depgraph:entry`）を書いてください。自リポジトリでは使わないライブラリの公開 API は `.depgraph.yml` の `ignore` で除外でき、エントリポイントは `entries` で追加できます（ファイルと Go パッケージディレクトリに対するパスの glob。3 つのルールで共通。後述）。自ファイル内でだけ使われている export は報告しません（export は不要ですが、同じファイルで登録する Go のハンドラなど、スタイルの範囲のため）。
 
 レイヤー・禁止 import・severity・閾値は `.depgraph.yml` で設定します（次節）。
 
@@ -230,6 +250,9 @@ rules:                      # ルールごと: enabled、severity（error | warn
   duplicate-symbol: {enabled: false}
   duplicate-code: {minTokens: 50, similarity: 0.8}   # 本体の大きさと指紋の類似度
   # duplicate-symbol: {ignore: [main, init, New]}   # 対象外の名前（デフォルトを置き換える）
+  unused-export: {ignore: ["pkg/api/**"]}            # 報告しないパス（ライブラリの公開 API など）
+  unreachable-file: {entries: ["plugins/**"]}       # depgraph から見えないエントリポイント
+  # entries / ignore は unused-export・unreachable-file・unreachable-package で共通
 
 ignore: ["**/testdata/**"]  # すべてのルールから除外するパッケージ
 ```

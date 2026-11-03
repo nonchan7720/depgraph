@@ -146,8 +146,10 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 			return nil, fmt.Errorf("duplicates: %w", err)
 		}
 		for _, row := range rows {
+			// collect() has no order: sort, so the message is the same on every run
 			files := toStrings(row["files"])
 			sort.Strings(files) // collect() has no order: keep the message stable
+			row["files"] = files
 			out = append(out, rules.Finding{
 				Rule: rules.RuleDuplicateSymbol, Severity: sev(rules.RuleDuplicateSymbol),
 				ID:      fmt.Sprintf("%s:%s", row["kind"], row["name"]),
@@ -193,6 +195,13 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 			out = append(out, f)
 		}
 	}
+
+	// 6. Unused code at project level (unused.go).
+	unused, err := r.evaluateUnused(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, unused...)
 
 	sort.Slice(out, func(i, j int) bool { return out[i].Key() < out[j].Key() })
 	return out, nil

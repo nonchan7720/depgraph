@@ -101,6 +101,22 @@ func TestSummarizeCapsLength(t *testing.T) {
 	}
 }
 
+// The unused-code rules come after the architecture rules, with a hint.
+func TestSummarizeUnusedRules(t *testing.T) {
+	out := Summarize(graph.Stats{}, []rules.Finding{
+		rules.UnusedExport("a.ts", 1, "function", "f"),
+		rules.UnreachableFile("old.ts", nil, false),
+		f("duplicate-symbol", "warn", "dup"),
+	}, DefaultLimits())
+	ds, ue, uf := strings.Index(out, "duplicate-symbol"), strings.Index(out, "unused-export"), strings.Index(out, "unreachable-file")
+	if ds < 0 || ds > ue || ue > uf {
+		t.Errorf("order duplicate-symbol < unused-export < unreachable-file expected:\n%s", out)
+	}
+	if !strings.Contains(out, "delete them instead of building on them") {
+		t.Errorf("no hint for unused-export:\n%s", out)
+	}
+}
+
 func TestSummarizeNoFindings(t *testing.T) {
 	out := Summarize(graph.Stats{Packages: 1}, nil, DefaultLimits())
 	if !strings.Contains(out, "No architectural violations") {

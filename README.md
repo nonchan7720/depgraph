@@ -172,7 +172,8 @@ API: `GET /api/graph` (packages, edges, findings, stats), `GET /api/package?key=
 ```
 (Project {key, name, root, origin, base, worktree, lastScanAt})
 (Package {project, key, name, external})
-(File    {project, path, language, lines, updatedAt})
+(File    {project, path, language, lines, updatedAt,
+          scope, entry, generated, uses, exports, keep})   # usage, for the unused-code rules
 (Symbol  {project, name, kind, exported, line, endLine, language, file})
 
 (Package)-[:CONTAINS]->(File)-[:DECLARES]->(Symbol)
@@ -186,6 +187,12 @@ API: `GET /api/graph` (packages, edges, findings, stats), `GET /api/package?key=
 Imports outside the repository become a Package with key `ext:<package>` and `external=true`
 (also per project; `elkjs/lib/elk-api` is the package `ext:elkjs`). An import that resolves to
 nothing gets no Package and no edge (the project's compiler / type checker reports it).
+
+The usage properties of a File are what the file itself says: the names it uses from which file or
+package (`uses`), the names it exports under another name (`exports`), the names it keeps on purpose
+(`keep`: a Python `__all__` entry, a decorated definition), whether it is generated or vendored, and
+why it is an entry point (`entry`). They are replaced with the file, so a `watch` update keeps them
+correct; the unused-code rules join them across the project when they run.
 
 ## Import resolution
 
@@ -209,6 +216,50 @@ external, so it never shows up as a dependency. `watch` rescans when one of thes
 | `duplicate-code` | warn | the same logic in several places, whatever the names: identical, or a copy changed a little (see below) |
 | `god-package` | warn | imported by 10 or more packages |
 | `duplicate-symbol` | warn | an exported function/class with the same name exists in several files |
+| `unused-export` | warn | an exported declaration nothing in the project uses, not even its own file (Go: exported functions and types of non-main packages, not methods; TS/JS: `export`ed declarations, followed through re-exports and barrels; Python: public module-level functions and classes) |
+| `unreachable-file` | warn | a TS/JS/Python file no entry point reaches through imports; one finding per file nothing imports, listing the files only it leads to |
+| `unreachable-package` | warn | a Go package no `main` package, test or public package of a library module imports |
+
+### Unused code
+
+`unused-export` and `unreachable-*` report what only the whole project shows: the compiler,
+`go vet` / staticcheck, `tsc --noUnusedLocals`, eslint and ruff see an unused local or unexported
+name, never an export nothing imports. A finding that is not true is a bug, so a file is an entry
+point (reachable, its exports used from outside, never reported) whenever there is a sign that
+something outside the import graph loads it:
+
+- Go: `main` packages, `_test.go` files; a module without a `main` package is a library, and its
+  packages outside `internal/` are its public API. Exported methods are never reported (an interface
+  may need them), nor is a package that only holds documentation. Files a `//go:embed` embeds are used.
+- TS/JS: `package.json` `main` / `module` / `browser` / `types` / `bin` / `exports` and the files its
+  `scripts` run (`dist/` paths are mapped back to their sources with `tsconfig.json`), `<script src>`
+  of HTML pages and the scripts page templates name, config files (`*.config.*`, `.*rc.*`), tests,
+  stories, type tests, `testdata/`, `.d.ts`, `scripts/` `bin/` `tools/` `docs/` `public/` `static/`,
+  `examples/` and benchmarks, `index` / `main` / `server` / `app` / `cli` at the package root or
+  `src/`, file-system routes (`app/`, `pages/`, `routes/` of Next.js, Remix, Gatsby, Expo Router,
+  ...), Docusaurus theme components, React Email templates, files MDX files import. An import of a
+  package the project does not declare (a bundler or site-generator alias such as `@site/...`) is
+  matched against the project's paths instead of being dropped. A package that uses Vue, Svelte,
+  Astro, Qwik, Marko, Ember or auto-imports is skipped: its component files are not parsed.
+  shadcn/ui's copied component kit is vendored code and not reported.
+- Python: `__main__.py`, a `__main__` guard, `conftest.py`, `test_*.py`, `tests/`, migrations,
+  `setup.py` / `manage.py` / `wsgi.py` / `asgi.py`, the targets of `pyproject.toml` / `setup.cfg`
+  scripts and entry points, and in a Django project its autodiscovered modules (`models`, `admin`,
+  `apps`, `urls`, `views`, `wagtail_hooks`, ...). `__init__.py` is never unreachable. Names in
+  `__all__` and decorated definitions (routes, fixtures, tasks) are kept.
+- Everywhere: files and modules that Dockerfiles, Procfiles, Makefiles, compose files, CI workflows,
+  `mise.toml` and shell scripts run (`node dist/server.js`, `python -m pkg.tool`,
+  `uvicorn app.main:app`), and paths or dotted module names in strings (`new URL('./worker.ts', ...)`,
+  `"app.tasks.send"`, `importlib.import_module(f"app.plugins.{name}")`, `` import(`./locales/${l}`) ``),
+  and source file names in strings of any language (`"render.js"` in a Go program that bundles it).
+- A file whose header says it is generated is not reported.
+
+When a file is loaded in a way depgraph cannot see (a plugin loaded by name, a file run by an
+external tool), put a `depgraph:entry` comment in it (`// depgraph:entry`, `# depgraph:entry`). A
+library's public API that its own repository does not use is left out with `ignore`, and entry points
+are added with `entries`, in `.depgraph.yml` (path globs over files and Go package directories, shared
+by the three rules; see below). An export only its own file uses is not reported (the
+export is unneeded, but that is style: Go handlers registered in the same file, for example).
 
 Layers, forbidden imports, severities and thresholds are set in `.depgraph.yml` (next section).
 
@@ -239,6 +290,9 @@ rules:                      # per rule: enabled, severity (error | warn | info),
   duplicate-symbol: {enabled: false}
   duplicate-code: {minTokens: 50, similarity: 0.8}   # body size and fingerprint similarity
   # duplicate-symbol: {ignore: [main, init, New]}   # names not checked (replaces the defaults)
+  unused-export: {ignore: ["pkg/api/**"]}            # paths not reported (a library's public API)
+  unreachable-file: {entries: ["plugins/**"]}       # entry points depgraph cannot see
+  # entries / ignore are shared by unused-export, unreachable-file and unreachable-package
 
 ignore: ["**/testdata/**"]  # packages left out of every rule
 ```

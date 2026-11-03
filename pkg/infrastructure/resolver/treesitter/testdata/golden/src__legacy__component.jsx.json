@@ -29,5 +29,21 @@
       "target": "src/ui",
       "external": false
     }
-  ]
+  ],
+  "usage": {
+    "scope": ".",
+    "uses": [
+      {
+        "target": "src/legacy/component.jsx",
+        "name": "C"
+      },
+      {
+        "target": "src/ui/Button.tsx"
+      },
+      {
+        "target": "src/ui/Button.tsx",
+        "name": "Button"
+      }
+    ]
+  }
 }

@@ -23,5 +23,14 @@
       "col": 21
     }
   ],
-  "imports": null
+  "imports": null,
+  "usage": {
+    "scope": ".",
+    "exports": [
+      {
+        "name": "default",
+        "local": "Shared"
+      }
+    ]
+  }
 }

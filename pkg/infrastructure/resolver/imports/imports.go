@@ -18,7 +18,6 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"github.com/nonchan7720/depgraph/pkg/domain/graph"
 )
@@ -243,67 +242,6 @@ func IsConfigFile(rel string) bool {
 		return true
 	}
 	return strings.HasPrefix(base, "tsconfig") && strings.HasSuffix(base, ".json")
-}
-
-// rootCache is a per-root cache whose loader runs at most once per root
-// until Invalidate.
-type rootCache[T any] struct {
-	mu sync.Mutex
-	m  map[string]*rootEntry[T]
-}
-
-type rootEntry[T any] struct {
-	once sync.Once
-	v    T
-}
-
-func (c *rootCache[T]) get(root string, load func(string) T) T {
-	c.mu.Lock()
-	if c.m == nil {
-		c.m = map[string]*rootEntry[T]{}
-	}
-	e, ok := c.m[root]
-	if !ok {
-		e = &rootEntry[T]{}
-		c.m[root] = e
-	}
-	c.mu.Unlock()
-	e.once.Do(func() { e.v = load(root) })
-	return e.v
-}
-
-// drop removes root (nil-safe) and returns the values that were cached.
-// The next get loads again.
-func (c *rootCache[T]) drop(root string) []T {
-	c.mu.Lock()
-	var es []*rootEntry[T]
-	if e, ok := c.m[root]; ok {
-		es = append(es, e)
-		delete(c.m, root)
-	}
-	c.mu.Unlock()
-	return values(es)
-}
-
-// dropAll removes every root and returns the values that were cached.
-func (c *rootCache[T]) dropAll() []T {
-	c.mu.Lock()
-	es := make([]*rootEntry[T], 0, len(c.m))
-	for _, e := range c.m {
-		es = append(es, e)
-	}
-	c.m = nil
-	c.mu.Unlock()
-	return values(es)
-}
-
-func values[T any](es []*rootEntry[T]) []T {
-	out := make([]T, 0, len(es))
-	for _, e := range es {
-		e.once.Do(func() {}) // wait for a concurrent load before reading v
-		out = append(out, e.v)
-	}
-	return out
 }
 
 // toRel turns an absolute path into a slash-separated path relative to root,

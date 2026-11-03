@@ -23,5 +23,8 @@
       "col": 6
     }
   ],
-  "imports": null
+  "imports": null,
+  "usage": {
+    "scope": "."
+  }
 }

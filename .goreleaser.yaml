@@ -1,0 +1,62 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+# Release build (release-please tag vX.Y.Z). .goreleaser.prerelease.yaml is
+# the same except release.prerelease: true; keep the two in sync.
+version: 2
+
+project_name: depgraph
+
+before:
+  hooks:
+    # fail instead of rewriting go.mod / go.sum mid-release: the binaries must
+    # be built from exactly what is committed at the tag
+    - go mod tidy -diff
+    # browser UI embedded into the binary (pkg/interfaces/handler/ui/dist is gitignored)
+    - mise run web:build
+
+builds:
+  - id: depgraph
+    main: ./main.go
+    binary: depgraph
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    tags:
+      - gotreesitter_no_copyleft
+    ldflags:
+      - -s -w
+      - -X github.com/nonchan7720/depgraph/pkg/version.Version={{ .Version }}
+      - -X github.com/nonchan7720/depgraph/pkg/version.Commit={{ .ShortCommit }}
+      - -X github.com/nonchan7720/depgraph/pkg/version.Date={{ .CommitDate }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    goos: [linux, windows, darwin]
+    goarch: [amd64, arm64]
+
+archives:
+  - name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    # Apache-2.0 and the licenses of the bundled Go / npm dependencies
+    files:
+      - LICENSE
+      - NOTICE
+      - THIRD_PARTY_NOTICES.md
+      - README.md
+      - README_ja.md
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+# release notes come from release-please (CHANGELOG.md and the GitHub release body)
+changelog:
+  disable: true
+
+release:
+  # release-please already created the tag and the release; goreleaser adds
+  # the assets. Pinning the target keeps it correct on release/v* branches too.
+  target_commitish: "{{ .Commit }}"

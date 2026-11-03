@@ -60,6 +60,16 @@
       ]
     },
     {
+      "description": "goreleaser (mise.toml aqua:goreleaser/goreleaser, read from git tags): stable releases only, never the *-nightly tags",
+      "matchManagers": [
+        "mise"
+      ],
+      "matchPackageNames": [
+        "goreleaser/goreleaser"
+      ],
+      "allowedVersions": "!/nightly/"
+    },
+    {
       "description": "GitHub Actions (SHA pinned with a full semver comment)",
       "matchManagers": [
         "github-actions"

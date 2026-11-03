@@ -4,6 +4,7 @@ package rules
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 
@@ -29,9 +30,7 @@ func New(q Querier, project string) *Repository { return &Repository{q: q, proje
 // query runs cypher with $project and $ignore set.
 func (r *Repository) query(ctx context.Context, cypher string, ignore []string, p map[string]any) ([]map[string]any, error) {
 	params := map[string]any{"project": r.project, "ignore": ignore}
-	for k, v := range p {
-		params[k] = v
-	}
+	maps.Copy(params, p)
 	return r.q.Query(ctx, cypher, params)
 }
 

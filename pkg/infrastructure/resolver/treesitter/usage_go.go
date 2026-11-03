@@ -58,7 +58,7 @@ func (u *usageCollector) goEmbed(comment string) {
 		return
 	}
 	dir := path.Dir(u.rel)
-	for _, f := range strings.Fields(rest) {
+	for f := range strings.FieldsSeq(rest) {
 		f = strings.TrimPrefix(strings.Trim(f, "`\""), "all:")
 		if f == "" || strings.HasPrefix(f, "..") {
 			continue

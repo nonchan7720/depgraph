@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -678,24 +679,14 @@ func (s Selection) container(i Instance) bool {
 	if s.All || (s.Root != "" && i.RootHash == RootHash(s.Root)) {
 		return true
 	}
-	for _, k := range s.Projects {
-		if i.Project == k {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(s.Projects, i.Project)
 }
 
 func (s Selection) volume(v Volume) bool {
 	if s.All {
 		return true
 	}
-	for _, k := range s.Projects {
-		if v.Project == k {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(s.Projects, v.Project)
 }
 
 // Remove deletes the selected containers and data volumes and returns their

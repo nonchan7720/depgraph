@@ -205,8 +205,7 @@ func (s *service) StartRefinement(ctx context.Context, r Refinement) func() {
 	s.ref = ref
 	s.mu.Unlock()
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() { defer wg.Done(); ref.Run(ctx) }()
+	wg.Go(func() { ; ref.Run(ctx) })
 	return wg.Wait
 }
 

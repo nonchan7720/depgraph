@@ -230,7 +230,7 @@ func npmPackageName(spec string) string {
 
 var nodeBuiltins = func() map[string]bool {
 	m := map[string]bool{}
-	for _, n := range strings.Fields(`assert async_hooks buffer child_process cluster console constants
+	for n := range strings.FieldsSeq(`assert async_hooks buffer child_process cluster console constants
 		crypto dgram diagnostics_channel dns domain events fs http http2 https inspector module net os
 		path perf_hooks process punycode querystring readline repl stream string_decoder sys timers tls
 		trace_events tty url util v8 vm wasi worker_threads zlib test sqlite`) {
@@ -287,7 +287,7 @@ func generated(src []byte) bool {
 		head = head[:1024]
 	}
 	// only comment lines count: a string in code is not a marker
-	for _, line := range bytes.Split(head, []byte("\n")) {
+	for line := range bytes.SplitSeq(head, []byte("\n")) {
 		t := bytes.TrimSpace(line)
 		if bytes.HasPrefix(t, []byte("//")) || bytes.HasPrefix(t, []byte("#")) ||
 			bytes.HasPrefix(t, []byte("/*")) || bytes.HasPrefix(t, []byte("*")) {

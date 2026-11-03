@@ -36,7 +36,7 @@ func scanTree(t *testing.T, n int) (string, []string) {
 	t.Helper()
 	root := t.TempDir()
 	var rels []string
-	for i := 0; i < n; i++ {
+	for i := range n {
 		rel := fmt.Sprintf("d%d/s%d/f%03d.go", i%3, i%5, i)
 		rels = append(rels, rel)
 		p := filepath.Join(root, filepath.FromSlash(rel))

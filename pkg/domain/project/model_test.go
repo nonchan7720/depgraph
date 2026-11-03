@@ -3,6 +3,7 @@ package project
 import (
 	"errors"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -89,12 +90,7 @@ func TestReconcile(t *testing.T) {
 	}
 	exists := func(roots ...string) func(string) bool {
 		return func(r string) bool {
-			for _, x := range roots {
-				if x == r {
-					return true
-				}
-			}
-			return false
+			return slices.Contains(roots, r)
 		}
 	}
 	tests := []struct {
@@ -119,8 +115,7 @@ func TestReconcile(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := Reconcile(tt.existing, tt.incoming, tt.exists)
 			if tt.conflict {
-				var ce *ConflictError
-				if !errors.As(err, &ce) {
+				if _, ok := errors.AsType[*ConflictError](err); !ok {
 					t.Fatalf("err = %v, want *ConflictError", err)
 				}
 				msg := err.Error()

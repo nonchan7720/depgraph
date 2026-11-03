@@ -176,8 +176,7 @@ func TestScanTwoProjects(t *testing.T) {
 		t.Fatalf("scan a: %v\n%s", err, out)
 	}
 	out, err := run("scan", "--root", b, "--claude-md", "", "--reset")
-	var ce *project.ConflictError
-	if !errors.As(err, &ce) {
+	if _, ok := errors.AsType[*project.ConflictError](err); !ok {
 		t.Fatalf("scan b with the same key must conflict, got %v\n%s", err, out)
 	}
 	if out, err := run("scan", "--root", b, "--claude-md", "", "--project", key+"-b", "--reset"); err != nil {

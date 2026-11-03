@@ -53,11 +53,9 @@ func TestEnsureSchemaConcurrently(t *testing.T) {
 	errs := make(chan error, n)
 	var wg sync.WaitGroup
 	for range n {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			errs <- st.EnsureSchema(ctx)
-		}()
+		})
 	}
 	wg.Wait()
 	close(errs)

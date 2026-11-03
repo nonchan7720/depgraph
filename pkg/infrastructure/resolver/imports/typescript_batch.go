@@ -3,6 +3,7 @@ package imports
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -70,14 +71,10 @@ func (t *TypeScript) ResolveBatch(ctx context.Context, root string, reqs []Reque
 			break
 		}
 		if len(br.failed) == 0 && len(br.other) == 0 {
-			for rq, res := range br.resolved {
-				results[rq] = res
-			}
+			maps.Copy(results, br.resolved)
 			break
 		}
-		for rq, reason := range br.failed {
-			failed[rq] = reason
-		}
+		maps.Copy(failed, br.failed)
 		if len(br.failed) == 0 { // only errors we cannot attribute to an import
 			fillMissing(reqs, results, failed, unresolvedf("esbuild: "+messagesText(br.other)))
 			break

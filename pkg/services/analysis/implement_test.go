@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -47,12 +48,7 @@ func (f *fakeRepo) count(s string) int {
 func (f *fakeRepo) called(s string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	for _, c := range f.calls {
-		if c == s {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(f.calls, s)
 }
 
 func (f *fakeRepo) Clear(context.Context) error { f.log("Clear"); return nil }

@@ -180,9 +180,9 @@ func TestLoadErrorNamesFile(t *testing.T) {
 // and every rule accepts enabled / severity.
 func TestRuleOptionsAreDecoded(t *testing.T) {
 	tags := map[string]bool{}
-	rt := reflect.TypeOf(ruleYAML{})
-	for i := range rt.NumField() {
-		tags[rt.Field(i).Tag.Get("yaml")] = true
+	rt := reflect.TypeFor[ruleYAML]()
+	for field := range rt.Fields() {
+		tags[field.Tag.Get("yaml")] = true
 	}
 	for _, r := range rules.Builtin() {
 		for _, o := range r.Options {

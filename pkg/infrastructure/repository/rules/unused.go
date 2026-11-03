@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path"
+	"slices"
 	"sort"
 	"strings"
 
@@ -261,12 +262,7 @@ func (ix *unusedIndex) entries(extra []rules.Glob) map[string]string {
 }
 
 func hasSegment(p, seg string) bool {
-	for _, s := range strings.Split(p, "/") {
-		if s == seg {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(strings.Split(p, "/"), seg)
 }
 
 func (ix *unusedIndex) edge(from, to string) {

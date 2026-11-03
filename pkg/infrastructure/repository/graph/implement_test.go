@@ -86,7 +86,7 @@ func TestUpsertRefs(t *testing.T) {
 		ref("CALLS", a.Path, "A", a.Path, "Nope"),
 		ref("BOGUS", a.Path, "A", a.Path, "B"),
 	}
-	for i := 0; i < 2; i++ { // 冪等: 2 回呼んでも重複しない
+	for range 2 { // 冪等: 2 回呼んでも重複しない
 		if err := s.UpsertRefs(ctx, a.Path, refs); err != nil {
 			t.Fatal(err)
 		}

@@ -1,0 +1,7 @@
+version: "2"
+
+linters:
+  # the defaults (errcheck, govet, ineffassign, staticcheck, unused) plus
+  # what gopls shows in the editor, so CI and the editor agree
+  enable:
+    - modernize

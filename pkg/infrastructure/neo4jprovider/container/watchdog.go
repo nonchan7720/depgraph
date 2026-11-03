@@ -149,7 +149,7 @@ func watchContainer(stdin io.Reader, run Runner, cli, id string, mode WatchMode,
 		args = []string{"stop", "-t", "10", id}
 	}
 	var err error
-	for attempt := 0; attempt < watchdogAttempts; attempt++ {
+	for attempt := range watchdogAttempts {
 		if attempt > 0 {
 			time.Sleep(retryDelay)
 		}

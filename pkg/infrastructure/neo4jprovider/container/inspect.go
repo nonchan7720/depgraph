@@ -123,7 +123,7 @@ func firstPort(lists ...[]portBinding) int {
 // parsePortOutput reads `<cli> port <id> 7687/tcp`: one "host:port" per
 // line ("127.0.0.1:32768", "[::1]:32768", "0.0.0.0:32768").
 func parsePortOutput(b []byte) int {
-	for _, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(string(b)), "\n") {
 		line = strings.TrimSpace(line)
 		if i := strings.LastIndex(line, " -> "); i >= 0 { // "7687/tcp -> 127.0.0.1:1" (no port argument)
 			line = line[i+4:]

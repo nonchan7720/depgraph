@@ -1,16 +1,17 @@
 package imports
 
 import (
-	"bufio"
 	"bytes"
 	"context"
-	"github.com/nonchan7720/depgraph/pkg/internal/rootcache"
 	"io/fs"
+	"iter"
 	"os"
 	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/nonchan7720/depgraph/pkg/internal/rootcache"
 )
 
 // Python resolves Python imports the way the import system does, over the
@@ -253,6 +254,19 @@ func pyprojectPackageDirs(b []byte) []string {
 	return out
 }
 
+// configLines yields the lines of b without their line endings. Unlike
+// bufio.Scanner it has no line length limit, so a long line (a description,
+// an inline list) cannot end the file early.
+func configLines(b []byte) iter.Seq[string] {
+	return func(yield func(string) bool) {
+		for l := range bytes.Lines(b) {
+			if !yield(strings.TrimRight(string(l), "\r\n")) {
+				return
+			}
+		}
+	}
+}
+
 type tomlEntry struct{ table, key, value string }
 
 // tomlEntries lists `key = value` pairs with the table they are in; a value
@@ -260,11 +274,10 @@ type tomlEntry struct{ table, key, value string }
 func tomlEntries(b []byte) []tomlEntry {
 	var out []tomlEntry
 	table := ""
-	sc := bufio.NewScanner(bytes.NewReader(b))
 	var cur *tomlEntry
 	depth := 0
-	for sc.Scan() {
-		line := stripTOMLComment(sc.Text())
+	for raw := range configLines(b) {
+		line := stripTOMLComment(raw)
 		if cur != nil {
 			cur.value += " " + line
 			depth += bracketDepth(line)
@@ -351,9 +364,7 @@ func quoted(s string) []string {
 func setupCfgPackageDirs(b []byte) []string {
 	var out []string
 	section, key := "", ""
-	sc := bufio.NewScanner(bytes.NewReader(b))
-	for sc.Scan() {
-		raw := sc.Text()
+	for raw := range configLines(b) {
 		t := strings.TrimSpace(raw)
 		if t == "" || strings.HasPrefix(t, "#") || strings.HasPrefix(t, ";") {
 			continue

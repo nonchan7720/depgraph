@@ -35,6 +35,9 @@ func TestWatchdogIgnoresSignalsAndActsOnEOF(t *testing.T) {
 		for s.Scan() {
 			lines <- s.Text()
 		}
+		if err := s.Err(); err != nil {
+			lines <- "read error: " + err.Error()
+		}
 		close(lines)
 	}()
 	if l := <-lines; l != "ARMED" {

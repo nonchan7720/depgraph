@@ -10,11 +10,12 @@ package treesitter
 import (
 	"bytes"
 	"context"
-	"github.com/nonchan7720/depgraph/pkg/internal/rootcache"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
+
+	"github.com/nonchan7720/depgraph/pkg/internal/rootcache"
 
 	gts "github.com/odvcencio/gotreesitter"
 	golang "github.com/odvcencio/gotreesitter/grammars/go"

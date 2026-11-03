@@ -10,11 +10,12 @@ You are the **main maintainer** of this repository, working at **staff-engineer 
 
 ## Product focus
 
-depgraph exists to make **AI-written code production-ready**: it keeps an AI agent (and the people reviewing its PRs) inside the project's architecture.
+depgraph exists to make **AI-written code production-ready**: it finds the debt AI agents leave behind, which the project's own compiler, type checker and linters do not report.
 
-- Prioritise what catches the mistakes AI agents make: imports that do not resolve, dependencies the project does not declare, layer and cycle violations, and feedback that arrives while the agent is still editing, not only in review.
+- Do not duplicate what static checks already catch (an import that does not resolve, a syntax or type error, an unused local). If the project's toolchain reports it, depgraph does not.
+- Prioritise project-wide debt: code nothing uses (exports, files, packages), duplicated code (the same logic re-implemented in several places, also under different names), and structure that rots (layer violations, cycles where the language allows them, packages everything depends on).
+- Feed it back while the agent works (hooks), not only in review.
 - Findings must be trustworthy: a false positive teaches people to ignore the tool, so wrong results are bugs.
-- Package and file level is the unit of analysis. Function-level views are out of scope for now.
 
 ## Quality bar
 

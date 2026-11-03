@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.2](https://github.com/nonchan7720/depgraph/compare/v0.1.1...v0.1.2) (2026-11-03)
+
+
+### Features
+
+* **config:** JSON Schema of .depgraph.yml ([#30](https://github.com/nonchan7720/depgraph/issues/30)) ([06ebcdc](https://github.com/nonchan7720/depgraph/commit/06ebcdca22c46bd918b28c8665a0fa32ffb9f920))
+* **hook:** plain-text output and env session for claude-hook-gate's session_start ([#28](https://github.com/nonchan7720/depgraph/issues/28)) ([4faeae1](https://github.com/nonchan7720/depgraph/commit/4faeae11b1d7a7401db678bd12b7442f572b01ce))
+
 ## [0.1.1](https://github.com/nonchan7720/depgraph/compare/v0.1.0...v0.1.1) (2026-11-03)
 
 

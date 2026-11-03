@@ -8,6 +8,7 @@ During vibe coding it updates the graph every time a file is rewritten and immed
 Supported languages (tree-sitter): Go / TypeScript / JavaScript / Python
 
 Parsing uses [gotreesitter](https://github.com/odvcencio/gotreesitter), a pure-Go tree-sitter runtime, so depgraph needs no C toolchain: it builds with `CGO_ENABLED=0` and cross-compiles to any `GOOS`/`GOARCH` with plain `go build`.
+Builds use the tags in `GOFLAGS` of `mise.toml` (`gotreesitter_no_copyleft` and `grammar_subset_<language>`), which keep the GPL/MPL grammars that gotreesitter also vendors out of the binary; `mise run check:no-copyleft` verifies it. Release builds should use the same tags.
 
 ## Quick start
 
@@ -16,7 +17,7 @@ Parsing uses [gotreesitter](https://github.com/odvcencio/gotreesitter), a pure-G
 docker compose up -d
 
 # 2. Build
-mise run build   # or: CGO_ENABLED=0 go build -o bin/depgraph .
+mise run build   # or: mise exec -- go build -o bin/depgraph .  (applies the env of mise.toml)
 
 # 3. Watch the target repository
 ./bin/depgraph watch --root /path/to/your/repo

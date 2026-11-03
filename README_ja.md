@@ -180,6 +180,7 @@ depgraph projects prune [--dry-run]  # root が存在しなくなったプロジ
 | `serve --root DIR [--addr 127.0.0.1:7777]` | 投入済みグラフをブラウザ UI で表示（監視なし、CLAUDE.md は更新しない） |
 | `parse --root DIR [files...]` | Neo4j なしで tree-sitter の解析結果を JSON（1 行 1 ファイル）で出力（デバッグ用） |
 | `hook <session-start\|prompt>` | Claude Code の hook。Findings を追加文脈として出力（読むだけ、常に exit 0） |
+| `gate [files...] [--fail-on warn]` | 品質ゲートのチェック（[claude-hook-gate](#品質ゲートclaude-hook-gate)）。変更ファイルを反映し、セッションで増えた Findings があれば exit 1 |
 | `projects list` / `projects rm <key>` / `projects prune [--dry-run]` | DB 内のプロジェクトの一覧・削除 |
 | `store ls` / `store down` / `store rm [<key>...] [--all]` | depgraph が管理する Neo4j コンテナとデータボリュームの一覧・停止・削除（container プロバイダー） |
 | `version` / `--version` | バージョンを表示（`version` はコミット・ビルド日時・Go ツールチェーンも表示） |
@@ -192,9 +193,9 @@ depgraph projects prune [--dry-run]  # root が存在しなくなったプロジ
 | `--project` | 全コマンド | `<root>/.depgraph.yml` の `project`、無ければ `--root` のディレクトリ名（linked worktree では `@<worktree 名>` を付加） |
 | `--exclude` | 全コマンド | なし（カンマ区切りの除外パターン） |
 | `--ignore-file` | 全コマンド | `.depgraphignore`（`--root` 基準、空で無効） |
-| `--neo4j` / `--user` / `--pass` / `--db` | scan / check / watch / serve / hook / projects | 外部 Neo4j: `$NEO4J_URI` / `$NEO4J_USER` / `$NEO4J_PASSWORD` / `$NEO4J_DATABASE`（URI 未設定時は depgraph が Neo4j を用意。ユーザー / パスワード / DB の未設定時 `neo4j` / `depgraph123` / `neo4j`） |
-| `--neo4j-provider` | scan / check / watch / serve / hook / projects | `$DEPGRAPH_NEO4J_PROVIDER`、なければ `store.provider`、なければ URI があれば external、なければ container |
-| `--container-cli` | scan / check / watch / serve / hook / projects / store | `$DEPGRAPH_CONTAINER_CLI`、なければ `store.containerCli`、なければ docker / podman / nerdctl で最初に応答したもの |
+| `--neo4j` / `--user` / `--pass` / `--db` | scan / check / watch / serve / hook / gate / projects | 外部 Neo4j: `$NEO4J_URI` / `$NEO4J_USER` / `$NEO4J_PASSWORD` / `$NEO4J_DATABASE`（URI 未設定時は depgraph が Neo4j を用意。ユーザー / パスワード / DB の未設定時 `neo4j` / `depgraph123` / `neo4j`） |
+| `--neo4j-provider` | scan / check / watch / serve / hook / gate / projects | `$DEPGRAPH_NEO4J_PROVIDER`、なければ `store.provider`、なければ URI があれば external、なければ container |
+| `--container-cli` | scan / check / watch / serve / hook / gate / projects / store | `$DEPGRAPH_CONTAINER_CLI`、なければ `store.containerCli`、なければ docker / podman / nerdctl で最初に応答したもの |
 | `--persist` | scan / check / watch / serve | `store.persist`、なければ false（エフェメラル） |
 | `--claude-md` | scan / check / watch | `$DEPGRAPH_CLAUDE_MD` または `CLAUDE.md`（`--root` 基準、空で無効） |
 | `--reset` | scan / watch | false（スキャン前にこのプロジェクトのデータを消去。他のプロジェクトは残る） |
@@ -203,6 +204,7 @@ depgraph projects prune [--dry-run]  # root が存在しなくなったプロジ
 | `--debounce` | watch | `400ms` |
 | `--no-ui` / `--no-lsp` | watch | false |
 | `--timeout` / `--debug` | hook | `3s` / false |
+| `--fail-on` / `--timeout` | gate | `warn` / `60s` |
 
 ## Claude Code hooks
 
@@ -210,7 +212,9 @@ depgraph projects prune [--dry-run]  # root が存在しなくなったプロジ
 文脈へ戻す（読むだけ。スキャンも CLAUDE.md の更新もしない）。
 
 - `session-start`：統計と Findings の要約（severity 順、error を先に）。件数の多いルールは
-  件数と代表例数件に圧縮し、全体を約 4,000 文字に収める（`duplicate-symbol` が 50 件あっても溢れない）
+  件数と代表例数件に圧縮し、全体を約 4,000 文字に収める（`duplicate-symbol` が 50 件あっても溢れない）。
+  あわせて [`depgraph gate`](#品質ゲートclaude-hook-gate) の基準として、セッション開始時の Findings を記録する
+  （resume・compact では最初の記録を保つ）
 - `prompt`：同じセッションで前回注入してから新規・解消した Findings だけ。変化が無ければ何も出さない。
   前回状態は `session_id` ごとに Neo4j のプロジェクトのグラフと並べて保存する（`HookSession` ノード）。
   1 プロジェクトにつき新しい 20 セッションまで、7 日より古いものは残さず、プロジェクトと一緒に消える（`projects rm`・`--reset`）。
@@ -243,6 +247,36 @@ depgraph projects prune [--dry-run]  # root が存在しなくなったプロジ
 hook は他のコマンドと同じ Neo4j を使います（[Neo4j](#neo4j) 参照）。`--neo4j` / `$NEO4J_URI` があれば外部の Neo4j、
 なければ root の稼働中の depgraph コンテナをラベルで探して使います。コンテナを起動することはなく、
 稼働中のものがなければ何も出力しません。
+
+### 品質ゲート（claude-hook-gate）
+
+`prompt` はユーザーがプロンプトを送ったときにしか動きません。エージェントが 1 ターンで多くのファイルを
+書き換える間は、何も届きません。`depgraph gate` はこの穴を埋めるもので、編集のたびとエージェントの終了前に
+コマンドを実行する [claude-hook-gate](https://github.com/nonchan7720/claude-hook-gate)（`.claude/gate.yaml`）の
+チェックとして使います:
+
+```yaml
+rules:
+  # depgraph: このセッションで増えた負債（depgraph watch が必要。動いていなければ通す）
+  - match: ["**/*.go", "**/*.{ts,tsx,js,jsx,mjs,cjs}", "**/*.py"]
+    timeout: 60
+    run:
+      - { name: depgraph, cmd: "command -v depgraph >/dev/null || exit 0; depgraph gate" }
+```
+
+- 変更ファイル（`$CLAUDE_GATE_FILES`、または引数）を `watch` と同じやり方で自分でグラフに反映してから
+  ルールを評価するので、`watch` のデバウンスを待ちません。セッション（`$CLAUDE_SESSION_ID`）の基準から
+  **増えた** `--fail-on` 以上（既定 `warn`）の Findings を一覧にし、1 件でもあれば exit 1 にします。
+  gate はその一覧をエージェントに渡し、失敗した rule はエージェントの終了時に再実行されるので、
+  **自分が増やした負債が残っている間、エージェントは終われません**（claude-hook-gate は 5 回止めたら諦めます）。
+  セッション開始時からあった負債では失敗しません。
+- 基準は `depgraph hook session-start` が記録します（gate にはセッション開始のタイミングが無いので、この hook は残してください）。
+  無いときは、最初の gate 実行で変更を反映する前の Findings を基準にします。
+- `--fail-on error` にすると、新しい循環 import とレイヤー違反でだけ失敗します。それ以外の Findings は
+  `prompt` の hook でエージェントに届きます。
+- 判断できないときは通します（exit 0、理由は標準エラー）: 稼働中のストアが無い（Neo4j は起動しません）、
+  root のプロジェクトが未スキャン、セッションが無い、`--timeout`（既定 `60s`）切れ。
+  CLAUDE.md は更新しません。root は `--root`、なければ `$CLAUDE_PROJECT_DIR`、なければカレントディレクトリです。
 
 ## Browser UI
 
@@ -420,10 +454,10 @@ pkg/infrastructure/resolver/         リポジトリ走査 + 除外パターン
   lsp/                               言語サーバー（callHierarchy / references）による精密化
 pkg/infrastructure/watch/            fsnotify + デバウンス
 pkg/infrastructure/claudemd/         CLAUDE.md の管理区間更新
-pkg/interfaces/cmd/                  CLI（cobra: parse / scan / check / watch / serve / hook / projects / store）
+pkg/interfaces/cmd/                  CLI（cobra: parse / scan / check / watch / serve / hook / gate / projects / store）
 pkg/interfaces/handler/ui/           HTTP サーバー + SSE + 埋め込み UI（web/ のビルド成果物）
 web/                                 ブラウザ UI のソース（Vite + TypeScript、Cytoscape + elkjs）
-pkg/interfaces/handler/hook/         Claude Code hook（要約・差分・状態ファイル）
+pkg/interfaces/handler/hook/         Claude Code hook・品質ゲート（要約・差分・セッションで増えた Findings）
 ```
 
 解析バックエンドは `graph.Resolver` で差し替え可能。優先順は treesitter → lsp → scip。

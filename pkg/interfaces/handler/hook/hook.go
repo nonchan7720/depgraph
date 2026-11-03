@@ -30,6 +30,7 @@ type ProjectData interface {
 //
 //   - root のデータが無ければ何もしない（別プロジェクトの違反を注入しない）。
 //   - SessionStart: 全体の要約を返し、そのセッションの前回状態を現在の Findings にする。
+//     gate の基準（セッション開始時の Findings）も、まだ無ければ記録する。
 //   - Prompt: 前回状態からの差分だけを返す。前回状態が無ければ要約を返す。
 //     session_id が無いと差分を追えないので何もしない。
 func Run(ctx context.Context, ev Event, in Input, root string, src ProjectData, now time.Time) (string, error) {
@@ -56,6 +57,13 @@ func Run(ctx context.Context, ev Event, in Input, root string, src ProjectData, 
 		out = RenderDiff(added, removed, snap.Findings, lim)
 	} else {
 		out = Summarize(snap.Stats, snap.Findings, lim)
+	}
+	if ev == SessionStart && in.SessionID != "" && snap.Sessions != nil {
+		// the gate's reference: the debt the session started with (kept on
+		// resume / compact)
+		if err := snap.Sessions.PutBaseline(ctx, in.SessionID, snap.Findings, now); err != nil {
+			return out, err
+		}
 	}
 	if in.SessionID != "" && snap.Sessions != nil && (out != "" || !seen) {
 		if err := snap.Sessions.Put(ctx, in.SessionID, snap.Findings, now); err != nil {

@@ -194,6 +194,7 @@ depgraph projects prune [--dry-run]  # delete projects whose root no longer exis
 | `serve --root DIR [--addr 127.0.0.1:7777]` | browser UI over the graph already in Neo4j (no watching, CLAUDE.md untouched) |
 | `parse --root DIR [files...]` | print the tree-sitter result as JSON, one file per line, without Neo4j (debugging) |
 | `hook <session-start\|prompt>` | Claude Code hook: print findings as additional context (read-only, always exits 0) |
+| `gate [files...] [--fail-on warn]` | quality-gate check ([claude-hook-gate](#quality-gate-claude-hook-gate)): apply the changed files, exit 1 on findings the session added |
 | `projects list` / `projects rm <key>` / `projects prune [--dry-run]` | list / delete the projects in the database |
 | `store ls` / `store down` / `store rm [<key>...] [--all]` | list / stop / delete the Neo4j containers and data volumes depgraph manages (container provider) |
 | `version` / `--version` | print the version (`version` adds the commit, build date and Go toolchain) |
@@ -206,9 +207,9 @@ Flags (see `depgraph <command> --help`):
 | `--project` | all | `project` in `<root>/.depgraph.yml`, else the directory name of `--root` (`@<worktree>` added in a linked git worktree) |
 | `--exclude` | all | none (comma-separated exclude patterns) |
 | `--ignore-file` | all | `.depgraphignore` (relative to `--root`, empty to disable) |
-| `--neo4j` / `--user` / `--pass` / `--db` | scan / check / watch / serve / hook / projects | external Neo4j: `$NEO4J_URI` / `$NEO4J_USER` / `$NEO4J_PASSWORD` / `$NEO4J_DATABASE` (no URI: depgraph provides Neo4j; fallback user / password / database `neo4j` / `depgraph123` / `neo4j`) |
-| `--neo4j-provider` | scan / check / watch / serve / hook / projects | `$DEPGRAPH_NEO4J_PROVIDER`, else `store.provider`, else external when a URI is set, else container |
-| `--container-cli` | scan / check / watch / serve / hook / projects / store | `$DEPGRAPH_CONTAINER_CLI`, else `store.containerCli`, else the first of docker / podman / nerdctl that answers |
+| `--neo4j` / `--user` / `--pass` / `--db` | scan / check / watch / serve / hook / gate / projects | external Neo4j: `$NEO4J_URI` / `$NEO4J_USER` / `$NEO4J_PASSWORD` / `$NEO4J_DATABASE` (no URI: depgraph provides Neo4j; fallback user / password / database `neo4j` / `depgraph123` / `neo4j`) |
+| `--neo4j-provider` | scan / check / watch / serve / hook / gate / projects | `$DEPGRAPH_NEO4J_PROVIDER`, else `store.provider`, else external when a URI is set, else container |
+| `--container-cli` | scan / check / watch / serve / hook / gate / projects / store | `$DEPGRAPH_CONTAINER_CLI`, else `store.containerCli`, else the first of docker / podman / nerdctl that answers |
 | `--persist` | scan / check / watch / serve | `store.persist`, else false (ephemeral) |
 | `--claude-md` | scan / check / watch | `$DEPGRAPH_CLAUDE_MD` or `CLAUDE.md` (relative to `--root`, empty to disable) |
 | `--reset` | scan / watch | false (clear this project's data before scanning; other projects are kept) |
@@ -217,6 +218,7 @@ Flags (see `depgraph <command> --help`):
 | `--debounce` | watch | `400ms` |
 | `--no-ui` / `--no-lsp` | watch | false |
 | `--timeout` / `--debug` | hook | `3s` / false |
+| `--fail-on` / `--timeout` | gate | `warn` / `60s` |
 
 ## Claude Code hooks
 
@@ -225,7 +227,9 @@ Claude Code (read-only: it never scans and never writes CLAUDE.md).
 
 - `session-start`: a compact summary — stats, then findings by severity (errors first);
   rules with many findings show the count and a few examples, the whole output is capped
-  (about 4,000 characters) so even 50 `duplicate-symbol` findings do not flood the context
+  (about 4,000 characters) so even 50 `duplicate-symbol` findings do not flood the context.
+  It also records the session's baseline (the findings it started with; kept on resume and compact)
+  for [`depgraph gate`](#quality-gate-claude-hook-gate)
 - `prompt`: only the findings that appeared or were resolved since the last injection in the
   same session; nothing when nothing changed. The state is kept per `session_id` in
   Neo4j next to the project's graph (`HookSession` nodes): the 20 newest sessions of a project, none
@@ -259,6 +263,36 @@ that repository's `.claude/settings.json` (this repository uses `bin/depgraph` t
 The hook uses the same Neo4j as the other commands (see [Neo4j](#neo4j)): an external one
 when `--neo4j` / `$NEO4J_URI` is set, else the running depgraph container of the root, found by
 its labels. It never starts a container; with none running it prints nothing.
+
+### Quality gate (claude-hook-gate)
+
+`prompt` only runs when the user sends a prompt: during one long agent turn that rewrites many
+files, nothing reaches the agent. `depgraph gate` closes that gap as a check of
+[claude-hook-gate](https://github.com/nonchan7720/claude-hook-gate) (`.claude/gate.yaml`),
+which runs commands after each edit and before the agent stops:
+
+```yaml
+rules:
+  # depgraph: debt this session added (needs `depgraph watch`; passes without it)
+  - match: ["**/*.go", "**/*.{ts,tsx,js,jsx,mjs,cjs}", "**/*.py"]
+    timeout: 60
+    run:
+      - { name: depgraph, cmd: "command -v depgraph >/dev/null || exit 0; depgraph gate" }
+```
+
+- It applies the changed files (`$CLAUDE_GATE_FILES`, or the arguments) to the graph itself, as
+  `watch` does, so it does not race `watch`'s debounce, then evaluates the rules and lists the findings
+  of at least `--fail-on` (default `warn`) that the session (`$CLAUDE_SESSION_ID`) **added**
+  since its baseline. With any it exits 1: the gate hands the list to the agent, and because a failing
+  rule is rerun when the agent stops, **the agent cannot finish while the debt it added remains**
+  (claude-hook-gate gives up after 5 blocked stops). Debt that was there when the session started never fails it.
+- The baseline is recorded by `depgraph hook session-start` (keep that hook; the gate has no
+  session-start phase). Without one, the findings before the first gate run's changes are the baseline.
+- `--fail-on error` fails only on new import cycles and layer violations; the other findings then
+  still reach the agent through the `prompt` hook.
+- It passes (exit 0, the reason on stderr) whenever it cannot tell: no running store (it never starts
+  Neo4j), the root's project not scanned, no session, or `--timeout` (default `60s`) expired.
+  It never writes CLAUDE.md. The root is `--root`, else `$CLAUDE_PROJECT_DIR`, else the current directory.
 
 ## Browser UI
 
@@ -472,10 +506,10 @@ pkg/infrastructure/resolver/         repository walk + exclude patterns
   lsp/                               refinement with language servers (callHierarchy / references)
 pkg/infrastructure/watch/            fsnotify + debounce
 pkg/infrastructure/claudemd/         CLAUDE.md managed section
-pkg/interfaces/cmd/                  CLI (cobra: parse / scan / check / watch / serve / hook / projects / store)
+pkg/interfaces/cmd/                  CLI (cobra: parse / scan / check / watch / serve / hook / gate / projects / store)
 pkg/interfaces/handler/ui/           HTTP server + SSE + embedded UI (web/ build output)
 web/                                 browser UI source (Vite + TypeScript, Cytoscape + elkjs)
-pkg/interfaces/handler/hook/         Claude Code hook (summary / diff / state file)
+pkg/interfaces/handler/hook/         Claude Code hook and quality gate (summary / diff / findings added in a session)
 ```
 
 The analysis backend is pluggable through `graph.Resolver`. Priority: treesitter → lsp → scip.

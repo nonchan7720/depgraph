@@ -134,3 +134,48 @@ func TestRemovedWithTheProject(t *testing.T) {
 		t.Errorf("projects rm kept %d sessions", n)
 	}
 }
+
+// The baseline is recorded once per session, independently of the injected
+// findings, and pruned with the session.
+func TestBaseline(t *testing.T) {
+	st, ctx := store(t)
+	k := key(t, "base")
+	t.Cleanup(func() { _ = projectrepo.New(st).Delete(context.Background(), k) })
+	s := New(st, k)
+	if _, ok, err := s.Baseline(ctx, "s1"); err != nil || ok {
+		t.Fatalf("no baseline yet: ok=%v err=%v", ok, err)
+	}
+	now := time.Now()
+	first := []rules.Finding{{Rule: "god-package", Severity: "warn", Message: "x", Data: map[string]any{"big": 1}}}
+	if err := s.PutBaseline(ctx, "s1", first, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutBaseline(ctx, "s1", nil, now); err != nil { // kept: not replaced
+		t.Fatal(err)
+	}
+	if err := s.Put(ctx, "s1", nil, now); err != nil { // the injected state is separate
+		t.Fatal(err)
+	}
+	got, ok, err := s.Baseline(ctx, "s1")
+	if err != nil || !ok || len(got) != 1 || got[0].Key() != first[0].Key() || got[0].Data != nil {
+		t.Fatalf("Baseline = %+v ok=%v err=%v", got, ok, err)
+	}
+	// an empty baseline is a baseline
+	if err := s.PutBaseline(ctx, "s2", nil, now); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok, _ := s.Baseline(ctx, "s2"); !ok || len(got) != 0 {
+		t.Fatalf("empty baseline: %+v ok=%v", got, ok)
+	}
+	// ... but not injected state: the prompt hook still summarises
+	if _, ok, _ := s.Get(ctx, "s2"); ok {
+		t.Error("PutBaseline must not create injected state")
+	}
+	// a session that only has injected state has no baseline
+	if err := s.Put(ctx, "s3", first, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := s.Baseline(ctx, "s3"); ok {
+		t.Error("Put must not create a baseline")
+	}
+}

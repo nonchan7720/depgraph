@@ -17,6 +17,11 @@ type SessionStore interface {
 	Get(ctx context.Context, session string) (findings []rules.Finding, ok bool, err error)
 	// Put replaces the session's findings.
 	Put(ctx context.Context, session string, findings []rules.Finding, now time.Time) error
+	// Baseline returns the findings the session started with (the gate's
+	// reference); ok is false when none was recorded.
+	Baseline(ctx context.Context, session string) (findings []rules.Finding, ok bool, err error)
+	// PutBaseline records the session's baseline unless it has one already.
+	PutBaseline(ctx context.Context, session string, findings []rules.Finding, now time.Time) error
 }
 
 // legacyStateFile is where versions up to 0.1 kept the session state, inside

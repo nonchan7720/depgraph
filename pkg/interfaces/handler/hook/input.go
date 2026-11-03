@@ -71,3 +71,12 @@ func ResolveRoot(flagRoot, projectDir, cwd string) string {
 	}
 	return ""
 }
+
+// WithSession fills the session from session (a runner's
+// $CLAUDE_SESSION_ID) when the hook input has none.
+func (in Input) WithSession(session string) Input {
+	if in.SessionID == "" {
+		in.SessionID = session
+	}
+	return in
+}

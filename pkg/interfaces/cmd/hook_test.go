@@ -49,3 +49,14 @@ func TestHookIgnoresBrokenInput(t *testing.T) {
 		t.Errorf("err=%v out=%q", err, out.String())
 	}
 }
+
+func TestHookRejectsUnknownFormat(t *testing.T) {
+	root := newRootCommand(&options{})
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&bytes.Buffer{})
+	root.SetIn(strings.NewReader(""))
+	root.SetArgs([]string{"hook", "session-start", "--format", "yaml", "--neo4j", "bolt://127.0.0.1:1", "--timeout", "1s"})
+	if err := root.Execute(); err == nil || !strings.Contains(err.Error(), `"yaml"`) {
+		t.Fatalf("err = %v", err)
+	}
+}

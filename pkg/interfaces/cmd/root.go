@@ -39,6 +39,7 @@ type options struct {
 
 	hookTimeout time.Duration
 	hookDebug   bool
+	hookFormat  string
 	gateTimeout time.Duration
 
 	// how Neo4j is provided (see neo4j.go)

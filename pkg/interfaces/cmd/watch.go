@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -84,9 +85,19 @@ func runWatch(cmd *cobra.Command, o *options) error {
 		}()
 	}
 
-	b := watchBatch{root: o.root, svc: a.svc, out: out}
-	supports := func(rel string) bool { return rel == config.FileName || a.resolver.Supports(rel) }
-	return watch.Run(ctx, o.root, supports, o.debounce, func(changed []string) {
+	b := watchBatch{
+		root: o.root, svc: a.svc, out: out,
+		isImportConfig: a.resolver.IsConfigFile,
+		supports:       a.resolver.Supports,
+		importConfigChanged: func(rel string) {
+			a.resolver.ConfigChanged(o.root, rel)
+		},
+		rescan: a.fullScan,
+	}
+	watched := func(rel string) bool {
+		return rel == config.FileName || a.resolver.Supports(rel) || a.resolver.IsConfigFile(rel)
+	}
+	return watch.Run(ctx, o.root, watched, o.debounce, func(changed []string) {
 		sort.Strings(changed)
 		_, _ = fmt.Fprintf(out, "\n%s changed %d file(s)\n", time.Now().Format("15:04:05"), len(changed))
 		b.handle(ctx, changed)
@@ -98,11 +109,20 @@ type watchBatch struct {
 	root string
 	svc  analysis.Service
 	out  io.Writer
+	// Import resolution: files it depends on (go.mod, tsconfig.json, ...),
+	// the source files to re-analyse, dropping the cached configuration and
+	// a full rescan. nil: no file is an import config, every file is a source.
+	isImportConfig      func(rel string) bool
+	supports            func(rel string) bool
+	importConfigChanged func(rel string)
+	rescan              func(ctx context.Context) error
 }
 
 // handle reloads the rules when .depgraph.yml changed (an invalid file keeps
-// the previous rules) and hands source files to the service, which evaluates.
-// A batch with only the settings file is evaluated here.
+// the previous rules). When a file import resolution depends on changed, the
+// cached configuration is dropped and the repository rescanned (every import
+// may resolve differently); otherwise source files go to the service, which
+// evaluates. A batch with only the settings file is evaluated here.
 func (b watchBatch) handle(ctx context.Context, changed []string) {
 	files := make([]string, 0, len(changed))
 	reloaded := false
@@ -120,14 +140,48 @@ func (b watchBatch) handle(ctx context.Context, changed []string) {
 		reloaded = true
 		_, _ = fmt.Fprintf(b.out, "  %s: rules reloaded\n", config.FileName)
 	}
+	isConfig, supports := b.isImportConfig, b.supports
+	if isConfig == nil {
+		isConfig = func(string) bool { return false }
+	}
+	if supports == nil {
+		supports = func(string) bool { return true }
+	}
+	importConfig, sources := splitChanges(files, isConfig, supports)
 	var err error
 	switch {
-	case len(files) > 0:
-		err = b.svc.HandleChanges(ctx, files)
+	case len(importConfig) > 0 && b.rescan != nil:
+		for _, rel := range importConfig {
+			if b.importConfigChanged != nil {
+				b.importConfigChanged(rel)
+			}
+		}
+		_, _ = fmt.Fprintf(b.out, "  %s changed: rescanning\n", strings.Join(importConfig, ", "))
+		if err = b.rescan(ctx); err == nil {
+			err = b.svc.Evaluate(ctx)
+		}
+	case len(sources) > 0:
+		err = b.svc.HandleChanges(ctx, sources)
 	case reloaded:
 		err = b.svc.Evaluate(ctx)
 	}
 	if err != nil {
 		_, _ = fmt.Fprintf(b.out, "  error: %v\n", err)
 	}
+}
+
+// splitChanges sorts a batch of changed paths into the files import
+// resolution depends on and the source files to re-analyse (a file can be
+// both, e.g. __init__.py).
+func splitChanges(changed []string, isConfig, supports func(rel string) bool) (config, sources []string) {
+	sort.Strings(changed)
+	for _, rel := range changed {
+		if isConfig(rel) {
+			config = append(config, rel)
+		}
+		if supports(rel) {
+			sources = append(sources, rel)
+		}
+	}
+	return config, sources
 }

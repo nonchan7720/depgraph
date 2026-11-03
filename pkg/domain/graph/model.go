@@ -43,8 +43,14 @@ type Symbol struct {
 // the import points outside the repository.
 type Import struct {
 	Spec     string `json:"spec"`
-	Target   string `json:"target"`
+	Target   string `json:"target"` // package key, "ext:<name>", or "" when Unresolved
 	External bool   `json:"external"`
+	// Unresolved: the import should point into the repository (a relative
+	// path, an alias, a module of the project) but nothing is there. It has
+	// no Target and adds no dependency edge (the project's own compiler /
+	// type checker reports it; depgraph does not).
+	Unresolved bool   `json:"unresolved,omitempty"`
+	Reason     string `json:"reason,omitempty"` // why it is Unresolved
 }
 
 // Reference is a resolved edge between two symbols (filled by LSP/SCIP).

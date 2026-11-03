@@ -17,8 +17,8 @@
   "imports": [
     {
       "spec": "./app.js",
-      "target": "ext:src/legacy/app.js",
-      "external": true
+      "target": "src/legacy",
+      "external": false
     },
     {
       "spec": "./component",
@@ -27,8 +27,10 @@
     },
     {
       "spec": "./missing",
-      "target": "ext:src/legacy/missing",
-      "external": true
+      "target": "",
+      "external": false,
+      "unresolved": true,
+      "reason": "Could not resolve \"./missing\""
     },
     {
       "spec": "lodash",

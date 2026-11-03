@@ -181,8 +181,22 @@ API: `GET /api/graph` (packages, edges, findings, stats), `GET /api/package?key=
 
 `project` is the project key; Package is unique by `(project, key)` and File by
 `(project, path)`. `Package.key` is the directory path from the repository root (the root is `.`).
-Imports outside the repository become a Package with key `ext:<spec>` and `external=true`
-(also per project).
+Imports outside the repository become a Package with key `ext:<package>` and `external=true`
+(also per project; `elkjs/lib/elk-api` is the package `ext:elkjs`). An import that resolves to
+nothing gets no Package and no edge (the project's compiler / type checker reports it).
+
+## Import resolution
+
+Imports are resolved the way each ecosystem resolves them, from the project's own configuration:
+
+| language | how |
+|---|---|
+| TypeScript / JavaScript | esbuild's resolver: `tsconfig.json` / `jsconfig.json` (`paths`, `baseUrl`, `extends`), `package.json` (`exports`, `imports`, workspaces), `node_modules`, ESM `./x.js` written for `x.ts` |
+| Go | `go.mod` / `go.work` (nested modules, `use`, `replace`) |
+| Python | the import system over the repository's package roots (the repo root, `src/`, `pyproject.toml` / `setup.cfg` package dirs); a directory without `__init__.py` is a namespace package and does not shadow the standard library |
+
+A relative path, an alias or a module of the project that points at nothing is unresolved, not
+external, so it never shows up as a dependency. `watch` rescans when one of these configuration files changes.
 
 ## Rules
 
@@ -272,6 +286,7 @@ pkg/infrastructure/config/           .depgraph.yml (project key, rule configurat
 pkg/infrastructure/workspace/        project identity of a root (.depgraph.yml, git origin / worktree)
 pkg/infrastructure/resolver/         repository walk + exclude patterns
   treesitter/                        default: structural analysis (imports / declarations, gotreesitter)
+  imports/                           import resolution per ecosystem (esbuild, go.mod / go.work, Python import system)
   lsp/                               refinement with language servers (callHierarchy / references)
 pkg/infrastructure/watch/            fsnotify + debounce
 pkg/infrastructure/claudemd/         CLAUDE.md managed section

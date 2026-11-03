@@ -34,6 +34,7 @@ const (
 func TestGolden(t *testing.T) {
 	root := copyCorpus(t)
 	r := New()
+	t.Cleanup(r.Close)
 	var rels []string
 	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -120,6 +121,7 @@ func TestGoldenConcurrent(t *testing.T) {
 	}
 	root := copyCorpus(t)
 	r := New()
+	t.Cleanup(r.Close)
 	var rels []string
 	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {

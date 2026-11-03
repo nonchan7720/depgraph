@@ -94,8 +94,8 @@
     },
     {
       "spec": "../db/index.js",
-      "target": "ext:src/db/index.js",
-      "external": true
+      "target": "src/db",
+      "external": false
     },
     {
       "spec": "../api/users",

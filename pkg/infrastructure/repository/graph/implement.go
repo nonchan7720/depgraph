@@ -149,6 +149,9 @@ func (r *Graph) UpsertFile(ctx context.Context, fg *graph.FileGraph) error {
 	}
 	imports := make([]map[string]any, 0, len(fg.Imports))
 	for _, im := range fg.Imports {
+		if im.Unresolved || im.Target == "" {
+			continue // points at nothing: no package, no edge
+		}
 		imports = append(imports, map[string]any{
 			"spec": im.Spec, "target": im.Target, "external": im.External,
 		})

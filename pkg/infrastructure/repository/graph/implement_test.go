@@ -217,3 +217,28 @@ func TestSchema(t *testing.T) {
 		}
 	}
 }
+
+// An unresolved import has no target: it never becomes a package or an
+// IMPORTS edge.
+func TestUpsertFileUnresolvedImports(t *testing.T) {
+	st, ctx := testStore(t)
+	g, key := testRepo(t, st)
+	fg := testFile("a", "a.ts")
+	fg.Imports = []graph.Import{
+		{Spec: "../b", Target: "b"},
+		{Spec: "./missing", Unresolved: true, Reason: `Could not resolve "./missing"`},
+	}
+	if err := g.UpsertFile(ctx, fg); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.RebuildAllPackageImports(ctx); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := st.Query(ctx, `MATCH (p:Package {project: $p}) RETURN collect(p.key) AS keys`, map[string]any{"p": key})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if keys := fmt.Sprint(rows[0]["keys"]); keys != "[a b]" && keys != "[b a]" {
+		t.Errorf("packages = %s, want a and b only", keys)
+	}
+}

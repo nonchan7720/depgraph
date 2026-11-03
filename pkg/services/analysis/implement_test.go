@@ -32,6 +32,17 @@ func newFakeRepo(existing ...string) *fakeRepo {
 }
 
 func (f *fakeRepo) log(s string) { f.mu.Lock(); f.calls = append(f.calls, s); f.mu.Unlock() }
+func (f *fakeRepo) count(s string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for _, c := range f.calls {
+		if c == s {
+			n++
+		}
+	}
+	return n
+}
 func (f *fakeRepo) called(s string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -223,6 +234,20 @@ func TestFullScanReset(t *testing.T) {
 	}
 	if !f.repo.called("Clear") {
 		t.Error("Reset should clear the store first")
+	}
+}
+
+// Reset clears the store once: a later full scan (watch rescans when a
+// go.mod / tsconfig.json changes) must not wipe the project again.
+func TestFullScanResetOnlyOnce(t *testing.T) {
+	f := newFixture(t, Options{Reset: true})
+	for range 2 {
+		if err := f.svc.FullScan(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := f.repo.count("Clear"); n != 1 {
+		t.Errorf("Clear ran %d times, want 1", n)
 	}
 }
 

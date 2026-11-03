@@ -67,5 +67,5 @@ type Deps struct {
 // Options are per-run settings.
 type Options struct {
 	Root  string // absolute repository root
-	Reset bool   // clear the store before FullScan
+	Reset bool   // clear the store before the first FullScan
 }

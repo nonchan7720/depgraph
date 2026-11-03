@@ -62,6 +62,7 @@ func (s *service) FullScan(ctx context.Context) error {
 		if err := repo.Clear(ctx); err != nil {
 			return err
 		}
+		s.opt.Reset = false // once: later rescans (watch) keep the data
 	}
 	start := time.Now()
 	seen := map[string]struct{}{}

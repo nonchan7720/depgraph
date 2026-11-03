@@ -7,6 +7,7 @@ package claudemd
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -38,9 +39,20 @@ func Render(stats graph.Stats, findings []rules.Finding) string {
 
 	byRule := map[string][]rules.Finding{}
 	order := []string{"import-cycle", "layer-violation", "god-package", "duplicate-symbol"}
+	known := map[string]bool{}
+	for _, r := range order {
+		known[r] = true
+	}
+	var extra []string
 	for _, f := range findings {
+		if !known[f.Rule] && byRule[f.Rule] == nil {
+			extra = append(extra, f.Rule)
+		}
 		byRule[f.Rule] = append(byRule[f.Rule], f)
 	}
+	// rules without a fixed title (configured or new ones) follow, by name
+	sort.Strings(extra)
+	order = append(order, extra...)
 	titles := map[string]string{
 		"import-cycle":     "Import cycles (must fix)",
 		"layer-violation":  "Layer violations (must fix)",
@@ -52,7 +64,11 @@ func Render(stats graph.Stats, findings []rules.Finding) string {
 		if len(fs) == 0 {
 			continue
 		}
-		fmt.Fprintf(&b, "### %s\n\n", titles[rule])
+		title := titles[rule]
+		if title == "" {
+			title = rule
+		}
+		fmt.Fprintf(&b, "### %s\n\n", title)
 		for _, f := range fs {
 			fmt.Fprintf(&b, "- %s\n", f.Message)
 		}

@@ -217,17 +217,21 @@
     },
     {
       "spec": "./side-effect",
-      "target": "ext:src/api/side-effect",
-      "external": true
+      "target": "",
+      "external": false,
+      "unresolved": true,
+      "reason": "Could not resolve \"./side-effect\""
     },
     {
       "spec": "../../config.json",
-      "target": "ext:config.json",
-      "external": true
+      "target": "",
+      "external": false,
+      "unresolved": true,
+      "reason": "Could not resolve \"../../config.json\""
     },
     {
       "spec": "@scope/pkg/sub",
-      "target": "ext:@scope/pkg/sub",
+      "target": "ext:@scope/pkg",
       "external": true
     },
     {

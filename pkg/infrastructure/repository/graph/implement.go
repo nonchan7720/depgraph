@@ -7,20 +7,20 @@ import (
 	"fmt"
 	"path"
 
-	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
+	"github.com/neo4j/neo4j-go-driver/v6/neo4j"
 
 	"github.com/nonchan7720/depgraph/pkg/domain/graph"
 )
 
 // Store wraps a Neo4j driver.
 type Store struct {
-	driver neo4j.DriverWithContext
+	driver neo4j.Driver
 	db     string
 }
 
 // New connects and verifies connectivity.
 func New(ctx context.Context, uri, user, pass, database string) (*Store, error) {
-	d, err := neo4j.NewDriverWithContext(uri, neo4j.BasicAuth(user, pass, ""))
+	d, err := neo4j.NewDriver(uri, neo4j.BasicAuth(user, pass, ""))
 	if err != nil {
 		return nil, err
 	}

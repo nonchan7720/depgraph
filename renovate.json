@@ -75,6 +75,22 @@
         "neo4j"
       ],
       "allowedVersions": "<6"
+    },
+    {
+      "description": "Patch updates of every manager go into their own PR (later rules win, so this overrides the groups above), labelled automerge-patch for the auto-approve workflow and merged automatically once ci passes. Minor/major updates never carry the label.",
+      "matchUpdateTypes": [
+        "patch"
+      ],
+      "labels": [
+        "automerge-patch"
+      ],
+      "automerge": true,
+      "platformAutomerge": true,
+      "groupName": "patch updates",
+      "groupSlug": "patch",
+      "schedule": [
+        "before 9am on monday"
+      ]
     }
   ],
   "gitIgnoredAuthors": [

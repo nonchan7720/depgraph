@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.1](https://github.com/nonchan7720/depgraph/compare/v0.1.0...v0.1.1) (2026-11-03)
+
+
+### Features
+
+* **gate:** fail a claude-hook-gate check on debt the session added ([#27](https://github.com/nonchan7720/depgraph/issues/27)) ([ac90bca](https://github.com/nonchan7720/depgraph/commit/ac90bca3ff3382b2e7d45c23b4a2b292a31b6476))
+
+
+### Documentation
+
+* state the Apache-2.0 license as final in the READMEs ([#25](https://github.com/nonchan7720/depgraph/issues/25)) ([f0ddc92](https://github.com/nonchan7720/depgraph/commit/f0ddc92060a56e4c9cc27daf8492a75b4a7bb221))
+
 ## 0.1.0 (2026-11-03)
 
 

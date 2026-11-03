@@ -1,0 +1,18 @@
+{
+  "path": "app/services/helper.py",
+  "package": "app/services",
+  "language": "python",
+  "lines": 6,
+  "symbols": [
+    {
+      "name": "h",
+      "kind": "function",
+      "exported": true,
+      "line": 4,
+      "endLine": 5,
+      "nameLine": 4,
+      "col": 4
+    }
+  ],
+  "imports": null
+}

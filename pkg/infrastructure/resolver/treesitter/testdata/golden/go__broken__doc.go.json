@@ -1,0 +1,8 @@
+{
+  "path": "go/broken/doc.go",
+  "package": "go/broken",
+  "language": "go",
+  "lines": 4,
+  "symbols": null,
+  "imports": null
+}

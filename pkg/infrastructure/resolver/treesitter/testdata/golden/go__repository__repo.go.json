@@ -1,0 +1,27 @@
+{
+  "path": "go/repository/repo.go",
+  "package": "go/repository",
+  "language": "go",
+  "lines": 6,
+  "symbols": [
+    {
+      "name": "Repo",
+      "kind": "struct",
+      "exported": true,
+      "line": 3,
+      "endLine": 3,
+      "nameLine": 3,
+      "col": 5
+    },
+    {
+      "name": "Find",
+      "kind": "function",
+      "exported": true,
+      "line": 5,
+      "endLine": 5,
+      "nameLine": 5,
+      "col": 5
+    }
+  ],
+  "imports": null
+}

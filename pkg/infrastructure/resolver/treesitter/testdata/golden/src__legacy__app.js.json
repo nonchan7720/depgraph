@@ -1,0 +1,106 @@
+{
+  "path": "src/legacy/app.js",
+  "package": "src/legacy",
+  "language": "javascript",
+  "lines": 18,
+  "symbols": [
+    {
+      "name": "fs",
+      "kind": "variable",
+      "exported": false,
+      "line": 4,
+      "endLine": 4,
+      "nameLine": 4,
+      "col": 6
+    },
+    {
+      "name": "run",
+      "kind": "function",
+      "exported": true,
+      "line": 6,
+      "endLine": 6,
+      "nameLine": 6,
+      "col": 16
+    },
+    {
+      "name": "Server",
+      "kind": "class",
+      "exported": true,
+      "line": 7,
+      "endLine": 7,
+      "nameLine": 7,
+      "col": 13
+    },
+    {
+      "name": "handler",
+      "kind": "function",
+      "exported": true,
+      "line": 8,
+      "endLine": 8,
+      "nameLine": 8,
+      "col": 13
+    },
+    {
+      "name": "ids",
+      "kind": "function",
+      "exported": false,
+      "line": 10,
+      "endLine": 10,
+      "nameLine": 10,
+      "col": 10
+    },
+    {
+      "name": "Hidden",
+      "kind": "class",
+      "exported": false,
+      "line": 11,
+      "endLine": 11,
+      "nameLine": 11,
+      "col": 6
+    },
+    {
+      "name": "counter",
+      "kind": "variable",
+      "exported": false,
+      "line": 12,
+      "endLine": 12,
+      "nameLine": 12,
+      "col": 4
+    },
+    {
+      "name": "inc",
+      "kind": "function",
+      "exported": false,
+      "line": 13,
+      "endLine": 15,
+      "nameLine": 13,
+      "col": 2
+    },
+    {
+      "name": "gen",
+      "kind": "function",
+      "exported": false,
+      "line": 16,
+      "endLine": 16,
+      "nameLine": 16,
+      "col": 4
+    }
+  ],
+  "imports": [
+    {
+      "spec": "path",
+      "target": "ext:path",
+      "external": true
+    },
+    {
+      "spec": "../db/index.js",
+      "target": "ext:src/db/index.js",
+      "external": true
+    },
+    {
+      "spec": "../api/users",
+      "target": "src/api",
+      "external": false
+    }
+  ]
+}

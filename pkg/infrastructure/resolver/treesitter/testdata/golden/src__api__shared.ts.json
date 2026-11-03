@@ -1,0 +1,27 @@
+{
+  "path": "src/api/shared.ts",
+  "package": "src/api",
+  "language": "typescript",
+  "lines": 3,
+  "symbols": [
+    {
+      "name": "named",
+      "kind": "variable",
+      "exported": true,
+      "line": 1,
+      "endLine": 1,
+      "nameLine": 1,
+      "col": 13
+    },
+    {
+      "name": "Shared",
+      "kind": "class",
+      "exported": true,
+      "line": 2,
+      "endLine": 2,
+      "nameLine": 2,
+      "col": 21
+    }
+  ],
+  "imports": null
+}

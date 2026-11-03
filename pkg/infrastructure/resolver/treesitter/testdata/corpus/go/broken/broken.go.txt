@@ -1,0 +1,14 @@
+// Package broken has a syntax error between valid declarations.
+package broken
+
+import "fmt"
+
+func Good() {}
+
+func Bad( {
+	fmt.Println("x"
+}
+
+type After struct{}
+
+func AlsoGood() {}

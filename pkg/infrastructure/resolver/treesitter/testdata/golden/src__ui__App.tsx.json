@@ -1,0 +1,70 @@
+{
+  "path": "src/ui/App.tsx",
+  "package": "src/ui",
+  "language": "typescript",
+  "lines": 35,
+  "symbols": [
+    {
+      "name": "Props",
+      "kind": "interface",
+      "exported": true,
+      "line": 5,
+      "endLine": 7,
+      "nameLine": 5,
+      "col": 17
+    },
+    {
+      "name": "App",
+      "kind": "function",
+      "exported": true,
+      "line": 9,
+      "endLine": 18,
+      "nameLine": 9,
+      "col": 13
+    },
+    {
+      "name": "Page",
+      "kind": "class",
+      "exported": true,
+      "line": 20,
+      "endLine": 24,
+      "nameLine": 20,
+      "col": 21
+    },
+    {
+      "name": "Inner",
+      "kind": "function",
+      "exported": false,
+      "line": 26,
+      "endLine": 32,
+      "nameLine": 26,
+      "col": 9
+    },
+    {
+      "name": "generic",
+      "kind": "function",
+      "exported": false,
+      "line": 34,
+      "endLine": 34,
+      "nameLine": 34,
+      "col": 6
+    }
+  ],
+  "imports": [
+    {
+      "spec": "react",
+      "target": "ext:react",
+      "external": true
+    },
+    {
+      "spec": "./Button",
+      "target": "src/ui",
+      "external": false
+    },
+    {
+      "spec": "./App.module.css",
+      "target": "ext:src/ui/App.module.css",
+      "external": true
+    }
+  ]
+}

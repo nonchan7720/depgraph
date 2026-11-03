@@ -1,0 +1,51 @@
+{
+  "path": "go/broken/broken.go",
+  "package": "go/broken",
+  "language": "go",
+  "lines": 15,
+  "symbols": [
+    {
+      "name": "Good",
+      "kind": "function",
+      "exported": true,
+      "line": 6,
+      "endLine": 6,
+      "nameLine": 6,
+      "col": 5
+    },
+    {
+      "name": "Bad",
+      "kind": "function",
+      "exported": true,
+      "line": 8,
+      "endLine": 10,
+      "nameLine": 8,
+      "col": 5
+    },
+    {
+      "name": "After",
+      "kind": "struct",
+      "exported": true,
+      "line": 12,
+      "endLine": 12,
+      "nameLine": 12,
+      "col": 5
+    },
+    {
+      "name": "AlsoGood",
+      "kind": "function",
+      "exported": true,
+      "line": 14,
+      "endLine": 14,
+      "nameLine": 14,
+      "col": 5
+    }
+  ],
+  "imports": [
+    {
+      "spec": "fmt",
+      "target": "ext:fmt",
+      "external": true
+    }
+  ]
+}

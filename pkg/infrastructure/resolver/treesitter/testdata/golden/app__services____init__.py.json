@@ -4,5 +4,8 @@
   "language": "python",
   "lines": 1,
   "symbols": null,
-  "imports": null
+  "imports": null,
+  "usage": {
+    "scope": "."
+  }
 }

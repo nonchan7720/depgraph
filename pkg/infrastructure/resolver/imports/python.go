@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"github.com/nonchan7720/depgraph/pkg/internal/rootcache"
 	"io/fs"
 	"os"
 	"path"
@@ -30,7 +31,7 @@ import (
 // imports found under no root are External; relative imports that point at
 // nothing are Unresolved.
 type Python struct {
-	cache rootCache[*pyRoot]
+	cache rootcache.Cache[*pyRoot]
 }
 
 var _ Resolver = (*Python)(nil)
@@ -51,7 +52,7 @@ func (p *Python) Resolve(ctx context.Context, root, fromFile, spec string) Resul
 	if strings.HasPrefix(spec, ".") {
 		return resolvePyRelative(root, fromDir, spec)
 	}
-	r := p.cache.get(root, loadPy)
+	r := p.cache.Get(root, loadPy)
 	parts := strings.Split(spec, ".")
 	tried := map[string]bool{}
 	// A top-level directory without __init__.py is only a namespace package:
@@ -144,7 +145,7 @@ func importerRoots(root, dir string) []string {
 }
 
 // Invalidate implements Resolver.
-func (p *Python) Invalidate(root string) { p.cache.drop(root) }
+func (p *Python) Invalidate(root string) { p.cache.Drop(root) }
 
 func loadPy(root string) *pyRoot {
 	var configured, projects, packageParents []string

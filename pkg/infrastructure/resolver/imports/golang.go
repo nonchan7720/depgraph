@@ -2,6 +2,7 @@ package imports
 
 import (
 	"context"
+	"github.com/nonchan7720/depgraph/pkg/internal/rootcache"
 	"io/fs"
 	"os"
 	"path"
@@ -16,7 +17,7 @@ import (
 // and the replace directives (of go.mod and go.work) that point at a local
 // directory inside the repository.
 type Go struct {
-	cache rootCache[*goRoot]
+	cache rootcache.Cache[*goRoot]
 }
 
 var _ Resolver = (*Go)(nil)
@@ -48,7 +49,7 @@ func (g *Go) Resolve(ctx context.Context, root, fromFile, spec string) Result {
 	if err := ctx.Err(); err != nil {
 		return unresolvedf(err.Error())
 	}
-	r := g.cache.get(root, loadGo)
+	r := g.cache.Get(root, loadGo)
 	fromDir := path.Dir(filepath.ToSlash(fromFile))
 
 	// replaces apply to the importing module (and its workspace) only
@@ -107,7 +108,7 @@ func (r *goRoot) owner(dir string) *goModule {
 }
 
 // Invalidate implements Resolver.
-func (g *Go) Invalidate(root string) { g.cache.drop(root) }
+func (g *Go) Invalidate(root string) { g.cache.Drop(root) }
 
 func loadGo(root string) *goRoot {
 	r := &goRoot{byPath: map[string]*goModule{}, byDir: map[string]*goModule{}, modDirs: map[string]bool{}}

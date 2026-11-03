@@ -102,5 +102,24 @@
       "target": "src/api",
       "external": false
     }
-  ]
+  ],
+  "usage": {
+    "scope": ".",
+    "uses": [
+      {
+        "target": "src/api/users.ts"
+      },
+      {
+        "target": "src/db/index.ts"
+      },
+      {
+        "target": "src/db/index.ts",
+        "name": "query"
+      },
+      {
+        "target": "src/legacy/app.js",
+        "name": "run"
+      }
+    ]
+  }
 }

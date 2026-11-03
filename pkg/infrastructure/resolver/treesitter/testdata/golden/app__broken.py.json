@@ -38,5 +38,8 @@
       "target": "ext:os",
       "external": true
     }
-  ]
+  ],
+  "usage": {
+    "scope": "."
+  }
 }

@@ -80,6 +80,8 @@ type FileGraph struct {
 	Symbols  []Symbol    `json:"symbols"`
 	Imports  []Import    `json:"imports"`
 	Refs     []Reference `json:"refs,omitempty"`
+	// Usage feeds the unused-code rules (nil: not extracted).
+	Usage *Usage `json:"usage,omitempty"`
 }
 
 // Stats holds basic graph counts.

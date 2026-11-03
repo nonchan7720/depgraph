@@ -20,5 +20,17 @@
       "target": "src/db",
       "external": false
     }
-  ]
+  ],
+  "usage": {
+    "scope": ".",
+    "uses": [
+      {
+        "target": "src/db/index.ts"
+      },
+      {
+        "target": "src/db/index.ts",
+        "name": "query"
+      }
+    ]
+  }
 }

@@ -68,5 +68,31 @@
       "unresolved": true,
       "reason": "Could not resolve \"./App.module.css\""
     }
-  ]
+  ],
+  "usage": {
+    "scope": ".",
+    "uses": [
+      {
+        "target": "src/ui/App.tsx",
+        "name": "App"
+      },
+      {
+        "target": "src/ui/App.tsx",
+        "name": "Props"
+      },
+      {
+        "target": "src/ui/Button.tsx"
+      },
+      {
+        "target": "src/ui/Button.tsx",
+        "name": "Button"
+      }
+    ],
+    "exports": [
+      {
+        "name": "default",
+        "local": "Page"
+      }
+    ]
+  }
 }

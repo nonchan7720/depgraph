@@ -163,7 +163,7 @@ API: `GET /api/graph`（パッケージ・辺・findings・stats）、`GET /api/
 ```
 (Project {key, name, root, origin, base, worktree, lastScanAt})
 (Package {project, key, name, external})
-(File    {project, path, language, lines, updatedAt, unresolvedSpecs, unresolvedReasons})
+(File    {project, path, language, lines, updatedAt})
 (Symbol  {project, name, kind, exported, line, endLine, language, file})
 
 (Package)-[:CONTAINS]->(File)-[:DECLARES]->(Symbol)
@@ -175,7 +175,7 @@ API: `GET /api/graph`（パッケージ・辺・findings・stats）、`GET /api/
 `project` はプロジェクト key。Package は `(project, key)`、File は `(project, path)` で一意です。
 `Package.key` はリポジトリルートからのディレクトリパス（ルートは `.`）。
 リポジトリ外への import は `ext:<パッケージ>` という key の `external=true` な Package になります（これもプロジェクトごと。`elkjs/lib/elk-api` はパッケージ `ext:elkjs`）。
-どこにも解決できない import は Package も辺も作らず、File の `unresolvedSpecs` に残して `unresolved-import` で報告します。
+どこにも解決できない import は Package も辺も作りません（プロジェクトのコンパイラ / 型チェックが報告します）。
 
 ## Import resolution
 
@@ -187,7 +187,7 @@ import は各エコシステム自身の解決方法で、プロジェクトの�
 | Go | `go.mod` / `go.work`（入れ子モジュール・`use`・`replace`） |
 | Python | リポジトリのパッケージルート（ルート・`src/`・`pyproject.toml` / `setup.cfg` のパッケージディレクトリ）上の import システム。`__init__.py` の無いディレクトリは名前空間パッケージで、標準ライブラリを隠しません |
 
-相対パス・エイリアス・プロジェクト内モジュールが何も指していない import は、外部ではなく**未解決**です。`watch` はこれらの設定ファイルが変わると再スキャンします。
+相対パス・エイリアス・プロジェクト内モジュールが何も指していない import は、外部ではなく未解決として扱い、依存には現れません。`watch` はこれらの設定ファイルが変わると再スキャンします。
 
 ## Rules
 
@@ -195,7 +195,6 @@ import は各エコシステム自身の解決方法で、プロジェクトの�
 |---|---|---|
 | `import-cycle` | error | パッケージ間の循環 import |
 | `layer-violation` | error | `handler → repository` などの禁止ペア（`rules.DefaultConfig` で変更） |
-| `unresolved-import` | warn | 何にも解決できない import（ファイルが無い、プロジェクトが設定していないエイリアス / モジュール） |
 | `god-package` | warn | 10 パッケージ以上から import されている |
 | `duplicate-symbol` | warn | 同名の exported function/class が複数ファイルに存在 |
 

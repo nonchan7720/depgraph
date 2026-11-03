@@ -47,16 +47,10 @@ type Import struct {
 	External bool   `json:"external"`
 	// Unresolved: the import should point into the repository (a relative
 	// path, an alias, a module of the project) but nothing is there. It has
-	// no Target and adds no dependency edge.
+	// no Target and adds no dependency edge (the project's own compiler /
+	// type checker reports it; depgraph does not).
 	Unresolved bool   `json:"unresolved,omitempty"`
 	Reason     string `json:"reason,omitempty"` // why it is Unresolved
-}
-
-// UnresolvedImport is an import of a file that resolves to nothing.
-type UnresolvedImport struct {
-	File   string `json:"file"`
-	Spec   string `json:"spec"`
-	Reason string `json:"reason"`
 }
 
 // Reference is a resolved edge between two symbols (filled by LSP/SCIP).

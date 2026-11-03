@@ -305,16 +305,3 @@ func TestParseEvent(t *testing.T) {
 		t.Error("want error for unknown event")
 	}
 }
-
-func TestSummarizeUnresolvedImport(t *testing.T) {
-	out := Summarize(graph.Stats{}, []rules.Finding{
-		{Rule: "duplicate-symbol", Severity: "warn", Message: "dup"},
-		{Rule: "unresolved-import", Severity: "warn", Message: `src/a.ts imports "@/x", which does not resolve`},
-	}, DefaultLimits())
-	if !strings.Contains(out, "unresolved-import") || !strings.Contains(out, "path or package exists") {
-		t.Errorf("summary:\n%s", out)
-	}
-	if strings.Index(out, "unresolved-import") > strings.Index(out, "duplicate-symbol") {
-		t.Errorf("unresolved imports rank before duplicates:\n%s", out)
-	}
-}

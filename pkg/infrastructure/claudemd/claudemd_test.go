@@ -67,10 +67,10 @@ func TestWriter(t *testing.T) {
 func TestRenderListsEveryRule(t *testing.T) {
 	out := Render(graph.Stats{}, []rules.Finding{
 		{Rule: "zz-custom", Severity: "warn", Message: "custom finding"},
-		{Rule: "unresolved-import", Severity: "warn", Message: `src/a.ts imports "@/x", which does not resolve`},
+		{Rule: "god-package", Severity: "warn", Message: "pkg/x is imported by 12 packages"},
 		{Rule: "import-cycle", Severity: "error", Message: "a -> b -> a"},
 	})
-	for _, want := range []string{"### Unresolved imports", `src/a.ts imports "@/x"`, "### zz-custom", "custom finding", "a -> b -> a"} {
+	for _, want := range []string{"### God packages", "pkg/x is imported by 12 packages", "### zz-custom", "custom finding", "a -> b -> a"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in\n%s", want, out)
 		}

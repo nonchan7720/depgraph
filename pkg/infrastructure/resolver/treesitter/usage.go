@@ -51,6 +51,8 @@ type usageCollector struct {
 	direct  []graph.Use
 	exports []graph.ExportName
 	keep    []string
+	// source file names in strings (see graph.Usage.Mentions)
+	mentions []string
 
 	// facts for entry detection
 	goMain    bool
@@ -115,7 +117,33 @@ func (x *extractor) collectUsage(lang graph.Language, root *gts.Node) *usageColl
 	case graph.Python:
 		u.pyFile(root)
 	}
+	u.collectMentions(root)
 	return u
+}
+
+// mentionRe: a string that names a source file ("render.js", "./a/b.py").
+var mentionRe = regexp.MustCompile(`^[\w@.-][\w@./-]*\.(js|jsx|mjs|cjs|ts|tsx|mts|cts|py)$`)
+
+// collectMentions records the source file names in the file's strings.
+func (u *usageCollector) collectMentions(root *gts.Node) {
+	x := u.x
+	x.walk(root, func(n *gts.Node) bool {
+		switch x.typ(n) {
+		case "import_statement", "import_declaration", "import_from_statement":
+			return false // specs, resolved as imports
+		case "export_statement":
+			if x.field(n, "source") != nil {
+				return false
+			}
+		}
+		if s, ok := x.stringContent(n); ok {
+			if len(s) < 256 && mentionRe.MatchString(s) && !strings.Contains(s, "..") {
+				u.mentions = append(u.mentions, strings.TrimPrefix(s, "./"))
+			}
+			return false
+		}
+		return true
+	})
 }
 
 // finishUsage turns the collected usage into fg.Usage, with resolved holding
@@ -128,10 +156,17 @@ func (r *Resolver) finishUsage(ctx context.Context, root string, fg *graph.FileG
 			bySpec[rq.Spec] = resolved[i]
 		}
 	}
+	m := r.manifests(ctx, root)
 	us := append([]graph.Use(nil), u.direct...)
 	for _, p := range u.pending {
 		res, ok := bySpec[p.spec]
-		if !ok || res.Kind != imports.InRepo || res.File == "" {
+		if !ok {
+			continue
+		}
+		if res.Kind != imports.InRepo || res.File == "" {
+			if !p.prefix && m.unknownTarget(fg, p.spec, res) {
+				us = append(us, graph.Use{Target: UnknownPrefix + p.spec, Name: p.name, ReExport: p.reexport, As: p.as})
+			}
 			continue
 		}
 		target := res.File
@@ -148,16 +183,61 @@ func (r *Resolver) finishUsage(ctx context.Context, root string, fg *graph.FileG
 	}
 	us = append(us, u.tsPrefixUses(root)...)
 
-	m := r.manifests(ctx, root)
 	fg.Usage = &graph.Usage{
 		Scope:     m.scope(fg.Path, fg.Language),
 		Entry:     m.entry(fg.Path, fg.Language, u),
-		Generated: generated(u.x.src),
+		Generated: generated(u.x.src) || m.isVendored(fg.Path),
 		Uses:      dedupUses(us),
 		Exports:   u.exports,
 		Keep:      dedupStrings(u.keep),
+		Mentions:  dedupStrings(u.mentions),
 	}
 }
+
+// UnknownPrefix marks the Target of a use whose import the resolver could
+// not place inside the repository although it is not a declared dependency
+// (an alias of a bundler or site generator, a missing file): the rule
+// matches the spec against the project's paths.
+const UnknownPrefix = "?"
+
+// unknownTarget reports whether an import of a TS/JS file that did not
+// resolve into the repository may still name a file of it.
+func (m *manifests) unknownTarget(fg *graph.FileGraph, spec string, res imports.Result) bool {
+	if fg.Language != graph.TypeScript && fg.Language != graph.JavaScript {
+		return false
+	}
+	if spec == "" || strings.Contains(spec, ":") || strings.HasPrefix(spec, "/") {
+		return false // node:fs, virtual:x, https://, absolute paths
+	}
+	if ext := path.Ext(spec); ext != "" && !strings.Contains(ext, "/") && !hasSourceExt(spec) {
+		return false // ./App.module.css, ../config.json: not code
+	}
+	if res.Kind == imports.Unresolved {
+		return true
+	}
+	pkg := npmPackageName(spec)
+	return !nodeBuiltins[pkg] && m.undeclared(fg.Path, pkg)
+}
+
+// npmPackageName is the package of a bare spec ("@a/b" of "@a/b/c", "x" of "x/y").
+func npmPackageName(spec string) string {
+	parts := strings.SplitN(spec, "/", 3)
+	if strings.HasPrefix(spec, "@") && len(parts) > 1 {
+		return parts[0] + "/" + parts[1]
+	}
+	return parts[0]
+}
+
+var nodeBuiltins = func() map[string]bool {
+	m := map[string]bool{}
+	for _, n := range strings.Fields(`assert async_hooks buffer child_process cluster console constants
+		crypto dgram diagnostics_channel dns domain events fs http http2 https inspector module net os
+		path perf_hooks process punycode querystring readline repl stream string_decoder sys timers tls
+		trace_events tty url util v8 vm wasi worker_threads zlib test sqlite`) {
+		m[n] = true
+	}
+	return m
+}()
 
 func isDir(root, rel string) bool {
 	st, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel)))
@@ -305,8 +385,8 @@ func (x *extractor) declNames(n *gts.Node) map[string]bool {
 		case "lexical_declaration", "variable_declaration":
 			for i := 0; i < d.NamedChildCount(); i++ {
 				if c := d.NamedChild(i); x.typ(c) == "variable_declarator" {
-					if nm := x.fieldText(c, "name"); nm != "" {
-						out[nm] = true
+					for _, id := range x.patternNames(x.field(c, "name")) {
+						out[x.text(id)] = true
 					}
 				}
 			}

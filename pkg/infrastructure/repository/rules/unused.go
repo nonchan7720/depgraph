@@ -26,6 +26,7 @@ type unusedFile struct {
 	Uses                     []graph.Use
 	Exports                  []graph.ExportName
 	Keep                     []string
+	Mentions                 []string
 	Symbols                  []unusedSymbol
 }
 
@@ -41,7 +42,8 @@ func (r *Repository) evaluateUnused(ctx context.Context, cfg rules.Config) ([]ru
 		OPTIONAL MATCH (f)-[:DECLARES]->(s:Symbol)
 		WITH f, collect({name: s.name, kind: s.kind, exported: s.exported, line: s.line}) AS syms
 		RETURN f.path AS path, f.language AS lang, f.scope AS scope, f.entry AS entry,
-		       f.generated AS generated, f.uses AS uses, f.exports AS exports, f.keep AS keep, syms
+		       f.generated AS generated, f.uses AS uses, f.exports AS exports, f.keep AS keep,
+		       f.mentions AS mentions, syms
 	`, nil)
 	if err != nil {
 		return nil, fmt.Errorf("unused: %w", err)
@@ -64,6 +66,7 @@ func (r *Repository) evaluateUnused(ctx context.Context, cfg rules.Config) ([]ru
 				}
 			}
 			f.Keep = toStrings(row["keep"])
+			f.Mentions = toStrings(row["mentions"])
 		}
 		if syms, ok := row["syms"].([]any); ok {
 			for _, x := range syms {
@@ -106,8 +109,8 @@ type unusedIndex struct {
 	files map[string]*unusedFile
 	paths []string            // sorted
 	dirs  map[string][]string // dir -> files directly in it
-	// used[file][name]: the name of file is used (Go: by package, see goKey)
-	used    map[string]map[string]bool
+	// used[file][name]: the files using name of file (Go: by package, see goKey)
+	used    map[string]map[string]map[string]bool
 	usedAll map[string]bool // every export of the file is used
 	edges   map[string][]string
 	// importers[file]: files using it
@@ -125,7 +128,7 @@ func evalUnused(files []unusedFile, cfg rules.Config) []rules.Finding {
 	}
 	ix := &unusedIndex{
 		files: map[string]*unusedFile{}, dirs: map[string][]string{},
-		used: map[string]map[string]bool{}, usedAll: map[string]bool{},
+		used: map[string]map[string]map[string]bool{}, usedAll: map[string]bool{},
 		edges: map[string][]string{}, importers: map[string]map[string]bool{},
 		marking: map[string]bool{},
 	}
@@ -141,11 +144,22 @@ func evalUnused(files []unusedFile, cfg rules.Config) []rules.Finding {
 	entries := ix.entries(cfg)
 	ignore := globsToRegexps(cfg.UnusedIgnore)
 
-	// 1. resolve every use
+	// 1. resolve every use, and the files named in strings
+	byBase := map[string][]string{}
+	for _, p := range ix.paths {
+		byBase[path.Base(p)] = append(byBase[path.Base(p)], p)
+	}
 	for _, p := range ix.paths {
 		f := ix.files[p]
 		for _, u := range f.Uses {
 			ix.resolve(f, u)
+		}
+		for _, m := range f.Mentions {
+			for _, q := range byBase[path.Base(m)] {
+				if q == m || strings.HasSuffix(q, "/"+m) {
+					ix.edge(p, q)
+				}
+			}
 		}
 	}
 	// 2. entries are used from outside: all their exports count as used
@@ -179,16 +193,18 @@ func evalUnused(files []unusedFile, cfg rules.Config) []rules.Finding {
 			exportedLocal[e.Local] = true
 		}
 		for _, s := range f.Symbols {
-			if !kinds[s.Kind] || keep[s.Name] || !(s.Exported || exportedLocal[s.Name]) {
+			if !kinds[s.Kind] || keep[s.Name] || (!s.Exported && !exportedLocal[s.Name]) {
 				continue
 			}
 			if f.Lang == "python" && strings.HasPrefix(s.Name, "__") {
 				continue
 			}
-			if ix.symbolUsed(f, s.Name) {
-				continue
+			// A declaration only its own file uses is not reported: the
+			// export is unneeded, but that is style, and common on purpose
+			// (Go handlers registered in the same file, RTK Query slices).
+			if other, local := ix.symbolUsed(f, s.Name); !other && !local {
+				out = append(out, rules.UnusedExport(p, s.Line, s.Kind, s.Name))
 			}
-			out = append(out, rules.UnusedExport(p, s.Line, s.Kind, s.Name))
 		}
 	}
 	return out
@@ -243,6 +259,10 @@ func (ix *unusedIndex) edge(from, to string) {
 // resolve applies one use of file f.
 func (ix *unusedIndex) resolve(f *unusedFile, u graph.Use) {
 	t := u.Target
+	if strings.HasPrefix(t, "?") {
+		ix.resolveUnknown(f, u)
+		return
+	}
 	if strings.HasSuffix(t, "/") || (t == "" && u.Name == "*") {
 		// every file under a directory (dynamic import with a computed path)
 		for _, p := range ix.paths {
@@ -265,7 +285,7 @@ func (ix *unusedIndex) resolve(f *unusedFile, u graph.Use) {
 		case "*":
 			ix.usedAll[goKey(t)] = true
 		default:
-			ix.mark(goKey(t), u.Name)
+			ix.mark(goKey(t), u.Name, f.Path)
 		}
 	case "python":
 		ix.resolvePython(f.Path, t, u.Name)
@@ -279,8 +299,47 @@ func (ix *unusedIndex) resolve(f *unusedFile, u graph.Use) {
 		case "*":
 			ix.markAll(t)
 		default:
-			ix.markName(t, u.Name)
+			ix.markName(t, u.Name, f.Path)
 		}
+	}
+}
+
+// resolveUnknown applies a use whose import the resolver could not place
+// ("?js/helpers/index", "?@site/src/x"): every TS/JS file the spec's path
+// may name (its longest matching tail: js/helpers/index.js,
+// js/helpers/index/index.ts) is used.
+func (ix *unusedIndex) resolveUnknown(f *unusedFile, u graph.Use) {
+	segs := strings.Split(strings.TrimPrefix(u.Target, "?"), "/")
+	for len(segs) > 0 && (segs[0] == "." || segs[0] == ".." || segs[0] == "" || strings.HasPrefix(segs[0], "@") || segs[0] == "~" || segs[0] == "#") {
+		segs = segs[1:]
+	}
+	for i := 0; i < len(segs); i++ {
+		tail := strings.Join(segs[i:], "/")
+		var hits []string
+		for _, p := range ix.paths {
+			q := ix.files[p]
+			if q.Lang != "typescript" && q.Lang != "javascript" {
+				continue
+			}
+			stem := strings.TrimSuffix(p, path.Ext(p))
+			if stem == tail || strings.HasSuffix(stem, "/"+tail) || strings.HasSuffix(stem, "/"+tail+"/index") {
+				hits = append(hits, p)
+			}
+		}
+		if len(hits) == 0 {
+			continue
+		}
+		for _, p := range hits {
+			ix.edge(f.Path, p)
+			switch {
+			case u.ReExport || u.Name == "":
+			case u.Name == "*":
+				ix.markAll(p)
+			default:
+				ix.markName(p, u.Name, f.Path)
+			}
+		}
+		return
 	}
 }
 
@@ -290,7 +349,7 @@ func (ix *unusedIndex) resolve(f *unusedFile, u graph.Use) {
 func (ix *unusedIndex) resolvePython(from, target, name string) {
 	if ix.files[target] != nil {
 		ix.edge(from, target)
-		ix.pyName(target, name)
+		ix.pyName(target, name, from)
 		return
 	}
 	cur := target
@@ -308,7 +367,7 @@ func (ix *unusedIndex) resolvePython(from, target, name string) {
 		for _, ext := range []string{".py", ".pyi"} {
 			if ix.files[mod+ext] != nil {
 				ix.edge(from, mod+ext)
-				ix.pyName(mod+ext, strings.Join(parts[i+1:], "."))
+				ix.pyName(mod+ext, strings.Join(parts[i+1:], "."), from)
 				return
 			}
 		}
@@ -317,12 +376,12 @@ func (ix *unusedIndex) resolvePython(from, target, name string) {
 			ix.edge(from, path.Join(cur, "__init__.py"))
 			continue
 		}
-		ix.pyName(path.Join(cur, "__init__.py"), p)
+		ix.pyName(path.Join(cur, "__init__.py"), p, from)
 		return
 	}
 }
 
-func (ix *unusedIndex) pyName(file, dotted string) {
+func (ix *unusedIndex) pyName(file, dotted, from string) {
 	if dotted == "" {
 		return
 	}
@@ -331,7 +390,7 @@ func (ix *unusedIndex) pyName(file, dotted string) {
 		ix.markAll(file)
 		return
 	}
-	ix.mark(file, first)
+	ix.mark(file, first, from)
 }
 
 func (ix *unusedIndex) isDir(d string) bool {
@@ -340,21 +399,25 @@ func (ix *unusedIndex) isDir(d string) bool {
 	return i < len(ix.paths) && strings.HasPrefix(ix.paths[i], prefix)
 }
 
-func (ix *unusedIndex) mark(key, name string) {
+// mark records that from uses name of key.
+func (ix *unusedIndex) mark(key, name, from string) {
 	if ix.used[key] == nil {
-		ix.used[key] = map[string]bool{}
+		ix.used[key] = map[string]map[string]bool{}
 	}
-	ix.used[key][name] = true
+	if ix.used[key][name] == nil {
+		ix.used[key][name] = map[string]bool{}
+	}
+	ix.used[key][name][from] = true
 }
 
-// markName marks name of TS/JS file t used, following its exports and
-// re-exports (`export { a as b } from`, `export * from`).
-func (ix *unusedIndex) markName(t, name string) {
+// markName marks name of TS/JS file t used by from, following its exports
+// and re-exports (`export { a as b } from`, `export * from`).
+func (ix *unusedIndex) markName(t, name, from string) {
 	f := ix.files[t]
 	if f == nil {
 		return
 	}
-	key := t + "#" + name
+	key := t + "#" + name + "#" + from
 	if ix.marking[key] {
 		return
 	}
@@ -362,13 +425,13 @@ func (ix *unusedIndex) markName(t, name string) {
 	declared := false
 	for _, e := range f.Exports {
 		if e.Name == name {
-			ix.mark(t, e.Local)
+			ix.mark(t, e.Local, from)
 			declared = true
 		}
 	}
 	for _, s := range f.Symbols {
 		if s.Name == name {
-			ix.mark(t, name)
+			ix.mark(t, name, from)
 			declared = true
 		}
 	}
@@ -381,10 +444,10 @@ func (ix *unusedIndex) markName(t, name string) {
 			if u.Name == "*" {
 				ix.markAll(u.Target)
 			} else {
-				ix.markName(u.Target, u.Name)
+				ix.markName(u.Target, u.Name, t)
 			}
 		case u.As == "*" && !declared && name != "default":
-			ix.markName(u.Target, name)
+			ix.markName(u.Target, name, t)
 		}
 	}
 }
@@ -412,17 +475,29 @@ func (ix *unusedIndex) markAll(p string) {
 		if u.Name == "*" {
 			ix.markAll(u.Target)
 		} else {
-			ix.markName(u.Target, u.Name)
+			ix.markName(u.Target, u.Name, p)
 		}
 	}
 }
 
-func (ix *unusedIndex) symbolUsed(f *unusedFile, name string) bool {
+// symbolUsed reports whether another file uses name of f, and whether f
+// itself does.
+func (ix *unusedIndex) symbolUsed(f *unusedFile, name string) (other, local bool) {
 	key := f.Path
 	if f.Lang == "go" {
 		key = goKey(path.Dir(f.Path))
 	}
-	return ix.usedAll[key] || ix.used[key][name]
+	if ix.usedAll[key] {
+		return true, false
+	}
+	for from := range ix.used[key][name] {
+		if from == f.Path {
+			local = true
+		} else {
+			other = true
+		}
+	}
+	return other, local
 }
 
 // reach walks the edges from the entries. A Go package is reached as a whole.
@@ -512,7 +587,8 @@ func (ix *unusedIndex) unreachablePackages(entries map[string]string, reached ma
 	}
 	cand := map[string]bool{}
 	for d, fs := range pkgs {
-		ok := !matchAny(ignore, d)
+		// a package that declares nothing (doc.go only) is documentation
+		ok := !matchAny(ignore, d) && ix.declaresAnything(fs)
 		for _, p := range fs {
 			if reached[p] || entries[p] != "" || ix.files[p].Generated || matchAny(ignore, p) {
 				ok = false
@@ -556,6 +632,15 @@ func (ix *unusedIndex) unreachablePackages(entries map[string]string, reached ma
 		out = append(out, rules.UnreachablePackage(g.root, g.only, g.cycle))
 	}
 	return out
+}
+
+func (ix *unusedIndex) declaresAnything(files []string) bool {
+	for _, p := range files {
+		if len(ix.files[p].Symbols) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 type deadGroup struct {

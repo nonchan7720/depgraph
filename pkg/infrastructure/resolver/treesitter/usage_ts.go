@@ -58,6 +58,17 @@ func (u *usageCollector) tsFile(root *gts.Node) {
 			}
 			continue
 		}
+		if x.typ(n) == "export_statement" {
+			// `export { a }` / `export default a` exports a, it does not use
+			// it: only a declaration or an expression is walked
+			if d := x.field(n, "declaration"); d != nil {
+				n = d
+			} else if v := x.field(n, "value"); v != nil && x.typ(v) != "identifier" {
+				n = v
+			} else {
+				continue
+			}
+		}
 		declared := x.declNames(n)
 		x.walk(n, func(c *gts.Node) bool { return u.tsNode(c, bind, own, declared) })
 	}
@@ -234,12 +245,12 @@ func (u *usageCollector) tsNode(n *gts.Node, bind map[string]tsBinding, own, dec
 		u.tsCall(n)
 		return true
 	case "string":
-		if s, ok := x.stringContent(n); ok && isRelPath(s) {
-			if strings.Contains(s, "*") {
-				u.tsPrefix(s)
-			} else {
-				u.use(s, "")
-			}
+		// a path in a string ('./worker.ts' of new URL(), a bundler entry in a
+		// config) loads that file. A glob does not: tailwind's content globs
+		// only scan files (import.meta.glob / require.context are handled
+		// in tsCall).
+		if s, ok := x.stringContent(n); ok && isRelPath(s) && !strings.ContainsAny(s, "*{") {
+			u.use(s, "")
 		}
 		return false
 	case "member_expression":

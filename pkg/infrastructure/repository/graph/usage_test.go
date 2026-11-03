@@ -17,7 +17,7 @@ func TestUpsertFileStoresUsage(t *testing.T) {
 		Scope: ".", Entry: "main package", Generated: true,
 		Uses:    []graph.Use{{Target: "b", Name: "G"}, {Target: "c/x.ts", Name: "*", ReExport: true, As: "*"}},
 		Exports: []graph.ExportName{{Name: "default", Local: "F"}},
-		Keep:    []string{"F"},
+		Keep:    []string{"F"}, Mentions: []string{"render.js"},
 	}
 	if err := r.UpsertFile(ctx, fg); err != nil {
 		t.Fatal(err)
@@ -26,7 +26,7 @@ func TestUpsertFileStoresUsage(t *testing.T) {
 		rows, err := s.Query(ctx, `
 			MATCH (f:File {project: $p, path: 'a/a.go'})
 			RETURN f.scope AS scope, f.entry AS entry, f.generated AS generated,
-			       f.uses AS uses, f.exports AS exports, f.keep AS keep`, map[string]any{"p": key})
+			       f.uses AS uses, f.exports AS exports, f.keep AS keep, f.mentions AS mentions`, map[string]any{"p": key})
 		if err != nil || len(rows) != 1 {
 			t.Fatalf("rows=%v err=%v", rows, err)
 		}
@@ -47,7 +47,7 @@ func TestUpsertFileStoresUsage(t *testing.T) {
 	if !reflect.DeepEqual(uses, fg.Usage.Uses) {
 		t.Errorf("uses = %+v", uses)
 	}
-	if !reflect.DeepEqual(got["exports"], []any{"default=F"}) || !reflect.DeepEqual(got["keep"], []any{"F"}) {
+	if !reflect.DeepEqual(got["exports"], []any{"default=F"}) || !reflect.DeepEqual(got["keep"], []any{"F"}) || !reflect.DeepEqual(got["mentions"], []any{"render.js"}) {
 		t.Errorf("exports=%v keep=%v", got["exports"], got["keep"])
 	}
 

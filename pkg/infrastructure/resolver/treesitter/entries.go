@@ -44,11 +44,15 @@ type manifests struct {
 	pyScopes map[string]bool // dirs with pyproject.toml / setup.py / setup.cfg
 	goScopes map[string]bool // dirs with a go.mod
 
-	files    map[string]string // file -> why it is an entry
-	prefixes map[string]string // dir/ -> why every file under it is an entry
-	opaque   map[string]string // TS scope -> framework whose files are not parsed
-	routing  map[string]string // TS scope -> framework with file-system routes
-	django   map[string]bool   // Python scope -> uses Django
+	files    map[string]string            // file -> why it is an entry
+	prefixes map[string]string            // dir/ -> why every file under it is an entry
+	opaque   map[string]string            // TS scope -> framework whose files are not parsed
+	routing  map[string]string            // TS scope -> framework with file-system routes
+	dirs     map[string]map[string]string // TS scope -> dir loaded by convention -> framework
+	django   map[string]bool              // Python scope -> uses Django
+	vendored map[string]string            // dir/ -> tool that copied a code kit there (shadcn/ui)
+	deps     map[string]map[string]bool   // package.json dir -> declared dependencies
+	sources  []string                     // every source file (for names in templates)
 }
 
 type manifestEntry struct {
@@ -84,6 +88,8 @@ func (c *manifestCache) drop(root string) {
 
 // manifests returns the (cached) manifests of root.
 func (r *Resolver) manifests(ctx context.Context, root string) *manifests {
+	// cached for every later file: a cancelled scan must not leave half of it
+	ctx = context.WithoutCancel(ctx)
 	return r.man.get(root, func() *manifests { return loadManifests(ctx, root, r.imp) })
 }
 
@@ -97,7 +103,8 @@ func isEntryManifest(rel string) bool {
 	}
 	return commandFile(base) || strings.HasSuffix(base, ".html") || base == "package.json" ||
 		base == "pyproject.toml" || base == "setup.cfg" || base == "setup.py" || base == "manage.py" ||
-		base == "go.mod" || base == "tsconfig.json" || isRequirements(base) || opaqueExt(base) != ""
+		base == "go.mod" || base == "tsconfig.json" || base == "components.json" || isRequirements(base) || opaqueExt(base) != "" ||
+		strings.HasSuffix(base, ".mdx")
 }
 
 // commandFile: files whose text runs commands that may name source files.
@@ -134,8 +141,6 @@ func opaqueExt(base string) string {
 		return "Svelte"
 	case ".astro":
 		return "Astro"
-	case ".mdx":
-		return "MDX"
 	case ".marko":
 		return "Marko"
 	}
@@ -145,7 +150,7 @@ func opaqueExt(base string) string {
 // opaqueDeps: packages whose component files are not parsed.
 var opaqueDeps = map[string]string{
 	"vue": "Vue", "nuxt": "Nuxt", "svelte": "Svelte", "@sveltejs/kit": "SvelteKit",
-	"astro": "Astro", "@mdx-js/mdx": "MDX", "@mdx-js/react": "MDX", "@mdx-js/loader": "MDX",
+	"astro": "Astro", "unplugin-auto-import": "auto-imported", "unplugin-vue-components": "auto-imported",
 	"@builder.io/qwik": "Qwik", "ember-source": "Ember", "marko": "Marko",
 }
 
@@ -155,6 +160,13 @@ var routingDeps = map[string]string{
 	"@react-router/dev": "React Router", "gatsby": "Gatsby", "expo-router": "Expo Router",
 	"@docusaurus/core": "Docusaurus", "@solidjs/start": "SolidStart", "@tanstack/react-start": "TanStack Start",
 	"@tanstack/react-router": "TanStack Router", "vitepress": "VitePress", "@redwoodjs/core": "RedwoodJS",
+}
+
+// conventionDirDeps: tools that load every file of a directory
+// (dependency -> framework, directory relative to the package).
+var conventionDirDeps = map[string][2]string{
+	"react-email": {"React Email", "emails"}, "@react-email/components": {"React Email", "emails"},
+	"@docusaurus/core": {"Docusaurus", "theme"}, // swizzled theme components
 }
 
 type packageJSON struct {
@@ -170,15 +182,17 @@ type packageJSON struct {
 	Deps     map[string]any    `json:"dependencies"`
 	DevDeps  map[string]any    `json:"devDependencies"`
 	PeerDeps map[string]any    `json:"peerDependencies"`
+	OptDeps  map[string]any    `json:"optionalDependencies"`
 }
 
 func loadManifests(ctx context.Context, root string, imp *imports.Multi) *manifests {
 	m := &manifests{
 		tsScopes: map[string]bool{}, pyScopes: map[string]bool{}, goScopes: map[string]bool{},
 		files: map[string]string{}, prefixes: map[string]string{}, opaque: map[string]string{},
-		routing: map[string]string{}, django: map[string]bool{},
+		routing: map[string]string{}, dirs: map[string]map[string]string{}, django: map[string]bool{},
+		vendored: map[string]string{}, deps: map[string]map[string]bool{},
 	}
-	var pkgs, htmls, commands, pyManifests []string
+	var pkgs, htmls, commands, pyManifests, mdxs, kits []string
 	opaqueFiles := map[string]string{} // dir -> framework
 	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || ctx.Err() != nil {
@@ -200,6 +214,9 @@ func loadManifests(ctx context.Context, root string, imp *imports.Multi) *manife
 		}
 		base := d.Name()
 		dir := path.Dir(rel)
+		if _, ok := detectLanguage(rel); ok {
+			m.sources = append(m.sources, rel)
+		}
 		switch {
 		case base == "package.json":
 			m.tsScopes[dir] = true
@@ -215,6 +232,10 @@ func loadManifests(ctx context.Context, root string, imp *imports.Multi) *manife
 			pyManifests = append(pyManifests, rel)
 		case strings.HasSuffix(base, ".html"):
 			htmls = append(htmls, rel)
+		case strings.HasSuffix(base, ".mdx"):
+			mdxs = append(mdxs, rel)
+		case base == "components.json":
+			kits = append(kits, rel)
 		}
 		if strings.Contains(rel, ".github/workflows/") || commandFile(base) {
 			commands = append(commands, rel)
@@ -236,6 +257,10 @@ func loadManifests(ctx context.Context, root string, imp *imports.Multi) *manife
 	}
 	for _, rel := range htmls {
 		m.loadHTML(root, rel)
+	}
+	m.loadMDX(ctx, root, mdxs, imp)
+	for _, rel := range kits {
+		m.loadShadcn(root, rel)
 	}
 	py := func(fromDir, spec string) string {
 		res := imp.Py.Resolve(ctx, root, path.Join(fromDir, "__entry__.py"), spec)
@@ -295,13 +320,30 @@ func (m *manifests) loadPackageJSON(root, rel string) {
 	}
 	dir := path.Dir(rel)
 	out := tsOutDirs(root, dir)
-	for _, deps := range []map[string]any{pj.Deps, pj.DevDeps, pj.PeerDeps} {
+	declared := map[string]bool{}
+	m.deps[dir] = declared
+	for _, deps := range []map[string]any{pj.Deps, pj.DevDeps, pj.PeerDeps, pj.OptDeps} {
 		for name := range deps {
+			declared[name] = true
 			if fw, ok := opaqueDeps[name]; ok {
 				m.opaque[dir] = fw + " components (not parsed)"
 			}
 			if fw, ok := routingDeps[name]; ok {
 				m.routing[dir] = fw
+			}
+			if strings.HasPrefix(name, "@radix-ui/") {
+				// shadcn/ui before components.json: a kit in components/ui
+				for _, d := range []string{path.Join(dir, "components/ui"), path.Join(dir, "src/components/ui")} {
+					if isDir(root, d) {
+						m.vendored[d+"/"] = "shadcn/ui"
+					}
+				}
+			}
+			if c, ok := conventionDirDeps[name]; ok {
+				if m.dirs[dir] == nil {
+					m.dirs[dir] = map[string]string{}
+				}
+				m.dirs[dir][c[1]] = c[0]
 			}
 		}
 	}
@@ -466,12 +508,46 @@ func tsCandidates(root, dir, p string, out [][2]string) []string {
 			return res
 		}
 	}
+	// a build layout the sources do not mirror (dist/prod/index.js built
+	// from src/index.ts): the same file name at the source root
+	if len(bases) > 1 {
+		stem := tsOutputRe.ReplaceAllString(path.Base(full), "")
+		for _, src := range []string{"src", "."} {
+			for _, e := range tsSourceExts {
+				add(path.Join(dir, src, stem+e))
+			}
+			if len(res) > 0 {
+				return res
+			}
+		}
+	}
 	return res
 }
 
 func graphLanguage(rel string) graph.Language {
 	l, _ := detectLanguage(rel)
 	return l
+}
+
+var htmlScriptNameRe = regexp.MustCompile(`["']([\w@./-]+\.(?:js|jsx|mjs|cjs|ts|tsx|mts|cts))["']`)
+
+// undeclared reports whether pkg, imported by rel, is a package no
+// package.json at or above rel declares (known: some package.json is there).
+// Such an import is an alias the resolver does not know, not a dependency.
+func (m *manifests) undeclared(rel, pkg string) bool {
+	known := false
+	for d := path.Dir(rel); ; d = path.Dir(d) {
+		if deps, ok := m.deps[d]; ok {
+			known = true
+			if deps[pkg] {
+				return false
+			}
+		}
+		if d == "." || d == "/" || d == "" {
+			break
+		}
+	}
+	return known
 }
 
 var scriptSrcRe = regexp.MustCompile(`(?is)<script\b[^>]*\bsrc\s*=\s*["']([^"']+)["']`)
@@ -484,6 +560,15 @@ func (m *manifests) loadHTML(root, rel string) {
 	}
 	dir := path.Dir(rel)
 	scope := nearest(m.tsScopes, dir)
+	// template engines name scripts in strings ({{ resources.Get "js/main.js" }})
+	for _, sm := range htmlScriptNameRe.FindAllSubmatch(b, -1) {
+		name := strings.TrimPrefix(string(sm[1]), "/")
+		for _, f := range m.sources {
+			if (f == path.Join(scope, name) || strings.HasSuffix(f, "/"+name)) && (scope == "." || strings.HasPrefix(f, scope+"/")) {
+				m.addFile(f, "named by "+rel)
+			}
+		}
+	}
 	for _, sm := range scriptSrcRe.FindAllSubmatch(b, -1) {
 		src := string(sm[1])
 		base := dir
@@ -492,6 +577,73 @@ func (m *manifests) loadHTML(root, rel string) {
 		}
 		for _, f := range tsCandidates(root, base, src, nil) {
 			m.addFile(f, "<script> of "+rel)
+		}
+	}
+}
+
+// loadShadcn: shadcn/ui copies its component kit into the directory
+// components.json names (aliases.ui, default @/components/ui). The kit
+// exports every part of each component on purpose: it is vendored code.
+func (m *manifests) loadShadcn(root, rel string) {
+	b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+	if err != nil {
+		return
+	}
+	var cfg struct {
+		Aliases struct {
+			UI string `json:"ui"`
+		} `json:"aliases"`
+	}
+	if json.Unmarshal(b, &cfg) != nil {
+		return
+	}
+	ui := cfg.Aliases.UI
+	if ui == "" {
+		ui = "@/components/ui"
+	}
+	// "@/components/ui" / "~/components/ui": an alias of the package root or src/
+	if i := strings.Index(ui, "/"); i >= 0 && strings.Trim(ui[:i], "@~#$") == "" {
+		ui = ui[i+1:]
+	}
+	dir := path.Dir(rel)
+	for _, base := range []string{dir, path.Join(dir, "src")} {
+		if d := path.Clean(path.Join(base, ui)); isDir(root, d) {
+			m.vendored[d+"/"] = "shadcn/ui"
+		}
+	}
+}
+
+// isVendored reports whether rel is in a directory a tool copied code into.
+func (m *manifests) isVendored(rel string) bool {
+	for d := range m.vendored {
+		if strings.HasPrefix(rel, d) {
+			return true
+		}
+	}
+	return false
+}
+
+var mdxImportRe = regexp.MustCompile(`(?m)^\s*(?:import|export)\s[^'"\n]*?['"]([^'"\n]+)['"]`)
+
+// loadMDX: what MDX files import (they are not parsed, but their imports
+// are plain ES imports) is an entry.
+func (m *manifests) loadMDX(ctx context.Context, root string, mdxs []string, imp *imports.Multi) {
+	var reqs []imports.Request
+	for _, rel := range mdxs {
+		b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+		if err != nil {
+			continue
+		}
+		for _, sm := range mdxImportRe.FindAllSubmatch(b, -1) {
+			reqs = append(reqs, imports.Request{FromFile: rel, Spec: string(sm[1])})
+		}
+	}
+	if len(reqs) == 0 {
+		return
+	}
+	for i, res := range imp.TS.ResolveBatch(ctx, root, reqs) {
+		if res.Kind == imports.InRepo && res.File != "" {
+			m.addFile(res.File, "imported by "+reqs[i].FromFile)
 		}
 	}
 }
@@ -588,23 +740,33 @@ func (m *manifests) entry(rel string, lang graph.Language, u *usageCollector) st
 			return "main package"
 		}
 		return ""
-	case graph.Python:
+	}
+	// examples and benchmarks are run by hand, also when they are packages
+	// of their own (examples/demo/package.json)
+	if hasSeg(strings.Split(path.Dir(rel), "/"), exampleDirs) {
+		return "example / benchmark"
+	}
+	if lang == graph.Python {
 		return m.pyEntry(scope, inScope, base, segs, u)
 	}
 	return m.tsEntry(scope, inScope, base, segs)
 }
 
 var (
-	tsTestRe   = regexp.MustCompile(`\.(test|spec|e2e|stories|story|bench)\.[cm]?[jt]sx?$`)
+	tsTestRe   = regexp.MustCompile(`\.(test|spec|e2e|stories|story|bench|test-d)\.[cm]?[jt]sx?$`)
 	tsConfigRe = regexp.MustCompile(`^(\.?[\w-]+\.config(\.[\w-]+)*|\.[\w-]+rc|[\w-]+\.conf|setup[\w-]*|[\w-]+\.setup|Gruntfile|gulpfile|Jakefile|webpack\.[\w.-]+|rollup\.[\w.-]+)\.[cm]?[jt]sx?$`)
 	entryDirs  = map[string]bool{
 		"scripts": true, "script": true, "bin": true, "tools": true, "examples": true, "example": true,
 		"docs": true, "doc": true, "benchmarks": true, "bench": true, "hack": true, ".github": true,
 		".husky": true, ".storybook": true,
+		"static": true, "public": true, // served as they are
 	}
-	tsTestDirs = map[string]bool{
+	exampleDirs = map[string]bool{"examples": true, "example": true, "benchmarks": true, "bench": true}
+	tsTestDirs  = map[string]bool{
 		"__tests__": true, "__mocks__": true, "__fixtures__": true, "test": true, "tests": true,
 		"spec": true, "e2e": true, "cypress": true, "playwright": true, "fixtures": true,
+		"test-d": true, "type-tests": true, // type tests (tsd, ...)
+		"testdata": true, // fixtures (Go's convention)
 	}
 	rootEntryNames = map[string]bool{"index": true, "main": true, "server": true, "app": true, "cli": true, "worker": true}
 )
@@ -643,11 +805,14 @@ func (m *manifests) tsEntry(scope, inScope, base string, segs []string) string {
 	if (dir == "." || dir == "src") && rootEntryNames[stem(base)] {
 		return "package entry name"
 	}
+	first := segs[0]
+	if first == "src" && len(segs) > 1 {
+		first = segs[1]
+	}
+	if fw, ok := m.dirs[scope][first]; ok {
+		return fw + " convention"
+	}
 	if fw, ok := m.routing[scope]; ok {
-		first := segs[0]
-		if first == "src" && len(segs) > 1 {
-			first = segs[1]
-		}
 		if first == "app" || first == "pages" || first == "routes" {
 			return fw + " route"
 		}
@@ -662,13 +827,18 @@ var (
 	pyEntryNames = map[string]bool{
 		"__main__.py": true, "setup.py": true, "manage.py": true, "conftest.py": true, "noxfile.py": true,
 		"fabfile.py": true, "wsgi.py": true, "asgi.py": true, "gunicorn.conf.py": true, "gunicorn_config.py": true,
+		// project template hooks (cookiecutter, copier)
+		"pre_gen_project.py": true, "post_gen_project.py": true, "pre_prompt.py": true,
 	}
 	pyRootEntryNames = map[string]bool{"main": true, "app": true, "server": true, "cli": true, "run": true, "worker": true}
-	pyTestDirs       = map[string]bool{"tests": true, "test": true, "migrations": true, "alembic": true}
+	pyTestDirs       = map[string]bool{"tests": true, "test": true, "testdata": true}
+	pyMigrationDirs  = map[string]bool{"migrations": true, "alembic": true}
 	djangoNames      = map[string]bool{
 		"models": true, "admin": true, "apps": true, "urls": true, "views": true, "signals": true,
 		"forms": true, "serializers": true, "tasks": true, "consumers": true, "routing": true,
 		"middleware": true, "context_processors": true, "receivers": true, "handlers": true, "settings": true,
+		"checks": true, "translation": true, "search_indexes": true, // autodiscovered
+		"wagtail_hooks": true, "cms_plugins": true, "cms_apps": true, // Wagtail, django CMS
 	}
 	djangoDirs = map[string]bool{"management": true, "templatetags": true, "settings": true}
 )
@@ -680,6 +850,8 @@ func (m *manifests) pyEntry(scope, inScope, base string, segs []string, u *usage
 		return "Python convention (" + base + ")"
 	case strings.HasPrefix(base, "test_") || strings.HasSuffix(s, "_test") || s == "tests" || hasSeg(segs, pyTestDirs):
 		return "test file"
+	case hasSeg(segs, pyMigrationDirs):
+		return "migration"
 	case hasSeg(segs, entryDirs):
 		return "script / tool directory"
 	case u.mainGuard:

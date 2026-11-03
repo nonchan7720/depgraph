@@ -103,7 +103,8 @@ import x = require('./eq');
 		"src/dyn.ts#*", "src/req.js#*", "src/locales/#*", "src/worker.ts#", "src/eq.ts#*",
 		"src/a.ts#helper", // used in its own file
 	)
-	noUses(t, u.Uses, "src/a.ts#main", "src/a.ts#foo")
+	// `export { loc as other }` exports loc, it does not use it
+	noUses(t, u.Uses, "src/a.ts#main", "src/a.ts#foo", "src/a.ts#loc")
 	exp := map[string]string{}
 	for _, e := range u.Exports {
 		exp[e.Name] = e.Local
@@ -121,6 +122,30 @@ import x = require('./eq');
 
 // A local name re-exported (`import { a } from './x'; export { a }`) is a
 // re-export of x's a.
+// An import of a package the project does not declare is an alias the
+// resolver does not know (a bundler alias, Hugo's assets/, Docusaurus'
+// @site): it is kept as an unknown target ("?<spec>") instead of dropped.
+func TestUsageUndeclaredPackage(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "package.json", `{"name": "a", "dependencies": {"react": "19.0.0"}}`)
+	writeFile(t, root, "src/a.ts", `import { scrollToActive } from 'js/helpers/index';
+import Home from '@site/src/components/Home';
+import { useState } from 'react';
+import fs from 'node:fs';
+import path from 'path';
+import { gone } from './missing';
+`)
+	r := New()
+	t.Cleanup(r.Close)
+	u := usage(t, r, root, "src/a.ts")
+	wantUses(t, u.Uses, "?js/helpers/index#scrollToActive", "?@site/src/components/Home#default", "?./missing#gone")
+	for _, s := range useSet(u.Uses) {
+		if strings.Contains(s, "react") || strings.Contains(s, "fs") || strings.Contains(s, "path") {
+			t.Errorf("declared or builtin package kept as unknown: %s", s)
+		}
+	}
+}
+
 func TestUsageTypeScriptLocalReExport(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "x.ts", "export const a = 1; export const b = 2;\n")
@@ -146,7 +171,7 @@ func TestUsageEntriesTypeScript(t *testing.T) {
 	for _, f := range []string{
 		"src/index.ts", "src/cli.ts", "src/feature.ts", "src/web.ts", "src/server.ts", "src/lib.ts",
 		"scripts/seed.ts", "tasks/run.mjs", "src/a.test.ts", "src/__tests__/b.ts", "vite.config.ts",
-		"src/types.d.ts", "src/gen.ts",
+		"src/types.d.ts", "src/gen.ts", "test-d/types.ts", "src/x.test-d.ts",
 	} {
 		writeFile(t, root, f, "export const v = 1;\n")
 	}
@@ -157,7 +182,7 @@ func TestUsageEntriesTypeScript(t *testing.T) {
 	for _, f := range []string{
 		"src/index.ts", "src/cli.ts", "src/feature.ts", "src/web.ts", "src/server.ts",
 		"scripts/seed.ts", "tasks/run.mjs", "src/a.test.ts", "src/__tests__/b.ts", "vite.config.ts",
-		"src/types.d.ts", "src/marked.ts",
+		"src/types.d.ts", "src/marked.ts", "test-d/types.ts", "src/x.test-d.ts",
 	} {
 		if u := usage(t, r, root, f); u.Entry == "" {
 			t.Errorf("%s: not an entry", f)
@@ -184,9 +209,21 @@ func TestUsageEntriesOpaqueFramework(t *testing.T) {
 	writeFile(t, root, "next/package.json", `{"name": "n", "dependencies": {"next": "15.0.0"}}`)
 	writeFile(t, root, "next/app/blog/page.tsx", "export default function Page() { return null }\n")
 	writeFile(t, root, "next/lib/x.ts", "export const v = 1;\n")
+	// react-email renders every template of emails/
+	writeFile(t, root, "mail/package.json", `{"name": "m", "dependencies": {"react-email": "6.0.0"}}`)
+	writeFile(t, root, "mail/emails/welcome.tsx", "export default function Welcome() { return null }\n")
+	// Docusaurus loads swizzled theme components; examples are run by hand
+	writeFile(t, root, "site/package.json", `{"name": "s", "dependencies": {"@docusaurus/core": "3.0.0"}}`)
+	writeFile(t, root, "site/src/theme/Root.js", "export default function Root() { return null }\n")
+	writeFile(t, root, "examples/demo/package.json", `{"name": "demo"}`)
+	writeFile(t, root, "examples/demo/utils.ts", "export const v = 1;\n")
+	// a build output path whose layout differs from the sources
+	writeFile(t, root, "lib2/package.json", `{"name": "lib2", "main": "./dist/prod/entry.js"}`)
+	writeFile(t, root, "lib2/src/entry.ts", "export const v = 1;\n")
 	r := New()
 	t.Cleanup(r.Close)
-	for _, f := range []string{"web/src/util.ts", "other/src/util.ts", "next/app/blog/page.tsx"} {
+	for _, f := range []string{"web/src/util.ts", "other/src/util.ts", "next/app/blog/page.tsx", "mail/emails/welcome.tsx",
+		"site/src/theme/Root.js", "examples/demo/utils.ts", "lib2/src/entry.ts"} {
 		u := usage(t, r, root, f)
 		if u.Entry == "" {
 			t.Errorf("%s: not an entry", f)
@@ -194,6 +231,68 @@ func TestUsageEntriesOpaqueFramework(t *testing.T) {
 	}
 	if u := usage(t, r, root, "next/lib/x.ts"); u.Entry != "" || u.Scope != "next" {
 		t.Errorf("next/lib/x.ts: entry=%q scope=%q", u.Entry, u.Scope)
+	}
+}
+
+// MDX files are not parsed, but their imports are explicit: what they import
+// is an entry, the rest of the package is still analysed.
+func TestUsageEntriesMDXImports(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "docs/package.json", `{"name": "docs", "dependencies": {"@mdx-js/react": "3.0.0"}}`)
+	writeFile(t, root, "docs/content/post.mdx", "import { Chart } from '../components/Chart'\n\n# Post\n\n<Chart />\n")
+	writeFile(t, root, "docs/components/Chart.tsx", "export function Chart() { return null }\n")
+	writeFile(t, root, "docs/lib/other.ts", "export const v = 1;\n")
+	r := New()
+	t.Cleanup(r.Close)
+	if u := usage(t, r, root, "docs/components/Chart.tsx"); u.Entry == "" {
+		t.Error("a component an MDX file imports is not an entry")
+	}
+	if u := usage(t, r, root, "docs/lib/other.ts"); u.Entry != "" {
+		t.Errorf("docs/lib/other.ts: entry %q (the package is not opaque)", u.Entry)
+	}
+}
+
+// Static assets are served as they are; Wagtail loads wagtail_hooks.py.
+// shadcn/ui copies a component kit into the project (components.json says
+// where): its files export every part of each component on purpose.
+func TestUsageVendoredShadcn(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "web/package.json", `{"name": "web"}`)
+	writeFile(t, root, "web/components.json", `{"aliases": {"components": "@/components", "ui": "@/components/ui"}}`)
+	writeFile(t, root, "web/src/components/ui/dialog.tsx", "function DialogPortal() {}\nexport { DialogPortal }\n")
+	writeFile(t, root, "web/src/components/nav.tsx", "export function Nav() {}\n")
+	writeFile(t, root, "kit/package.json", `{"name": "kit"}`)
+	writeFile(t, root, "kit/components.json", `{}`)
+	writeFile(t, root, "kit/components/ui/button.tsx", "export function Button() {}\n")
+	// before components.json: the kit is components/ui over Radix
+	writeFile(t, root, "old/package.json", `{"name": "old", "dependencies": {"@radix-ui/react-dialog": "1.0.0"}}`)
+	writeFile(t, root, "old/components/ui/sheet.tsx", "export const Sheet = 1\n")
+	r := New()
+	t.Cleanup(r.Close)
+	for _, f := range []string{"web/src/components/ui/dialog.tsx", "kit/components/ui/button.tsx", "old/components/ui/sheet.tsx"} {
+		if u := usage(t, r, root, f); !u.Generated {
+			t.Errorf("%s: not marked generated (vendored)", f)
+		}
+	}
+	if u := usage(t, r, root, "web/src/components/nav.tsx"); u.Generated {
+		t.Error("nav.tsx is not part of the kit")
+	}
+}
+
+func TestUsageEntriesStaticAndWagtail(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "manage.py", "")
+	writeFile(t, root, "site/__init__.py", "")
+	writeFile(t, root, "site/base/__init__.py", "")
+	writeFile(t, root, "site/base/wagtail_hooks.py", "def register(): pass\n")
+	writeFile(t, root, "site/static/js/main.js", "export function f() {}\n")
+	writeFile(t, root, "web/public/sw.js", "self.addEventListener('fetch', () => {});\n")
+	r := New()
+	t.Cleanup(r.Close)
+	for _, f := range []string{"site/base/wagtail_hooks.py", "site/static/js/main.js", "web/public/sw.js"} {
+		if u := usage(t, r, root, f); u.Entry == "" {
+			t.Errorf("%s: not an entry", f)
+		}
 	}
 }
 
@@ -229,6 +328,7 @@ s = "pkg.util:z"
 importlib.import_module(f"pkg.plugins.{n}")
 `)
 	writeFile(t, root, "pkg/run.py", "if __name__ == \"__main__\":\n    pass\n")
+	writeFile(t, root, "hooks/post_gen_project.py", "print()\n") // run by cookiecutter / copier
 	r := New()
 	t.Cleanup(r.Close)
 	u := usage(t, r, root, "pkg/cli.py")
@@ -247,6 +347,9 @@ importlib.import_module(f"pkg.plugins.{n}")
 	}
 	if u := usage(t, r, root, "pkg/run.py"); u.Entry == "" {
 		t.Error("a file with a __main__ guard is not an entry")
+	}
+	if u := usage(t, r, root, "hooks/post_gen_project.py"); u.Entry == "" {
+		t.Error("a project template hook is not an entry")
 	}
 	if u := usage(t, r, root, "pkg/lib.py"); u.Entry != "" {
 		t.Errorf("pkg/lib.py: entry %q", u.Entry)

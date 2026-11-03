@@ -26,6 +26,10 @@ type Usage struct {
 	// Keep are declared names the file marks as used on purpose (a Python
 	// __all__ entry, a decorated definition a framework registers).
 	Keep []string `json:"keep,omitempty"`
+	// Mentions are source file names in the file's strings ("render.js" in
+	// a Go program that bundles it): the rule matches them against the
+	// project's paths, and the file uses what they name.
+	Mentions []string `json:"mentions,omitempty"`
 }
 
 // Use is one name a file uses from a target.

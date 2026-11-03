@@ -28,6 +28,9 @@ func (u *usageCollector) goFile(root *gts.Node) {
 	for i := 0; i < root.NamedChildCount(); i++ {
 		n := root.NamedChild(i)
 		switch x.typ(n) {
+		case "comment":
+			u.goEmbed(x.text(n))
+			continue
 		case "package_clause":
 			if n.NamedChildCount() > 0 && x.text(n.NamedChild(0)) == "main" {
 				u.goMain = true
@@ -44,6 +47,29 @@ func (u *usageCollector) goFile(root *gts.Node) {
 		}
 		declared := x.declNames(n)
 		u.goWalk(n, pkg, declared)
+	}
+}
+
+// goEmbed: the files a //go:embed directive embeds are used by the file
+// (a file name is a mention, a directory or pattern every file under it).
+func (u *usageCollector) goEmbed(comment string) {
+	rest, ok := strings.CutPrefix(comment, "//go:embed ")
+	if !ok {
+		return
+	}
+	dir := path.Dir(u.rel)
+	for _, f := range strings.Fields(rest) {
+		f = strings.TrimPrefix(strings.Trim(f, "`\""), "all:")
+		if f == "" || strings.HasPrefix(f, "..") {
+			continue
+		}
+		if i := strings.IndexAny(f, "*?["); i >= 0 {
+			u.tsPrefixes = append(u.tsPrefixes, path.Join(dir, path.Dir(f[:i]+"x")))
+			continue
+		}
+		p := path.Join(dir, f)
+		u.mentions = append(u.mentions, p)
+		u.tsPrefixes = append(u.tsPrefixes, p) // a directory: everything under it
 	}
 }
 

@@ -254,6 +254,9 @@
     "scope": ".",
     "uses": [
       {
+        "target": "?./side-effect"
+      },
+      {
         "target": "src/api/shared.ts"
       },
       {

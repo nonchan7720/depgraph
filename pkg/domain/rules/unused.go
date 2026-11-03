@@ -18,8 +18,9 @@ const (
 	RuleUnreachablePackage = "unreachable-package"
 )
 
-// UnusedExport reports the exported declaration name (kind) at file:line.
-// Its identity is file and name, not the line.
+// UnusedExport reports the exported declaration name (kind) at file:line
+// that nothing in the project uses, not even its own file. Its identity is
+// file and name, not the line.
 func UnusedExport(file string, line int, kind, name string) Finding {
 	return Finding{
 		Rule: RuleUnusedExport, Severity: "warn",

@@ -14,7 +14,7 @@ func TestUnusedExportFinding(t *testing.T) {
 	if f.Key() != UnusedExport("src/a.ts", 40, "function", "helper").Key() {
 		t.Error("key depends on the line")
 	}
-	if !strings.Contains(f.Message, "src/a.ts:12") || !strings.Contains(f.Message, "helper") {
+	if !strings.Contains(f.Message, "src/a.ts:12") || !strings.Contains(f.Message, "helper") || !strings.Contains(f.Message, "nothing") {
 		t.Errorf("message = %q", f.Message)
 	}
 }

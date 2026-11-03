@@ -42,16 +42,17 @@
     "scope": ".",
     "uses": [
       {
-        "target": "src/legacy/app.js"
+        "target": "?./missing"
+      },
+      {
+        "target": "?./missing",
+        "name": "default"
       },
       {
         "target": "src/legacy/app.js",
         "name": "*",
         "reexport": true,
         "as": "*"
-      },
-      {
-        "target": "src/legacy/component.jsx"
       },
       {
         "target": "src/legacy/component.jsx",

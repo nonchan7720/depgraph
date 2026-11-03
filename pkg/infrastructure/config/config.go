@@ -49,6 +49,9 @@ type ruleYAML struct {
 	Severity string    `yaml:"severity"`
 	FanIn    *int      `yaml:"fanIn"`
 	Ignore   *[]string `yaml:"ignore"`
+	// duplicate-code
+	MinTokens  *int     `yaml:"minTokens"`
+	Similarity *float64 `yaml:"similarity"`
 }
 
 // Load reads root/.depgraph.yml. A missing file is the defaults.
@@ -152,6 +155,18 @@ func applyRule(c *rules.Config, name string, n yaml.Node) error {
 	}
 	if ry.Ignore != nil {
 		c.IgnoreDuplicateNames = *ry.Ignore
+	}
+	if ry.MinTokens != nil {
+		if *ry.MinTokens <= 0 {
+			return fmt.Errorf("rules.%s: minTokens %d (want > 0)", name, *ry.MinTokens)
+		}
+		c.Clones.MinTokens = *ry.MinTokens
+	}
+	if ry.Similarity != nil {
+		if *ry.Similarity <= 0 || *ry.Similarity > 1 {
+			return fmt.Errorf("rules.%s: similarity %g (want 0 < similarity <= 1)", name, *ry.Similarity)
+		}
+		c.Clones.MinSimilarity = *ry.Similarity
 	}
 	return nil
 }

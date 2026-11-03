@@ -145,6 +145,8 @@ func (r *Graph) UpsertFile(ctx context.Context, fg *graph.FileGraph) error {
 		symbols = append(symbols, map[string]any{
 			"name": sym.Name, "kind": sym.Kind, "exported": sym.Exported,
 			"line": sym.Line, "endLine": sym.EndLine,
+			// code shape (duplicate-code); null for symbols without one, so not stored
+			"tokens": nonZero(sym.Tokens), "cloneHash": nonEmpty(sym.CloneHash), "fingerprints": nonEmptyList(sym.Fingerprints),
 		})
 	}
 	imports := make([]map[string]any, 0, len(fg.Imports))
@@ -189,7 +191,8 @@ func (r *Graph) UpsertFile(ctx context.Context, fg *graph.FileGraph) error {
 				UNWIND $symbols AS s
 				CREATE (sym:Symbol {
 					project: $project, name: s.name, kind: s.kind, exported: s.exported,
-					line: s.line, endLine: s.endLine, language: $lang, file: $path
+					line: s.line, endLine: s.endLine, language: $lang, file: $path,
+					tokens: s.tokens, cloneHash: s.cloneHash, fingerprints: s.fingerprints
 				})
 				CREATE (f)-[:DECLARES]->(sym)
 			`, r.params(map[string]any{"path": fg.Path, "symbols": symbols, "lang": string(fg.Language)})); err != nil {
@@ -331,4 +334,27 @@ func (r *Graph) Stats(ctx context.Context) (graph.Stats, error) {
 		Imports:  i64(row["imports"]),
 		Calls:    i64(row["calls"]),
 	}, nil
+}
+
+// nonZero / nonEmpty / nonEmptyList map the zero value to nil, which Cypher
+// does not store as a property.
+func nonZero(n int) any {
+	if n == 0 {
+		return nil
+	}
+	return n
+}
+
+func nonEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+func nonEmptyList(xs []int64) any {
+	if len(xs) == 0 {
+		return nil
+	}
+	return xs
 }

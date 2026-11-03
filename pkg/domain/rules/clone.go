@@ -103,29 +103,30 @@ func FindClones(cands []CloneCandidate, opt CloneOptions) []Finding {
 		}
 	}
 	common := func(f int64) bool { return len(index[f]) > opt.MaxFingerprintFreq }
-	// boilerplate is ignored on both sides of the comparison
-	sizes := make([]int, len(cs))
-	for i := range cs {
-		for f := range sets[i] {
-			if !common(f) {
-				sizes[i]++
-			}
-		}
-	}
-	shared := map[[2]int]int{}
+	// Candidates share a fingerprint that is not boilerplate; their
+	// similarity is then measured over ALL fingerprints. Measuring it over
+	// the non-boilerplate remainder made two unrelated, mostly-boilerplate
+	// functions sharing a single rare fingerprint look 100% alike.
+	cand := map[[2]int]bool{}
 	for f, members := range index {
 		if common(f) {
 			continue
 		}
 		for a := 0; a < len(members); a++ {
 			for b := a + 1; b < len(members); b++ {
-				shared[[2]int{members[a], members[b]}]++
+				cand[[2]int{members[a], members[b]}] = true
 			}
 		}
 	}
 	sim := map[[2]int]float64{}
-	for p, n := range shared {
-		j := float64(n) / float64(sizes[p[0]]+sizes[p[1]]-n)
+	for p := range cand {
+		n := 0
+		for f := range sets[p[0]] {
+			if sets[p[1]][f] {
+				n++
+			}
+		}
+		j := float64(n) / float64(len(sets[p[0]])+len(sets[p[1]])-n)
 		if j >= opt.MinSimilarity {
 			union(p[0], p[1])
 			sim[p] = j

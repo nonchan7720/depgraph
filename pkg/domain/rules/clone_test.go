@@ -109,3 +109,24 @@ func TestFindClonesZeroOptionsAreDefaults(t *testing.T) {
 		t.Errorf("zero options: %v", got)
 	}
 }
+
+// Two unrelated functions made mostly of boilerplate share one rare
+// fingerprint: after dropping the boilerplate they looked 100% alike. The
+// similarity is measured over all fingerprints; boilerplate only stops a
+// pair from becoming a candidate on its own.
+func TestFindClonesSmallRemainderIsNotACopy(t *testing.T) {
+	var cs []CloneCandidate
+	// fillers make fingerprints 0..9 and 10..19 common
+	for i := range 12 {
+		cs = append(cs, cand(fmt.Sprintf("f%d.go", i), fmt.Sprintf("F%d", i), 1, 60, fmt.Sprint("f", i), append(fps(0, 10), fps(10, 20)...)))
+	}
+	cs = append(cs,
+		cand("a.go", "A", 1, 68, "ha", append(fps(0, 10), 900)),  // boilerplate + 1 rare
+		cand("b.go", "B", 1, 51, "hb", append(fps(10, 20), 900)), // other boilerplate + the same rare one
+	)
+	for _, f := range FindClones(cs, CloneOptions{MinTokens: 50, MinSimilarity: 0.8, MaxFingerprintFreq: 10}) {
+		if strings.Contains(f.Message, "a.go") || strings.Contains(f.Message, "b.go") {
+			t.Errorf("unrelated functions reported: %s", f.Message)
+		}
+	}
+}

@@ -21,8 +21,13 @@ builds:
       - CGO_ENABLED=0
     flags:
       - -trimpath
-    tags:
-      - gotreesitter_no_copyleft
+    # No `tags:` here: a -tags flag would override GOFLAGS from mise.toml, which
+    # carries the full tag set (gotreesitter_no_copyleft, grammar_subset_*).
+    # Every binary is checked after it is built.
+    hooks:
+      post:
+        - cmd: scripts/check-no-copyleft.sh "{{ .Path }}"
+          output: true
     ldflags:
       - -s -w
       - -X github.com/nonchan7720/depgraph/pkg/version.Version={{ .Version }}

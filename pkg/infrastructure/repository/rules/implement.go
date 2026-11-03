@@ -146,7 +146,10 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 			return nil, fmt.Errorf("duplicates: %w", err)
 		}
 		for _, row := range rows {
+			// collect() has no order: sort, so the message is the same on every run
 			files := toStrings(row["files"])
+			sort.Strings(files)
+			row["files"] = files
 			out = append(out, rules.Finding{
 				Rule: rules.RuleDuplicateSymbol, Severity: sev(rules.RuleDuplicateSymbol),
 				ID:      fmt.Sprintf("%s:%s", row["kind"], row["name"]),

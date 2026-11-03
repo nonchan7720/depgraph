@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nonchan7720/depgraph/pkg/domain/graph"
 	"github.com/nonchan7720/depgraph/pkg/domain/project"
 	"github.com/nonchan7720/depgraph/pkg/domain/rules"
+	"github.com/nonchan7720/depgraph/pkg/domain/view"
 	graphrepo "github.com/nonchan7720/depgraph/pkg/infrastructure/repository/graph"
 	"github.com/nonchan7720/depgraph/pkg/interfaces/handler/hook"
 )
@@ -78,9 +78,9 @@ func TestResolveProject(t *testing.T) {
 	}
 }
 
-type fakeHookStore struct{ stats graph.Stats }
+type fakeHookStore struct{ stats view.Stats }
 
-func (s fakeHookStore) Stats(context.Context) (graph.Stats, error) { return s.stats, nil }
+func (s fakeHookStore) Stats(context.Context) (view.Stats, error) { return s.stats, nil }
 
 type fakeHookRules struct{ n int }
 
@@ -98,7 +98,7 @@ func TestHookProjectData(t *testing.T) {
 	var scopedTo []string
 	pd := projectData{projects: repo, flagKey: "", scoped: func(key string) (statsReader, rules.Repository) {
 		scopedTo = append(scopedTo, key)
-		return fakeHookStore{stats: graph.Stats{Files: 3}}, r
+		return fakeHookStore{stats: view.Stats{Files: 3}}, r
 	}}
 	var sessionsOf []string
 	pd.sessions = func(key string) hook.SessionStore {

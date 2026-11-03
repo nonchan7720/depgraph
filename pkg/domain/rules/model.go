@@ -65,7 +65,7 @@ type Rule struct {
 var builtin = []Rule{
 	{Name: RuleImportCycle, Severity: SeverityError, Description: "import cycle between packages"},
 	{Name: RuleLayerViolation, Severity: SeverityError, Description: "a package imports a layer it must not import"},
-	{Name: RuleGodPackage, Severity: SeverityWarn, Description: "a package imported by many packages", Options: []string{"fanIn"}},
+	{Name: RuleGodPackage, Severity: SeverityWarn, Description: "a hub: imported by many packages and importing many", Options: []string{"fanIn", "fanOut"}},
 	{Name: RuleDuplicateSymbol, Severity: SeverityWarn, Description: "an exported function / class declared in several files", Options: []string{"ignore"}},
 	{Name: RuleDuplicateCode, Severity: SeverityWarn, Description: "the same logic in several places, whatever the names", Options: []string{"minTokens", "similarity"}},
 }
@@ -111,8 +111,12 @@ type Config struct {
 	// import a package in to. An import between two packages that are both
 	// in from or both in to is not a violation (it does not cross the pair).
 	ForbiddenLayers [][2]string
-	// GodPackageFanIn: packages imported by at least this many packages.
-	GodPackageFanIn int
+	// GodPackageFanIn / GodPackageFanOut: a god package is a hub, imported
+	// by at least FanIn packages AND importing at least FanOut in-repo
+	// packages. A package many depend on that depends on nothing in the
+	// repository (a domain model) is stable, not a god package.
+	GodPackageFanIn  int
+	GodPackageFanOut int
 	// IgnoreDuplicateNames: symbol names excluded from the duplicate check.
 	IgnoreDuplicateNames []string
 	// Ignore: package key globs excluded from every rule.
@@ -159,8 +163,9 @@ func DefaultConfig() Config {
 			{"domain", "infra"}, {"domain", "handler"}, {"domain", "repository"},
 			{"usecase", "handler"},
 		},
-		GodPackageFanIn: 10,
-		Clones:          DefaultCloneOptions(),
+		GodPackageFanIn:  10,
+		GodPackageFanOut: 3,
+		Clones:           DefaultCloneOptions(),
 		IgnoreDuplicateNames: []string{
 			"main", "init", "New", "String", "Error", "Close", "Run", "Validate",
 			"default", "index", "setup", "teardown", "handler", "render", "App",
@@ -279,6 +284,9 @@ func (c Config) Validate() error {
 	}
 	if _, _, err := c.UnusedGlobs(); err != nil {
 		return err
+	}
+	if c.GodPackageFanOut < 0 {
+		return fmt.Errorf("rule %s: fanOut must be at least 1, got %d", RuleGodPackage, c.GodPackageFanOut)
 	}
 	if c.GodPackageFanIn < 1 {
 		return fmt.Errorf("rule %s: fanIn must be at least 1, got %d", RuleGodPackage, c.GodPackageFanIn)

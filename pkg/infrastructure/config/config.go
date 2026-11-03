@@ -48,6 +48,7 @@ type ruleYAML struct {
 	Enabled  *bool     `yaml:"enabled"`
 	Severity string    `yaml:"severity"`
 	FanIn    *int      `yaml:"fanIn"`
+	FanOut   *int      `yaml:"fanOut"`
 	Ignore   *[]string `yaml:"ignore"`
 	Entries  *[]string `yaml:"entries"`
 	// duplicate-code
@@ -153,6 +154,12 @@ func applyRule(c *rules.Config, name string, n yaml.Node) error {
 	c.Settings[name] = s
 	if ry.FanIn != nil {
 		c.GodPackageFanIn = *ry.FanIn
+	}
+	if ry.FanOut != nil {
+		if *ry.FanOut < 1 {
+			return fmt.Errorf("rules.%s: fanOut %d (want >= 1)", name, *ry.FanOut)
+		}
+		c.GodPackageFanOut = *ry.FanOut
 	}
 	switch {
 	case rules.IsUnusedRule(name):

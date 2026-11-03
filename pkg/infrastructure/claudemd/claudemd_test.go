@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nonchan7720/depgraph/pkg/domain/graph"
 	"github.com/nonchan7720/depgraph/pkg/domain/rules"
+	"github.com/nonchan7720/depgraph/pkg/domain/view"
 )
 
 func TestUpdatePreservesHandwrittenContent(t *testing.T) {
@@ -50,7 +50,7 @@ func TestUpdatePreservesHandwrittenContent(t *testing.T) {
 func TestWriter(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "CLAUDE.md")
 	w := Writer{Path: p}
-	err := w.Write(graph.Stats{Packages: 3}, []rules.Finding{{Rule: "layer-violation", Severity: "error", Message: "a -> b"}})
+	err := w.Write(view.Stats{Packages: 3}, []rules.Finding{{Rule: "layer-violation", Severity: "error", Message: "a -> b"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestWriter(t *testing.T) {
 // Every finding reaches CLAUDE.md: rules without a fixed title (new or
 // configured ones) are listed after the known ones, not dropped.
 func TestRenderListsEveryRule(t *testing.T) {
-	out := Render(graph.Stats{}, []rules.Finding{
+	out := Render(view.Stats{}, []rules.Finding{
 		{Rule: "zz-custom", Severity: "warn", Message: "custom finding"},
 		{Rule: "god-package", Severity: "warn", Message: "pkg/x is imported by 12 packages"},
 		{Rule: "import-cycle", Severity: "error", Message: "a -> b -> a"},
@@ -91,7 +91,7 @@ func TestRenderUnusedRules(t *testing.T) {
 	for i := 0; i < 40; i++ {
 		fs = append(fs, rules.UnusedExport("src/a.ts", i+1, "function", fmt.Sprintf("f%02d", i)))
 	}
-	out := Render(graph.Stats{}, fs)
+	out := Render(view.Stats{}, fs)
 	for _, want := range []string{"### Unused exports", "### Unreachable files", "### Unreachable Go packages", "src/old.ts", "f19", "20 more"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in\n%s", want, out)
@@ -103,7 +103,7 @@ func TestRenderUnusedRules(t *testing.T) {
 }
 
 func TestRenderDuplicateCode(t *testing.T) {
-	out := Render(graph.Stats{}, []rules.Finding{{Rule: "duplicate-code", Severity: "warn", Message: "identical logic in 2 places: a.go:1-9 A, b.go:1-9 B"}})
+	out := Render(view.Stats{}, []rules.Finding{{Rule: "duplicate-code", Severity: "warn", Message: "identical logic in 2 places: a.go:1-9 A, b.go:1-9 B"}})
 	if !strings.Contains(out, "### Duplicated code") || !strings.Contains(out, "a.go:1-9 A") {
 		t.Errorf("render:\n%s", out)
 	}

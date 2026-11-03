@@ -5,8 +5,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/nonchan7720/depgraph/pkg/domain/graph"
 	"github.com/nonchan7720/depgraph/pkg/domain/rules"
+	"github.com/nonchan7720/depgraph/pkg/domain/view"
 )
 
 // Limits はコンテキストを溢れさせないための上限。
@@ -125,7 +125,7 @@ func (w *builder) line(s string) {
 
 // Summarize はセッション開始時に注入する全体の要約を作る。
 // error を先に、件数が多いルールは件数と代表例だけに圧縮し、全体を MaxChars に収める。
-func Summarize(stats graph.Stats, findings []rules.Finding, lim Limits) string {
+func Summarize(stats view.Stats, findings []rules.Finding, lim Limits) string {
 	w := &builder{max: lim.MaxChars}
 	w.line("## depgraph: dependency analysis of this repository")
 	w.line(fmt.Sprintf("%d packages, %d files, %d symbols, %d package-level import edges.",

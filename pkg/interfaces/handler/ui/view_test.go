@@ -4,14 +4,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nonchan7720/depgraph/pkg/domain/graph"
 	"github.com/nonchan7720/depgraph/pkg/domain/rules"
+	"github.com/nonchan7720/depgraph/pkg/domain/view"
 )
 
-func pkgs(keys ...string) []graph.PackageNode {
-	out := make([]graph.PackageNode, 0, len(keys))
+func pkgs(keys ...string) []view.PackageNode {
+	out := make([]view.PackageNode, 0, len(keys))
 	for _, k := range keys {
-		out = append(out, graph.PackageNode{Key: k, Symbols: 1})
+		out = append(out, view.PackageNode{Key: k, Symbols: 1})
 	}
 	return out
 }
@@ -34,8 +34,8 @@ func edgeByID(v View, id string) (ViewEdge, bool) {
 	return ViewEdge{}, false
 }
 
-func sampleOverview() *graph.Overview {
-	return &graph.Overview{
+func sampleOverview() *view.Overview {
+	return &view.Overview{
 		Packages: pkgs(
 			"cmd/app",
 			"pkg/domain/user",
@@ -46,7 +46,7 @@ func sampleOverview() *graph.Overview {
 			"pkg/infra",
 			"pkg/util",
 		),
-		Edges: []graph.Edge{
+		Edges: []view.Edge{
 			{From: "cmd/app", To: "pkg/infra/mysql"},
 			{From: "pkg/infra/mysql", To: "pkg/domain/user"},
 			{From: "pkg/infra/ent/user", To: "pkg/domain/user"},
@@ -172,8 +172,8 @@ func TestBuildViewFindingsPropagate(t *testing.T) {
 
 func TestBuildViewExternalAndQuery(t *testing.T) {
 	ov := sampleOverview()
-	ov.Packages = append(ov.Packages, graph.PackageNode{Key: "ext:fmt", External: true})
-	ov.Edges = append(ov.Edges, graph.Edge{From: "pkg/util", To: "ext:fmt"})
+	ov.Packages = append(ov.Packages, view.PackageNode{Key: "ext:fmt", External: true})
+	ov.Edges = append(ov.Edges, view.Edge{From: "pkg/util", To: "ext:fmt"})
 
 	v := BuildView(ov, nil, ViewOptions{Depth: 2})
 	if _, ok := nodeByID(v, "ext:fmt"); ok {
@@ -277,13 +277,13 @@ func TestParseViewOptionsFocus(t *testing.T) {
 func TestBuildViewDuplicateKeysDoNotRecurseForever(t *testing.T) {
 	// The same package key can appear twice (e.g. left over from an older
 	// schema). Opening its group used to recurse until the stack overflowed.
-	ov := &graph.Overview{
-		Packages: []graph.PackageNode{
+	ov := &view.Overview{
+		Packages: []view.PackageNode{
 			{Key: "handler", Files: 1, Symbols: 2},
 			{Key: "handler", Files: 3, Symbols: 4},
 			{Key: "repository", Files: 1, Symbols: 1},
 		},
-		Edges: []graph.Edge{{From: "handler", To: "repository"}},
+		Edges: []view.Edge{{From: "handler", To: "repository"}},
 	}
 	done := make(chan View, 1)
 	go func() {

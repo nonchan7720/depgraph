@@ -235,7 +235,7 @@ pkg/interfaces/handler/hook/         Claude Code hook（要約・差分・状態
 [GoReleaser](https://goreleaser.com) で自動化しています（`.github/workflows/release.yml`）。
 
 1. [Conventional Commits](https://www.conventionalcommits.org/ja/) 形式のタイトルで PR を `main` にマージする
-   （1.0 未満の間は `feat:` → minor、`fix:` / `perf:` → patch、`feat!:` / `BREAKING CHANGE:` → minor）。
+   （1.0 未満の間は `feat:` / `fix:` / `perf:` → patch、`feat!:` / `BREAKING CHANGE:` → minor）。
    squash マージなので PR タイトルがコミットメッセージになります。
 2. release-please が `release-please/manifest.json`、`pkg/version/version.go`、`CHANGELOG.md` を
    更新するリリース PR を開いたまま保ちます。初回リリースは `v0.1.0` です。

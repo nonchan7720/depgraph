@@ -243,7 +243,7 @@ Releases are automated with [release-please](https://github.com/googleapis/relea
 [GoReleaser](https://goreleaser.com) (`.github/workflows/release.yml`).
 
 1. Merge PRs into `main` with [Conventional Commits](https://www.conventionalcommits.org/) titles
-   (`feat:` → minor, `fix:` / `perf:` → patch while < 1.0; `feat!:` / `BREAKING CHANGE:` → minor while < 1.0).
+   (while < 1.0: `feat:` / `fix:` / `perf:` → patch, `feat!:` / `BREAKING CHANGE:` → minor).
    PRs are squash-merged, so the PR title is the commit message.
 2. release-please keeps a release PR open that bumps `release-please/manifest.json`,
    `pkg/version/version.go` and `CHANGELOG.md`. The first release is `v0.1.0`.

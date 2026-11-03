@@ -21,7 +21,7 @@ type service struct {
 	out io.Writer
 
 	// mu serializes graph writes between HandleChanges (tree-sitter stage) and
-	// the refiner. evalMu guards prev/ready/notifier, which both stages touch.
+	// the refiner. evalMu guards cfg/prev/ready/notifier, which both stages touch.
 	mu       sync.Mutex
 	evalMu   sync.Mutex
 	prev     []rules.Finding
@@ -43,6 +43,12 @@ func New(d Deps, opt Options) Service {
 }
 
 func (s *service) logf(format string, a ...any) { _, _ = fmt.Fprintf(s.out, format, a...) }
+
+func (s *service) SetConfig(cfg rules.Config) {
+	s.evalMu.Lock()
+	s.cfg = cfg
+	s.evalMu.Unlock()
+}
 
 func (s *service) SetNotifier(n Notifier) {
 	s.evalMu.Lock()

@@ -83,3 +83,174 @@ func TestEvaluateIsScopedByProject(t *testing.T) {
 		t.Errorf("clean project sees other project's findings: %v", got)
 	}
 }
+
+// Default layers match whole path segments: "db" is not part of "feedback",
+// "handler" is not "eventhandler". Before the fix layer names were matched by
+// substring on the package key and both edges below were reported.
+func TestEvaluateDefaultLayersMatchWholeSegments(t *testing.T) {
+	ctx, st := connect(t)
+	key := fmt.Sprintf("zz_test_%d_layers", time.Now().UnixNano())
+	seed(ctx, t, st, key, map[string][]string{
+		"pkg/eventhandler": {"pkg/feedback"},   // substring only: no violation
+		"pkg/handler":      {"pkg/repository"}, // whole segments: violation
+		"pkg/repository":   nil,
+		"pkg/feedback":     nil,
+	})
+	fs, err := New(st, key).Evaluate(ctx, rules.DefaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, f := range fs {
+		if f.Rule == "layer-violation" {
+			got = append(got, fmt.Sprintf("%v->%v", f.Data["from"], f.Data["to"]))
+		}
+	}
+	if len(got) != 1 || got[0] != "pkg/handler->pkg/repository" {
+		t.Errorf("layer violations = %v, want only pkg/handler->pkg/repository", got)
+	}
+}
+
+// Layers from the configuration (globs), per-rule severity / enabled, and
+// ignored packages.
+func TestEvaluateWithConfig(t *testing.T) {
+	ctx, st := connect(t)
+	key := fmt.Sprintf("zz_test_%d_config", time.Now().UnixNano())
+	seed(ctx, t, st, key, map[string][]string{
+		"pkg/domain/a":          {"pkg/infrastructure/db", "pkg/domain/b"},
+		"pkg/domain/b":          nil,
+		"pkg/infrastructure/db": {"pkg/domain/b"},
+		"pkg/app":               {"pkg/domain/b", "pkg/infrastructure/db"},
+		// ignored: neither a violation nor counted in fan-in nor a cycle
+		"pkg/domain/testdata/x": {"pkg/infrastructure/db", "pkg/domain/testdata/y"},
+		"pkg/domain/testdata/y": {"pkg/domain/testdata/x"},
+	})
+	base := rules.Config{
+		Layers: []rules.Layer{
+			{Name: "domain", Packages: []string{"pkg/domain/**"}},
+			{Name: "infrastructure", Packages: []string{"pkg/infrastructure/**"}},
+		},
+		ForbiddenLayers:      [][2]string{{"domain", "infrastructure"}},
+		GodPackageFanIn:      3,
+		Ignore:               []string{"**/testdata/**"},
+		IgnoreDuplicateNames: nil,
+	}
+	eval := func(cfg rules.Config) map[string][]rules.Finding {
+		t.Helper()
+		if err := cfg.Validate(); err != nil {
+			t.Fatal(err)
+		}
+		fs, err := New(st, key).Evaluate(ctx, cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := map[string][]rules.Finding{}
+		for _, f := range fs {
+			out[f.Rule] = append(out[f.Rule], f)
+		}
+		return out
+	}
+
+	got := eval(base)
+	if lv := got["layer-violation"]; len(lv) != 1 || lv[0].Data["from"] != "pkg/domain/a" || lv[0].Data["to"] != "pkg/infrastructure/db" || lv[0].Severity != "error" {
+		t.Errorf("layer violations = %+v", lv)
+	}
+	// pkg/domain/b is imported by a, db and app (the ignored x does not count)
+	if gp := got["god-package"]; len(gp) != 1 || gp[0].ID != "pkg/domain/b" {
+		t.Errorf("god packages = %+v", gp)
+	}
+	if c := got["import-cycle"]; len(c) != 0 {
+		t.Errorf("cycle through ignored packages must not be reported: %+v", c)
+	}
+
+	cfg := base
+	cfg.Settings = map[string]rules.RuleSetting{
+		rules.RuleLayerViolation: {Severity: rules.SeverityWarn},
+		rules.RuleGodPackage:     {Disabled: true},
+	}
+	got = eval(cfg)
+	if lv := got["layer-violation"]; len(lv) != 1 || lv[0].Severity != "warn" {
+		t.Errorf("severity override: %+v", lv)
+	}
+	if len(got["god-package"]) != 0 {
+		t.Errorf("disabled rule reported: %+v", got["god-package"])
+	}
+
+	// without ignore the testdata cycle and its layer violation show up
+	cfg = base
+	cfg.Ignore = nil
+	got = eval(cfg)
+	if len(got["import-cycle"]) != 1 || len(got["layer-violation"]) != 2 {
+		t.Errorf("without ignore: %+v", got)
+	}
+}
+
+// Duplicate symbols in ignored packages are not reported.
+func TestDuplicateSymbolIgnore(t *testing.T) {
+	ctx, st := connect(t)
+	key := fmt.Sprintf("zz_test_%d_dup", time.Now().UnixNano())
+	r := graphrepo.ForProject(st, key)
+	t.Cleanup(func() { _ = r.Clear(context.Background()) })
+	for _, p := range []string{"a", "b", "a/testdata"} {
+		fg := &graph.FileGraph{Path: p + "/f.go", Package: p, Language: graph.Go,
+			Symbols: []graph.Symbol{{Name: "Dup", Kind: "function", Exported: true}, {Name: "Fix", Kind: "function", Exported: true}}}
+		if p != "a/testdata" {
+			fg.Symbols = fg.Symbols[:1]
+		}
+		if err := r.UpsertFile(ctx, fg); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := rules.DefaultConfig()
+	cfg.Ignore = []string{"**/testdata/**"}
+	fs, err := New(st, key).Evaluate(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dups []string
+	for _, f := range fs {
+		if f.Rule == "duplicate-symbol" {
+			dups = append(dups, f.Message)
+		}
+	}
+	if len(dups) != 1 || dups[0] != `function "Dup" declared in 2 files: a/f.go, b/f.go` {
+		t.Errorf("duplicates = %q", dups)
+	}
+}
+
+// connect opens the test store or skips when Neo4j is unreachable.
+func connect(t *testing.T) (context.Context, *graphrepo.Store) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	t.Cleanup(cancel)
+	st, err := graphrepo.New(ctx, get("NEO4J_URI", "bolt://localhost:7687"), get("NEO4J_USER", "neo4j"),
+		get("NEO4J_PASSWORD", "depgraph123"), get("NEO4J_DATABASE", "neo4j"))
+	if err != nil {
+		t.Skipf("neo4j not available: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close(context.Background()) })
+	if err := st.EnsureSchema(ctx); err != nil {
+		t.Fatal(err)
+	}
+	return ctx, st
+}
+
+// seed stores one Go file per package importing the given packages under
+// project key (a zz_test_* key, cleared afterwards).
+func seed(ctx context.Context, t *testing.T, st *graphrepo.Store, key string, pkgs map[string][]string) {
+	t.Helper()
+	r := graphrepo.ForProject(st, key)
+	t.Cleanup(func() { _ = r.Clear(context.Background()) })
+	for pkg, imps := range pkgs {
+		fg := &graph.FileGraph{Path: pkg + "/f.go", Package: pkg, Language: graph.Go}
+		for _, imp := range imps {
+			fg.Imports = append(fg.Imports, graph.Import{Spec: imp, Target: imp})
+		}
+		if err := r.UpsertFile(ctx, fg); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := r.RebuildAllPackageImports(ctx); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -109,6 +110,53 @@ func TestGolden(t *testing.T) {
 		}
 		t.Errorf("stale golden file %s (no corpus file; regenerate with -update)", name)
 	}
+}
+
+// The parallel scan calls ResolveFile from several goroutines with one
+// Resolver: the result must still match the goldens (run with -race).
+func TestGoldenConcurrent(t *testing.T) {
+	if *update {
+		t.Skip("-update")
+	}
+	root := copyCorpus(t)
+	r := New()
+	var rels []string
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		rel, _ := filepath.Rel(root, p)
+		if rel = filepath.ToSlash(rel); r.Supports(rel) {
+			rels = append(rels, rel)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	for g := range 8 {
+		wg.Go(func() {
+			for i := range rels {
+				rel := rels[(i+g)%len(rels)] // every goroutine starts elsewhere
+				fg, err := r.ResolveFile(context.Background(), root, rel)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				got, _ := json.MarshalIndent(fg, "", "  ")
+				exp, err := os.ReadFile(filepath.Join(goldenDir, strings.ReplaceAll(rel, "/", "__")+".json"))
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				if !bytes.Equal(append(got, '\n'), exp) {
+					t.Errorf("%s: concurrent result differs from golden", rel)
+				}
+			}
+		})
+	}
+	wg.Wait()
 }
 
 // copyCorpus copies testdata/corpus into a temporary directory, removing a

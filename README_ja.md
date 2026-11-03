@@ -78,6 +78,7 @@ depgraph projects prune [--dry-run]  # root が存在しなくなったプロジ
 | `--neo4j` / `--user` / `--pass` / `--db` | scan / check / watch / serve / hook / projects | `$NEO4J_URI` / `$NEO4J_USER` / `$NEO4J_PASSWORD` / `$NEO4J_DATABASE`（未設定時 `bolt://localhost:7687` / `neo4j` / `depgraph123` / `neo4j`） |
 | `--claude-md` | scan / check / watch | `$DEPGRAPH_CLAUDE_MD` または `CLAUDE.md`（`--root` 基準、空で無効） |
 | `--reset` | scan / watch | false（スキャン前にこのプロジェクトのデータを消去。他のプロジェクトは残る） |
+| `--workers` | parse / scan / watch | `0`（フルスキャンで並列に解析するファイル数。0 は GOMAXPROCS。出力順はこの値に依存しない） |
 | `--addr` | watch / serve | `$DEPGRAPH_ADDR` または `127.0.0.1:7777` |
 | `--debounce` | watch | `400ms` |
 | `--no-ui` / `--no-lsp` | watch | false |

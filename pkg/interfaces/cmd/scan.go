@@ -25,5 +25,6 @@ func newScanCommand(o *options) *cobra.Command {
 	addNeo4jFlags(c.Flags(), o)
 	addClaudeMDFlag(c.Flags(), o)
 	addResetFlag(c.Flags(), o)
+	addWorkersFlag(c.Flags(), o)
 	return c
 }

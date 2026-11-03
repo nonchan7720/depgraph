@@ -12,7 +12,7 @@ import (
 )
 
 func newParseCommand(o *options) *cobra.Command {
-	return &cobra.Command{
+	c := &cobra.Command{
 		Use:   "parse [file...]",
 		Short: "Debug: print the tree-sitter parse as JSON, one FileGraph per line (no Neo4j)",
 		Long: `Print the tree-sitter parse of --root (or only the given files) as JSON,
@@ -22,7 +22,7 @@ one FileGraph per line. Neo4j is not needed.`,
 			r := treesitter.New()
 			enc := json.NewEncoder(cmd.OutOrStdout())
 			if len(files) == 0 {
-				return resolver.ScanRepo(ctx, r, o.root, func(fg *graph.FileGraph) error { return enc.Encode(fg) })
+				return resolver.ScanRepoWorkers(o.workers)(ctx, r, o.root, func(fg *graph.FileGraph) error { return enc.Encode(fg) })
 			}
 			for _, f := range files {
 				abs, err := filepath.Abs(f)
@@ -44,4 +44,6 @@ one FileGraph per line. Neo4j is not needed.`,
 			return nil
 		},
 	}
+	addWorkersFlag(c.Flags(), o)
+	return c
 }

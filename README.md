@@ -82,6 +82,7 @@ Flags (see `depgraph <command> --help`):
 | `--neo4j` / `--user` / `--pass` / `--db` | scan / check / watch / serve / hook / projects | `$NEO4J_URI` / `$NEO4J_USER` / `$NEO4J_PASSWORD` / `$NEO4J_DATABASE` (fallback `bolt://localhost:7687` / `neo4j` / `depgraph123` / `neo4j`) |
 | `--claude-md` | scan / check / watch | `$DEPGRAPH_CLAUDE_MD` or `CLAUDE.md` (relative to `--root`, empty to disable) |
 | `--reset` | scan / watch | false (clear this project's data before scanning; other projects are kept) |
+| `--workers` | parse / scan / watch | `0` (files parsed in parallel during a full scan; 0 = GOMAXPROCS. Output order does not depend on it) |
 | `--addr` | watch / serve | `$DEPGRAPH_ADDR` or `127.0.0.1:7777` |
 | `--debounce` | watch | `400ms` |
 | `--no-ui` / `--no-lsp` | watch | false |

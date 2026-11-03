@@ -9,3 +9,6 @@ pkg/interfaces/handler/ui/dist/*
 HANDOFF.md
 bin/
 .DS_Store
+
+# git worktrees created by Claude Code
+.claude/worktrees/

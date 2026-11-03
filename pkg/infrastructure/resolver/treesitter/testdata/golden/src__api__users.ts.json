@@ -249,5 +249,61 @@
       "target": "src/db",
       "external": false
     }
-  ]
+  ],
+  "usage": {
+    "scope": ".",
+    "uses": [
+      {
+        "target": "src/api/shared.ts"
+      },
+      {
+        "target": "src/api/shared.ts",
+        "name": "*",
+        "reexport": true,
+        "as": "*"
+      },
+      {
+        "target": "src/api/shared.ts",
+        "name": "*",
+        "reexport": true,
+        "as": "ns"
+      },
+      {
+        "target": "src/api/shared.ts",
+        "name": "default"
+      },
+      {
+        "target": "src/api/shared.ts",
+        "name": "named"
+      },
+      {
+        "target": "src/db/index.ts"
+      },
+      {
+        "target": "src/db/index.ts",
+        "name": "query"
+      },
+      {
+        "target": "src/db/index.ts",
+        "name": "query",
+        "reexport": true,
+        "as": "q"
+      },
+      {
+        "target": "src/db/util.ts"
+      },
+      {
+        "target": "src/db/util.ts",
+        "name": "format",
+        "reexport": true,
+        "as": "format"
+      }
+    ],
+    "exports": [
+      {
+        "name": "default",
+        "local": "main"
+      }
+    ]
+  }
 }

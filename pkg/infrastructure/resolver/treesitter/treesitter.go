@@ -31,6 +31,7 @@ import (
 // imports package with each ecosystem's own rules and project configuration.
 type Resolver struct {
 	imp *imports.Multi
+	man manifestCache // entry points declared by manifests (entries.go)
 }
 
 // New returns a tree-sitter resolver. Call Close when done.
@@ -41,13 +42,19 @@ func (r *Resolver) Close() { r.imp.Close() }
 
 // IsConfigFile reports whether import resolution depends on rel
 // (repo-relative): a change to it must be followed by ConfigChanged.
-func (r *Resolver) IsConfigFile(rel string) bool { return imports.IsConfigFile(rel) }
+func (r *Resolver) IsConfigFile(rel string) bool {
+	return imports.IsConfigFile(rel) || isEntryManifest(rel)
+}
 
 // ConfigChanged drops cached project configuration when rel (repo-relative)
 // is a file import resolution depends on (go.mod, tsconfig.json,
 // package.json, pyproject.toml, ...). It reports whether rel was one.
 func (r *Resolver) ConfigChanged(root, rel string) bool {
-	return r.imp.InvalidateFor(root, filepath.ToSlash(rel))
+	entries := isEntryManifest(rel)
+	if entries {
+		r.man.drop(root)
+	}
+	return r.imp.InvalidateFor(root, filepath.ToSlash(rel)) || entries
 }
 
 // Name implements resolver.Resolver.
@@ -161,7 +168,9 @@ func (r *Resolver) ResolveFile(ctx context.Context, root, rel string) (*graph.Fi
 		}
 	}
 
-	r.resolveImports(ctx, root, fg)
+	u := x.collectUsage(lang, rootNode)
+	reqs := u.requests()
+	r.finishUsage(ctx, root, fg, u, reqs, r.resolveImports(ctx, root, fg, reqs))
 	return fg, nil
 }
 
@@ -372,15 +381,18 @@ func (x *extractor) pyDecl(n *gts.Node) {
 
 // ---- import resolution ---------------------------------------------------
 
-func (r *Resolver) resolveImports(ctx context.Context, root string, fg *graph.FileGraph) {
-	if len(fg.Imports) == 0 {
-		return
+// resolveImports resolves fg's imports together with extra (one batch) and
+// returns the results of extra.
+func (r *Resolver) resolveImports(ctx context.Context, root string, fg *graph.FileGraph, extra []imports.Request) []imports.Result {
+	if len(fg.Imports) == 0 && len(extra) == 0 {
+		return nil
 	}
-	reqs := make([]imports.Request, len(fg.Imports))
+	reqs := make([]imports.Request, len(fg.Imports), len(fg.Imports)+len(extra))
 	for i, im := range fg.Imports {
 		reqs[i] = imports.Request{FromFile: fg.Path, Spec: im.Spec}
 	}
-	for i, res := range r.imp.ResolveBatch(ctx, root, reqs) {
+	all := r.imp.ResolveBatch(ctx, root, append(reqs, extra...))
+	for i, res := range all[:len(fg.Imports)] {
 		im := &fg.Imports[i]
 		switch res.Kind {
 		case imports.InRepo:
@@ -391,4 +403,5 @@ func (r *Resolver) resolveImports(ctx context.Context, root string, fg *graph.Fi
 			im.Unresolved, im.Reason = true, res.Reason
 		}
 	}
+	return all[len(fg.Imports):]
 }

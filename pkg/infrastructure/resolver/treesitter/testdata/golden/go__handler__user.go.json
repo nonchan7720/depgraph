@@ -159,5 +159,48 @@
       "target": "ext:github.com/acme/ext/v2",
       "external": true
     }
-  ]
+  ],
+  "usage": {
+    "scope": ".",
+    "uses": [
+      {
+        "target": "."
+      },
+      {
+        "target": ".",
+        "name": "X"
+      },
+      {
+        "target": "go/handler",
+        "name": "NewUserHandler"
+      },
+      {
+        "target": "go/handler",
+        "name": "Pi"
+      },
+      {
+        "target": "go/handler",
+        "name": "T"
+      },
+      {
+        "target": "go/handler",
+        "name": "U"
+      },
+      {
+        "target": "go/handler",
+        "name": "UserHandler"
+      },
+      {
+        "target": "go/repository"
+      },
+      {
+        "target": "go/repository",
+        "name": "Find"
+      },
+      {
+        "target": "go/repository",
+        "name": "Repo"
+      }
+    ]
+  }
 }

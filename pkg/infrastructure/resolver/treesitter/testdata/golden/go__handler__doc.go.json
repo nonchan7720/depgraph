@@ -4,5 +4,8 @@
   "language": "go",
   "lines": 4,
   "symbols": null,
-  "imports": null
+  "imports": null,
+  "usage": {
+    "scope": "."
+  }
 }

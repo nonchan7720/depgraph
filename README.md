@@ -9,7 +9,7 @@ Supported languages (tree-sitter): Go / TypeScript / JavaScript / Python
 
 ## Install
 
-**GitHub Releases (recommended).** Download the archive for your OS / CPU from
+**GitHub Releases (recommended; the only distributed binaries).** Download the archive for your OS / CPU from
 [Releases](https://github.com/nonchan7720/depgraph/releases): `depgraph_<os>_<arch>.tar.gz`
 (`.zip` on Windows) for linux / darwin / windows × amd64 / arm64. Verify it with `checksums.txt`,
 then put `depgraph` on your `PATH`. Every archive also contains `LICENSE`, `NOTICE` and
@@ -23,15 +23,13 @@ depgraph --version
 
 Releases named `v<version>-dev.<commit>` are prereleases built from every push to `main`.
 
-**`go install`.**
+**From source.** Clone the repository and build with the toolchain pinned in `mise.toml`
+(Go, node and pnpm; the browser UI in `web/` is built and embedded into the binary):
 
 ```bash
-go install github.com/nonchan7720/depgraph@latest
+git clone https://github.com/nonchan7720/depgraph.git && cd depgraph
+mise install && mise run build   # writes bin/depgraph
 ```
-
-The browser UI is built from `web/` and is not in the Go module, so a `go install` binary works
-for every command but answers the UI page with "web 未ビルド" (the `/api` endpoints still work).
-Use a release archive, or build from a checkout with `mise run build`, to get the UI.
 
 ## Quick start
 

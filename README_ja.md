@@ -9,7 +9,7 @@ AIが書いたコードの依存関係を Neo4j に入れて可視化・ルー�
 
 ## インストール
 
-**GitHub Releases（推奨）。** [Releases](https://github.com/nonchan7720/depgraph/releases) から
+**GitHub Releases（推奨・唯一の配布形態）。** [Releases](https://github.com/nonchan7720/depgraph/releases) から
 OS / CPU に合うアーカイブ `depgraph_<os>_<arch>.tar.gz`（Windows は `.zip`。linux / darwin / windows × amd64 / arm64）を
 ダウンロードし、`checksums.txt` で検証してから `depgraph` を `PATH` に置きます。各アーカイブには
 `LICENSE`、`NOTICE`、`THIRD_PARTY_NOTICES.md` も入っています。
@@ -22,15 +22,13 @@ depgraph --version
 
 `v<version>-dev.<commit>` という名前のリリースは、`main` への push ごとに作られるプレリリースです。
 
-**`go install`。**
+**ソースから。** リポジトリを clone し、`mise.toml` で固定したツールチェーン（Go / node / pnpm）でビルドします
+（`web/` のブラウザ UI もビルドしてバイナリに埋め込みます）。
 
 ```bash
-go install github.com/nonchan7720/depgraph@latest
+git clone https://github.com/nonchan7720/depgraph.git && cd depgraph
+mise install && mise run build   # bin/depgraph ができる
 ```
-
-ブラウザ UI は `web/` からビルドするもので Go モジュールには含まれないため、`go install` したバイナリは
-全コマンドが動きますが、UI のページは「web 未ビルド」を返します（`/api` は動きます）。UI が必要なら
-リリースのアーカイブを使うか、チェックアウトして `mise run build` でビルドしてください。
 
 ## Quick start
 

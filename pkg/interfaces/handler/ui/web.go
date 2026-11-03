@@ -20,12 +20,18 @@ func embeddedWeb() fs.FS {
 	return sub
 }
 
+// notBuiltMessage answers the UI when this binary was built without web/
+// (the same two ways to install as the README).
+const notBuiltMessage = "This depgraph binary was built without the browser UI.\n" +
+	"Use a release binary from https://github.com/nonchan7720/depgraph/releases,\n" +
+	"or build from source: clone the repository and run `mise install && mise run build`."
+
 // webHandler serves the built UI from web at the site root.
 func webHandler(web fs.FS) http.Handler {
 	files := http.FileServerFS(web)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, err := fs.Stat(web, "index.html"); err != nil {
-			http.Error(w, "web 未ビルド: mise run web:build", http.StatusServiceUnavailable)
+			http.Error(w, notBuiltMessage, http.StatusServiceUnavailable)
 			return
 		}
 		files.ServeHTTP(w, r)

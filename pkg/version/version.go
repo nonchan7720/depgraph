@@ -1,9 +1,9 @@
 // Package version holds the build's version information.
 //
 // Version is bumped by release-please on every release (the
-// x-release-please-version marker below), so a plain `go install` of a
-// released module reports the right version. Release builds made by
-// goreleaser override all three variables with -ldflags -X.
+// x-release-please-version marker below), so a source build of a release
+// tag reports that version. Release builds made by goreleaser override all
+// three variables with -ldflags -X.
 package version
 
 var (

@@ -67,8 +67,12 @@ func TestRootNotBuilt(t *testing.T) {
 		if r.StatusCode != http.StatusServiceUnavailable {
 			t.Fatalf("%s: status = %d", p, r.StatusCode)
 		}
-		if got := body(t, r); !strings.Contains(got, "mise run web:build") {
-			t.Fatalf("%s: body = %q", p, got)
+		// same guidance as the README: a release binary, or a source build with mise
+		got := body(t, r)
+		for _, want := range []string{"https://github.com/nonchan7720/depgraph/releases", "mise run build"} {
+			if !strings.Contains(got, want) {
+				t.Fatalf("%s: body = %q, want it to mention %q", p, got, want)
+			}
 		}
 	}
 }

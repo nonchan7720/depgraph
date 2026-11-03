@@ -515,5 +515,5 @@ Issues write access, and the repository secrets `RELEASE_PLEASE_CLIENT_ID` (its 
 
 ## License
 
-Apache-2.0 (planned). Neo4j itself is not bundled: depgraph connects to your own Neo4j or runs
+Apache-2.0 (see [LICENSE](LICENSE) and [NOTICE](NOTICE)). Neo4j itself is not bundled: depgraph connects to your own Neo4j or runs
 the official Neo4j Community image (GPLv3) with your container runtime.

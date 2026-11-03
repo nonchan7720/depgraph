@@ -48,6 +48,7 @@ const (
 	RuleLayerViolation  = "layer-violation"
 	RuleGodPackage      = "god-package"
 	RuleDuplicateSymbol = "duplicate-symbol"
+	RuleDuplicateCode   = "duplicate-code"
 )
 
 // Rule describes one rule: its name, default severity and the rule-specific
@@ -66,6 +67,7 @@ var builtin = []Rule{
 	{Name: RuleLayerViolation, Severity: SeverityError, Description: "a package imports a layer it must not import"},
 	{Name: RuleGodPackage, Severity: SeverityWarn, Description: "a package imported by many packages", Options: []string{"fanIn"}},
 	{Name: RuleDuplicateSymbol, Severity: SeverityWarn, Description: "an exported function / class declared in several files", Options: []string{"ignore"}},
+	{Name: RuleDuplicateCode, Severity: SeverityWarn, Description: "the same logic in several places, whatever the names", Options: []string{"minTokens", "similarity"}},
 }
 
 // Builtin returns the registered rules.
@@ -117,6 +119,8 @@ type Config struct {
 	Ignore []string
 	// Settings: per-rule overrides by rule name.
 	Settings map[string]RuleSetting
+	// Clones tunes duplicate-code.
+	Clones CloneOptions
 }
 
 // segmentLayer is a default layer: the name (and its other spellings) as a
@@ -148,6 +152,7 @@ func DefaultConfig() Config {
 			{"usecase", "handler"},
 		},
 		GodPackageFanIn: 10,
+		Clones:          DefaultCloneOptions(),
 		IgnoreDuplicateNames: []string{
 			"main", "init", "New", "String", "Error", "Close", "Run", "Validate",
 			"default", "index", "setup", "teardown", "handler", "render", "App",
@@ -240,6 +245,12 @@ func (c Config) Validate() error {
 		if s := c.Settings[name].Severity; s != "" && !s.Valid() {
 			return fmt.Errorf("rule %s: severity %q (want error, warn or info)", name, s)
 		}
+	}
+	if c.Clones.MinTokens < 0 {
+		return fmt.Errorf("rule %s: minTokens %d (want > 0)", RuleDuplicateCode, c.Clones.MinTokens)
+	}
+	if c.Clones.MinSimilarity < 0 || c.Clones.MinSimilarity > 1 {
+		return fmt.Errorf("rule %s: similarity %g (want 0 < similarity <= 1)", RuleDuplicateCode, c.Clones.MinSimilarity)
 	}
 	layers, err := c.LayerGlobs()
 	if err != nil {

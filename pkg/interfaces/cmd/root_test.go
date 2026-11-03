@@ -22,7 +22,7 @@ func TestSubcommands(t *testing.T) {
 		}
 	}
 	sort.Strings(names)
-	want := []string{"check", "hook", "parse", "projects", "scan", "serve", "watch"}
+	want := []string{"check", "hook", "parse", "projects", "scan", "serve", "version", "watch"}
 	if strings.Join(names, ",") != strings.Join(want, ",") {
 		t.Errorf("subcommands = %v, want %v", names, want)
 	}

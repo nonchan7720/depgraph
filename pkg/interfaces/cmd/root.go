@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/nonchan7720/depgraph/pkg/infrastructure/resolver"
+	"github.com/nonchan7720/depgraph/pkg/version"
 )
 
 // options holds every flag value; each subcommand registers the subset it uses.
@@ -64,12 +65,14 @@ func newRootCommand(o *options) *cobra.Command {
 tree-sitter (optionally refined by language servers), stores the dependency
 graph in Neo4j, checks architectural rules and reports them to CLAUDE.md and
 a browser UI.`,
+		Version:       version.Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 			return o.prepare()
 		},
 	}
+	root.SetVersionTemplate(versionTemplate())
 	pf := root.PersistentFlags()
 	pf.StringVar(&o.root, "root", ".", "repository root")
 	pf.StringVar(&o.exclude, "exclude", "", "comma-separated exclude patterns (name glob, or repo-relative path/glob)")
@@ -84,6 +87,7 @@ a browser UI.`,
 		newServeCommand(o),
 		newHookCommand(o),
 		newProjectsCommand(o),
+		newVersionCommand(),
 	)
 	return root
 }

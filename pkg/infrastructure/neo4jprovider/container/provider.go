@@ -540,10 +540,12 @@ func isNameConflict(err error) bool {
 	return strings.Contains(s, "conflict") || strings.Contains(s, "already in use") || strings.Contains(s, "already used") || strings.Contains(s, "already exists")
 }
 
-// isNoSuch recognises "no such container / object / volume" of the three CLIs.
+// isNoSuch recognises an object that is gone or going: "no such container /
+// object / volume" of the three CLIs, and docker's "removal ... already in
+// progress" (stop of a --rm container starts its removal).
 func isNoSuch(err error) bool {
 	s := strings.ToLower(err.Error())
-	return strings.Contains(s, "no such") || strings.Contains(s, "not found")
+	return strings.Contains(s, "no such") || strings.Contains(s, "not found") || strings.Contains(s, "already in progress")
 }
 
 // ---- store management (depgraph store ls / down / rm) ----------------------

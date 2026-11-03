@@ -9,9 +9,10 @@ import (
 
 // Fixtures in testdata/ are inspect / port outputs of the store this package
 // starts (written by the integration test with DEPGRAPH_RECORD_FIXTURES set,
-// password / root / host replaced):
-//   - docker_*: recorded with Docker 29
-//   - podman_*: podman's inspect layout (rootless, slirp4netns); refreshed from the CI podman job
+// password / root / host replaced; name, owner PID and port normalized to
+// the same values for every CLI):
+//   - docker_*: recorded with Docker 29.8
+//   - podman_*: recorded with rootless podman 5.7 in the CI podman job (its log prints it)
 //   - nerdctl_*: built from nerdctl v2.4's dockercompat inspect types (not recorded: nerdctl is not in CI)
 func TestParseInspectFixtures(t *testing.T) {
 	for _, flavor := range Candidates {

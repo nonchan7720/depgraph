@@ -224,6 +224,21 @@ func TestProvidePersistentKeepsContainerAndVolume(t *testing.T) {
 	}
 }
 
+// docker starts removing a --rm container on stop; the rm that follows then
+// reports "removal ... already in progress", which is a successful release.
+func TestReleaseAcceptsRemovalInProgress(t *testing.T) {
+	f := newFakeCLI()
+	p := newTestProvider(f)
+	c, err := p.Provide(context.Background(), opts(neo4jprovider.Start, false, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.rmErr = errors.New("docker rm: Error response from daemon: removal of container 05df7d4d is already in progress")
+	if err := c.Release(context.Background()); err != nil {
+		t.Errorf("Release = %v", err)
+	}
+}
+
 func TestPersistentVolumeWithoutContainerIsAnError(t *testing.T) {
 	f := newFakeCLI()
 	f.volumes[VolumeName(testKey)] = map[string]string{LabelManaged: "1", LabelProject: testKey}

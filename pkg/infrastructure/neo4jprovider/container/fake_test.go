@@ -22,8 +22,9 @@ type fakeCLI struct {
 	envs       [][]string
 	nextID     int
 	nextPort   int
-	// runErr, when set, fails `run` with it.
+	// runErr, when set, fails `run` with it; rmErr fails `rm`.
 	runErr error
+	rmErr  error
 	// onRun runs after a successful `run` (e.g. a racing second start).
 	onRun func(f *fakeCLI)
 }
@@ -229,6 +230,9 @@ func (f *fakeCLI) Run(_ context.Context, env []string, _ string, args ...string)
 		}
 		return nil, nil
 	case "rm":
+		if f.rmErr != nil {
+			return nil, f.rmErr
+		}
 		id := args[len(args)-1]
 		if _, ok := f.containers[id]; !ok {
 			return nil, errors.New("Error response from daemon: No such container: " + id)

@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch: # re-run after third-party-notices pushes a regenerated file
 
 permissions:
   contents: read

@@ -1,0 +1,24 @@
+{
+  "path": "src/broken/broken.ts",
+  "package": "src/broken",
+  "language": "typescript",
+  "lines": 12,
+  "symbols": [
+    {
+      "name": "ok",
+      "kind": "function",
+      "exported": true,
+      "line": 3,
+      "endLine": 3,
+      "nameLine": 3,
+      "col": 16
+    }
+  ],
+  "imports": [
+    {
+      "spec": "../db",
+      "target": "src/db",
+      "external": false
+    }
+  ]
+}

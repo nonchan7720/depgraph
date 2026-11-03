@@ -1,0 +1,39 @@
+{
+  "path": "src/legacy/esm.mjs",
+  "package": "src/legacy",
+  "language": "javascript",
+  "lines": 7,
+  "symbols": [
+    {
+      "name": "value",
+      "kind": "variable",
+      "exported": true,
+      "line": 6,
+      "endLine": 6,
+      "nameLine": 6,
+      "col": 13
+    }
+  ],
+  "imports": [
+    {
+      "spec": "./app.js",
+      "target": "ext:src/legacy/app.js",
+      "external": true
+    },
+    {
+      "spec": "./component",
+      "target": "src/legacy",
+      "external": false
+    },
+    {
+      "spec": "./missing",
+      "target": "ext:src/legacy/missing",
+      "external": true
+    },
+    {
+      "spec": "lodash",
+      "target": "ext:lodash",
+      "external": true
+    }
+  ]
+}

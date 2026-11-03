@@ -34,6 +34,7 @@ type options struct {
 	noLSP      bool
 	exclude    string
 	ignoreFile string
+	workers    int
 
 	hookTimeout time.Duration
 	hookDebug   bool
@@ -125,6 +126,10 @@ func addClaudeMDFlag(fs *pflag.FlagSet, o *options) {
 
 func addResetFlag(fs *pflag.FlagSet, o *options) {
 	fs.BoolVar(&o.reset, "reset", false, "clear this project's data before scanning (other projects are kept)")
+}
+
+func addWorkersFlag(fs *pflag.FlagSet, o *options) {
+	fs.IntVar(&o.workers, "workers", 0, "files parsed in parallel during a full scan (0: GOMAXPROCS)")
 }
 
 func addAddrFlag(fs *pflag.FlagSet, o *options) {

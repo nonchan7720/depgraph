@@ -1,0 +1,133 @@
+{
+  "path": "app/services/user.py",
+  "package": "app/services",
+  "language": "python",
+  "lines": 61,
+  "symbols": [
+    {
+      "name": "UserService",
+      "kind": "class",
+      "exported": true,
+      "line": 20,
+      "endLine": 25,
+      "nameLine": 20,
+      "col": 6
+    },
+    {
+      "name": "Helper",
+      "kind": "function",
+      "exported": true,
+      "line": 29,
+      "endLine": 31,
+      "nameLine": 29,
+      "col": 4
+    },
+    {
+      "name": "Point",
+      "kind": "class",
+      "exported": true,
+      "line": 35,
+      "endLine": 36,
+      "nameLine": 35,
+      "col": 6
+    },
+    {
+      "name": "fetch",
+      "kind": "function",
+      "exported": true,
+      "line": 39,
+      "endLine": 40,
+      "nameLine": 39,
+      "col": 10
+    },
+    {
+      "name": "_private",
+      "kind": "function",
+      "exported": false,
+      "line": 43,
+      "endLine": 44,
+      "nameLine": 43,
+      "col": 4
+    },
+    {
+      "name": "_Hidden",
+      "kind": "class",
+      "exported": false,
+      "line": 47,
+      "endLine": 48,
+      "nameLine": 47,
+      "col": 6
+    },
+    {
+      "name": "名前",
+      "kind": "function",
+      "exported": true,
+      "line": 59,
+      "endLine": 60,
+      "nameLine": 59,
+      "col": 4
+    }
+  ],
+  "imports": [
+    {
+      "spec": "os",
+      "target": "ext:os",
+      "external": true
+    },
+    {
+      "spec": "os.path",
+      "target": "ext:os.path",
+      "external": true
+    },
+    {
+      "spec": "json",
+      "target": "ext:json",
+      "external": true
+    },
+    {
+      "spec": "sys",
+      "target": "ext:sys",
+      "external": true
+    },
+    {
+      "spec": "..models",
+      "target": "app",
+      "external": false
+    },
+    {
+      "spec": ".",
+      "target": "app/services",
+      "external": false
+    },
+    {
+      "spec": ".helper",
+      "target": "app/services",
+      "external": false
+    },
+    {
+      "spec": "app.services",
+      "target": "app/services",
+      "external": false
+    },
+    {
+      "spec": "app",
+      "target": "app",
+      "external": false
+    },
+    {
+      "spec": "..",
+      "target": "app",
+      "external": false
+    },
+    {
+      "spec": "typing",
+      "target": "ext:typing",
+      "external": true
+    },
+    {
+      "spec": "numpy",
+      "target": "ext:numpy",
+      "external": true
+    }
+  ]
+}

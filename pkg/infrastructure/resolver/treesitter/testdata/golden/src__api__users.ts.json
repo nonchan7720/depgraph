@@ -1,0 +1,249 @@
+{
+  "path": "src/api/users.ts",
+  "package": "src/api",
+  "language": "typescript",
+  "lines": 54,
+  "symbols": [
+    {
+      "name": "UserController",
+      "kind": "class",
+      "exported": true,
+      "line": 14,
+      "endLine": 18,
+      "nameLine": 14,
+      "col": 13
+    },
+    {
+      "name": "Base",
+      "kind": "class",
+      "exported": true,
+      "line": 19,
+      "endLine": 19,
+      "nameLine": 19,
+      "col": 22
+    },
+    {
+      "name": "Row",
+      "kind": "interface",
+      "exported": true,
+      "line": 20,
+      "endLine": 22,
+      "nameLine": 20,
+      "col": 17
+    },
+    {
+      "name": "ID",
+      "kind": "type",
+      "exported": true,
+      "line": 23,
+      "endLine": 23,
+      "nameLine": 23,
+      "col": 12
+    },
+    {
+      "name": "Color",
+      "kind": "enum",
+      "exported": true,
+      "line": 24,
+      "endLine": 27,
+      "nameLine": 24,
+      "col": 12
+    },
+    {
+      "name": "Flag",
+      "kind": "enum",
+      "exported": true,
+      "line": 28,
+      "endLine": 30,
+      "nameLine": 28,
+      "col": 18
+    },
+    {
+      "name": "handler",
+      "kind": "function",
+      "exported": true,
+      "line": 31,
+      "endLine": 34,
+      "nameLine": 31,
+      "col": 16
+    },
+    {
+      "name": "gen",
+      "kind": "function",
+      "exported": true,
+      "line": 35,
+      "endLine": 37,
+      "nameLine": 35,
+      "col": 17
+    },
+    {
+      "name": "load",
+      "kind": "function",
+      "exported": true,
+      "line": 38,
+      "endLine": 38,
+      "nameLine": 38,
+      "col": 22
+    },
+    {
+      "name": "Helper",
+      "kind": "function",
+      "exported": true,
+      "line": 39,
+      "endLine": 39,
+      "nameLine": 39,
+      "col": 13
+    },
+    {
+      "name": "other",
+      "kind": "variable",
+      "exported": true,
+      "line": 40,
+      "endLine": 40,
+      "nameLine": 40,
+      "col": 2
+    },
+    {
+      "name": "fexpr",
+      "kind": "function",
+      "exported": true,
+      "line": 41,
+      "endLine": 41,
+      "nameLine": 41,
+      "col": 11
+    },
+    {
+      "name": "main",
+      "kind": "function",
+      "exported": true,
+      "line": 42,
+      "endLine": 42,
+      "nameLine": 42,
+      "col": 24
+    },
+    {
+      "name": "internal",
+      "kind": "function",
+      "exported": false,
+      "line": 47,
+      "endLine": 47,
+      "nameLine": 47,
+      "col": 9
+    },
+    {
+      "name": "local",
+      "kind": "variable",
+      "exported": false,
+      "line": 48,
+      "endLine": 48,
+      "nameLine": 48,
+      "col": 6
+    },
+    {
+      "name": "late",
+      "kind": "variable",
+      "exported": false,
+      "line": 49,
+      "endLine": 49,
+      "nameLine": 49,
+      "col": 4
+    },
+    {
+      "name": "legacy",
+      "kind": "function",
+      "exported": false,
+      "line": 50,
+      "endLine": 50,
+      "nameLine": 50,
+      "col": 4
+    },
+    {
+      "name": "Hidden",
+      "kind": "interface",
+      "exported": false,
+      "line": 51,
+      "endLine": 51,
+      "nameLine": 51,
+      "col": 10
+    },
+    {
+      "name": "Private",
+      "kind": "type",
+      "exported": false,
+      "line": 52,
+      "endLine": 52,
+      "nameLine": 52,
+      "col": 5
+    },
+    {
+      "name": "日本語",
+      "kind": "variable",
+      "exported": false,
+      "line": 53,
+      "endLine": 53,
+      "nameLine": 53,
+      "col": 6
+    },
+    {
+      "name": "afterUnicode",
+      "kind": "function",
+      "exported": true,
+      "line": 53,
+      "endLine": 53,
+      "nameLine": 53,
+      "col": 33
+    }
+  ],
+  "imports": [
+    {
+      "spec": "../db",
+      "target": "src/db",
+      "external": false
+    },
+    {
+      "spec": "express",
+      "target": "ext:express",
+      "external": true
+    },
+    {
+      "spec": "./shared",
+      "target": "src/api",
+      "external": false
+    },
+    {
+      "spec": "@/db/util",
+      "target": "src/db",
+      "external": false
+    },
+    {
+      "spec": "./side-effect",
+      "target": "ext:src/api/side-effect",
+      "external": true
+    },
+    {
+      "spec": "../../config.json",
+      "target": "ext:config.json",
+      "external": true
+    },
+    {
+      "spec": "@scope/pkg/sub",
+      "target": "ext:@scope/pkg/sub",
+      "external": true
+    },
+    {
+      "spec": "./shared",
+      "target": "src/api",
+      "external": false
+    },
+    {
+      "spec": "./shared",
+      "target": "src/api",
+      "external": false
+    },
+    {
+      "spec": "@/db/util",
+      "target": "src/db",
+      "external": false
+    }
+  ]
+}

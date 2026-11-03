@@ -1,0 +1,33 @@
+{
+  "path": "src/legacy/component.jsx",
+  "package": "src/legacy",
+  "language": "javascript",
+  "lines": 7,
+  "symbols": [
+    {
+      "name": "C",
+      "kind": "function",
+      "exported": true,
+      "line": 3,
+      "endLine": 3,
+      "nameLine": 3,
+      "col": 13
+    },
+    {
+      "name": "D",
+      "kind": "function",
+      "exported": true,
+      "line": 4,
+      "endLine": 6,
+      "nameLine": 4,
+      "col": 16
+    }
+  ],
+  "imports": [
+    {
+      "spec": "../ui/Button",
+      "target": "src/ui",
+      "external": false
+    }
+  ]
+}

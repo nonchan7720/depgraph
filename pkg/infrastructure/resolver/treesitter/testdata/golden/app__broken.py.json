@@ -1,0 +1,42 @@
+{
+  "path": "app/broken.py",
+  "package": "app",
+  "language": "python",
+  "lines": 14,
+  "symbols": [
+    {
+      "name": "ok",
+      "kind": "function",
+      "exported": true,
+      "line": 4,
+      "endLine": 5,
+      "nameLine": 4,
+      "col": 4
+    },
+    {
+      "name": "bad",
+      "kind": "function",
+      "exported": true,
+      "line": 8,
+      "endLine": 9,
+      "nameLine": 8,
+      "col": 4
+    },
+    {
+      "name": "After",
+      "kind": "class",
+      "exported": true,
+      "line": 12,
+      "endLine": 13,
+      "nameLine": 12,
+      "col": 6
+    }
+  ],
+  "imports": [
+    {
+      "spec": "os",
+      "target": "ext:os",
+      "external": true
+    }
+  ]
+}

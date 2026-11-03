@@ -1,0 +1,154 @@
+{
+  "path": "go/handler/user.go",
+  "package": "go/handler",
+  "language": "go",
+  "lines": 60,
+  "symbols": [
+    {
+      "name": "UserHandler",
+      "kind": "struct",
+      "exported": true,
+      "line": 19,
+      "endLine": 21,
+      "nameLine": 19,
+      "col": 5
+    },
+    {
+      "name": "Store",
+      "kind": "interface",
+      "exported": true,
+      "line": 25,
+      "endLine": 27,
+      "nameLine": 25,
+      "col": 1
+    },
+    {
+      "name": "ID",
+      "kind": "type",
+      "exported": true,
+      "line": 28,
+      "endLine": 28,
+      "nameLine": 28,
+      "col": 1
+    },
+    {
+      "name": "List",
+      "kind": "type",
+      "exported": true,
+      "line": 30,
+      "endLine": 30,
+      "nameLine": 30,
+      "col": 1
+    },
+    {
+      "name": "private",
+      "kind": "struct",
+      "exported": false,
+      "line": 31,
+      "endLine": 31,
+      "nameLine": 31,
+      "col": 1
+    },
+    {
+      "name": "NewUserHandler",
+      "kind": "function",
+      "exported": true,
+      "line": 34,
+      "endLine": 34,
+      "nameLine": 34,
+      "col": 5
+    },
+    {
+      "name": "Get",
+      "kind": "method",
+      "exported": true,
+      "line": 36,
+      "endLine": 40,
+      "nameLine": 36,
+      "col": 22
+    },
+    {
+      "name": "name",
+      "kind": "method",
+      "exported": false,
+      "line": 42,
+      "endLine": 42,
+      "nameLine": 42,
+      "col": 21
+    },
+    {
+      "name": "Map",
+      "kind": "function",
+      "exported": true,
+      "line": 44,
+      "endLine": 44,
+      "nameLine": 44,
+      "col": 5
+    },
+    {
+      "name": "init",
+      "kind": "function",
+      "exported": false,
+      "line": 46,
+      "endLine": 46,
+      "nameLine": 46,
+      "col": 5
+    },
+    {
+      "name": "Late",
+      "kind": "function",
+      "exported": true,
+      "line": 59,
+      "endLine": 59,
+      "nameLine": 59,
+      "col": 22
+    }
+  ],
+  "imports": [
+    {
+      "spec": "fmt",
+      "target": "ext:fmt",
+      "external": true
+    },
+    {
+      "spec": "context",
+      "target": "ext:context",
+      "external": true
+    },
+    {
+      "spec": "embed",
+      "target": "ext:embed",
+      "external": true
+    },
+    {
+      "spec": "math",
+      "target": "ext:math",
+      "external": true
+    },
+    {
+      "spec": "strings",
+      "target": "ext:strings",
+      "external": true
+    },
+    {
+      "spec": "example.com/corpus",
+      "target": ".",
+      "external": false
+    },
+    {
+      "spec": "example.com/corpus/go/repository",
+      "target": "go/repository",
+      "external": false
+    },
+    {
+      "spec": "example.com/corpus/go/repository",
+      "target": "go/repository",
+      "external": false
+    },
+    {
+      "spec": "github.com/acme/ext/v2",
+      "target": "ext:github.com/acme/ext/v2",
+      "external": true
+    }
+  ]
+}

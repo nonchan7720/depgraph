@@ -12,3 +12,5 @@ bin/
 
 # goreleaser output
 /dist/
+# git worktrees created by Claude Code
+.claude/worktrees/

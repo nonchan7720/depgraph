@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,16 +44,18 @@ func TestReportWriter(t *testing.T) {
 func TestCommandFlags(t *testing.T) {
 	root := newRootCommand(&options{})
 	has := map[string][]string{
-		"scan":  {"neo4j", "user", "pass", "db", "claude-md", "reset"},
+		"parse": {"workers"},
+		"scan":  {"neo4j", "user", "pass", "db", "claude-md", "reset", "workers"},
 		"check": {"neo4j", "user", "pass", "db", "claude-md"},
-		"watch": {"neo4j", "user", "pass", "db", "claude-md", "reset", "debounce", "addr", "no-ui", "no-lsp"},
+		"watch": {"neo4j", "user", "pass", "db", "claude-md", "reset", "debounce", "addr", "no-ui", "no-lsp", "workers"},
 		"serve": {"neo4j", "user", "pass", "db", "addr"},
 		"hook":  {"neo4j", "user", "pass", "db", "timeout", "debug"},
 	}
 	lacks := map[string][]string{
-		"serve": {"claude-md", "reset"}, // serve never writes CLAUDE.md
+		"serve": {"claude-md", "reset", "workers"}, // serve never writes CLAUDE.md
 		"parse": {"neo4j", "claude-md"},
-		"hook":  {"claude-md", "reset"}, // hook は読むだけ
+		"check": {"workers"},                       // check does not parse
+		"hook":  {"claude-md", "reset", "workers"}, // hook は読むだけ
 	}
 	for _, name := range []string{"root", "exclude", "ignore-file", "project"} {
 		if root.PersistentFlags().Lookup(name) == nil {
@@ -133,5 +136,41 @@ func TestParseFiles(t *testing.T) {
 	var fg struct{ Path string }
 	if err := json.Unmarshal(out.Bytes(), &fg); err != nil || fg.Path != "x/c.go" {
 		t.Errorf("parse output = %q (err %v), want x/c.go", out.String(), err)
+	}
+}
+
+// parse prints the same lines in the same order whatever --workers is.
+func TestParseWorkersDeterministic(t *testing.T) {
+	resolver.ResetSkipPatterns()
+	t.Cleanup(resolver.ResetSkipPatterns)
+	dir := t.TempDir()
+	for i := range 40 {
+		p := filepath.Join(dir, fmt.Sprintf("p%d", i%7), fmt.Sprintf("f%02d.go", i))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		src := fmt.Sprintf("package p%d\nfunc F%d() {}\n", i%7, i)
+		if err := os.WriteFile(p, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run := func(workers string) string {
+		var out bytes.Buffer
+		root := newRootCommand(&options{})
+		root.SetOut(&out)
+		root.SetArgs([]string{"parse", "--root", dir, "--workers", workers})
+		if err := root.Execute(); err != nil {
+			t.Fatal(err)
+		}
+		return out.String()
+	}
+	one := run("1")
+	if n := strings.Count(one, "\n"); n != 40 {
+		t.Fatalf("got %d lines, want 40", n)
+	}
+	for _, w := range []string{"0", "3", "16"} {
+		if got := run(w); got != one {
+			t.Errorf("--workers %s output differs from --workers 1", w)
+		}
 	}
 }

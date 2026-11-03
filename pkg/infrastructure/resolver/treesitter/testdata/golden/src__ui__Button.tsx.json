@@ -1,0 +1,18 @@
+{
+  "path": "src/ui/Button.tsx",
+  "package": "src/ui",
+  "language": "typescript",
+  "lines": 4,
+  "symbols": [
+    {
+      "name": "Button",
+      "kind": "function",
+      "exported": true,
+      "line": 1,
+      "endLine": 3,
+      "nameLine": 1,
+      "col": 16
+    }
+  ],
+  "imports": null
+}

@@ -462,5 +462,5 @@ pkg/interfaces/handler/hook/         Claude Code hook（要約・差分・状態
 
 ## License
 
-Apache-2.0（予定）。Neo4j 本体は同梱しません。ユーザー自身の Neo4j に接続するか、
+Apache-2.0（[LICENSE](LICENSE)・[NOTICE](NOTICE) 参照）。Neo4j 本体は同梱しません。ユーザー自身の Neo4j に接続するか、
 ユーザーのコンテナランタイムで公式の Neo4j Community イメージ（GPLv3）を実行します。

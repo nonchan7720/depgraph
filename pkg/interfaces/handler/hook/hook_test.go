@@ -153,51 +153,6 @@ func TestRenderDiff(t *testing.T) {
 
 // ---- state ---------------------------------------------------------------------
 
-func TestStatePutPrunesAndStripsData(t *testing.T) {
-	var st State
-	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	for i := 0; i < maxSessions+5; i++ {
-		st.Put(fmt.Sprintf("s%02d", i), []rules.Finding{{Rule: "r", Severity: "warn", Message: "m", Data: map[string]any{"big": 1}}}, base.Add(time.Duration(i)*time.Minute))
-	}
-	if len(st.Sessions) != maxSessions {
-		t.Errorf("sessions = %d, want %d", len(st.Sessions), maxSessions)
-	}
-	if _, ok := st.Sessions["s00"]; ok {
-		t.Error("oldest session should be pruned")
-	}
-	last := st.Sessions[fmt.Sprintf("s%02d", maxSessions+4)]
-	if len(last.Findings) != 1 || last.Findings[0].Data != nil {
-		t.Errorf("findings stored = %+v (Data must be dropped)", last.Findings)
-	}
-}
-
-func TestStateLoadSave(t *testing.T) {
-	root := t.TempDir()
-	p := StatePath(root)
-	if p != filepath.Join(root, ".claude", ".depgraph-hook-state.json") {
-		t.Errorf("StatePath = %q", p)
-	}
-	// 無い・壊れたファイルは空の状態。
-	if st := LoadState(p); len(st.Sessions) != 0 {
-		t.Errorf("missing file = %+v", st)
-	}
-	var st State
-	st.Put("s1", []rules.Finding{f("r", "warn", "m")}, time.Now())
-	if err := SaveState(p, st); err != nil {
-		t.Fatal(err)
-	}
-	got := LoadState(p)
-	if len(got.Sessions["s1"].Findings) != 1 {
-		t.Errorf("loaded = %+v", got)
-	}
-	if err := os.WriteFile(p, []byte("{broken"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if st := LoadState(p); len(st.Sessions) != 0 {
-		t.Errorf("broken file = %+v", st)
-	}
-}
-
 // ---- output --------------------------------------------------------------------
 
 func TestOutput(t *testing.T) {
@@ -226,11 +181,32 @@ func TestOutput(t *testing.T) {
 
 // ---- Run -----------------------------------------------------------------------
 
+// fakeSessions is an in-memory SessionStore.
+type fakeSessions struct {
+	m    map[string][]rules.Finding
+	puts int
+}
+
+func (s *fakeSessions) Get(_ context.Context, id string) ([]rules.Finding, bool, error) {
+	fs, ok := s.m[id]
+	return fs, ok, nil
+}
+
+func (s *fakeSessions) Put(_ context.Context, id string, fs []rules.Finding, _ time.Time) error {
+	if s.m == nil {
+		s.m = map[string][]rules.Finding{}
+	}
+	s.m[id] = fs
+	s.puts++
+	return nil
+}
+
 // fakeProject は root ごとのデータを持つ ProjectData。
 type fakeProject struct {
-	data  map[string][]rules.Finding // root -> findings（キーが無ければデータ無し）
-	err   error
-	loads int
+	data     map[string][]rules.Finding // root -> findings（キーが無ければデータ無し）
+	err      error
+	loads    int
+	sessions fakeSessions
 }
 
 func (p *fakeProject) Load(_ context.Context, root string) (Snapshot, bool, error) {
@@ -242,7 +218,7 @@ func (p *fakeProject) Load(_ context.Context, root string) (Snapshot, bool, erro
 	if !ok {
 		return Snapshot{}, false, nil
 	}
-	return Snapshot{Stats: graph.Stats{Packages: 2}, Findings: fs}, true, nil
+	return Snapshot{Stats: graph.Stats{Packages: 2}, Findings: fs, Sessions: &p.sessions}, true, nil
 }
 
 func TestRunSessionStartThenPrompt(t *testing.T) {
@@ -276,6 +252,43 @@ func TestRunSessionStartThenPrompt(t *testing.T) {
 	}
 }
 
+// The hook writes nothing into the repository: session state lives in the
+// store. The state file of earlier versions is removed.
+func TestRunWritesNothingToTheRepository(t *testing.T) {
+	root := t.TempDir()
+	src := &fakeProject{data: map[string][]rules.Finding{root: {f("god-package", "warn", "x")}}}
+	if _, err := Run(context.Background(), SessionStart, Input{SessionID: "s1"}, root, src, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".claude")); !os.IsNotExist(err) {
+		t.Errorf("nothing may be written under the root: %v", err)
+	}
+	if src.sessions.puts != 1 {
+		t.Errorf("session state stored %d times", src.sessions.puts)
+	}
+
+	legacy := filepath.Join(root, ".claude", ".depgraph-hook-state.json")
+	if err := os.MkdirAll(filepath.Dir(legacy), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacy, []byte(`{"sessions":{}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	keep := filepath.Join(root, ".claude", "settings.json")
+	if err := os.WriteFile(keep, []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(context.Background(), Prompt, Input{SessionID: "s1"}, root, src, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
+		t.Errorf("legacy state file must be removed: %v", err)
+	}
+	if _, err := os.Stat(keep); err != nil {
+		t.Errorf("other files must stay: %v", err)
+	}
+}
+
 func TestRunInjectsNothingWithoutProjectData(t *testing.T) {
 	root := t.TempDir()
 	// DB に入っているのは別プロジェクトのデータだけ。
@@ -286,8 +299,8 @@ func TestRunInjectsNothingWithoutProjectData(t *testing.T) {
 			t.Errorf("%s: out=%q err=%v", ev, out, err)
 		}
 	}
-	if _, err := os.Stat(StatePath(root)); !os.IsNotExist(err) {
-		t.Errorf("state file must not be written without project data: %v", err)
+	if src.sessions.puts != 0 {
+		t.Errorf("no session state without project data: %d puts", src.sessions.puts)
 	}
 	// root が決まらないときは問い合わせもしない。
 	src.loads = 0
@@ -306,7 +319,7 @@ func TestRunPromptWithoutSessionID(t *testing.T) {
 	if out, _ := Run(context.Background(), Prompt, Input{}, root, src, time.Now()); out != "" {
 		t.Errorf("prompt without session_id = %q", out)
 	}
-	if _, err := os.Stat(StatePath(root)); !os.IsNotExist(err) {
+	if src.sessions.puts != 0 {
 		t.Error("state must not be written without session_id")
 	}
 }
@@ -319,5 +332,12 @@ func TestParseEvent(t *testing.T) {
 	}
 	if _, err := ParseEvent("stop"); err == nil {
 		t.Error("want error for unknown event")
+	}
+}
+
+func TestSummarizeDuplicateCodeHint(t *testing.T) {
+	out := Summarize(graph.Stats{}, []rules.Finding{{Rule: "duplicate-code", Severity: "warn", Message: "identical logic in 2 places"}}, DefaultLimits())
+	if !strings.Contains(out, "extract and reuse") {
+		t.Errorf("summary:\n%s", out)
 	}
 }

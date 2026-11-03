@@ -10,7 +10,6 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"sync"
 
 	"github.com/nonchan7720/depgraph/pkg/domain/graph"
 	"github.com/nonchan7720/depgraph/pkg/infrastructure/resolver"
@@ -55,42 +54,11 @@ type manifests struct {
 	sources  []string                     // every source file (for names in templates)
 }
 
-type manifestEntry struct {
-	once sync.Once
-	m    *manifests
-}
-
-type manifestCache struct {
-	mu sync.Mutex
-	m  map[string]*manifestEntry
-}
-
-func (c *manifestCache) get(root string, load func() *manifests) *manifests {
-	c.mu.Lock()
-	if c.m == nil {
-		c.m = map[string]*manifestEntry{}
-	}
-	e, ok := c.m[root]
-	if !ok {
-		e = &manifestEntry{}
-		c.m[root] = e
-	}
-	c.mu.Unlock()
-	e.once.Do(func() { e.m = load() })
-	return e.m
-}
-
-func (c *manifestCache) drop(root string) {
-	c.mu.Lock()
-	delete(c.m, root)
-	c.mu.Unlock()
-}
-
 // manifests returns the (cached) manifests of root.
 func (r *Resolver) manifests(ctx context.Context, root string) *manifests {
 	// cached for every later file: a cancelled scan must not leave half of it
 	ctx = context.WithoutCancel(ctx)
-	return r.man.get(root, func() *manifests { return loadManifests(ctx, root, r.imp) })
+	return r.man.Get(root, func(root string) *manifests { return loadManifests(ctx, root, r.imp) })
 }
 
 // isEntryManifest reports whether entry points depend on rel (repo-relative):

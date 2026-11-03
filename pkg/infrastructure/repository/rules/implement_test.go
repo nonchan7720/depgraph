@@ -254,3 +254,63 @@ func seed(ctx context.Context, t *testing.T, st *graphrepo.Store, key string, pk
 		t.Fatal(err)
 	}
 }
+
+// Copies of the same logic are found from the stored code shapes; test code
+// (table tests look alike on purpose) and ignored packages are left out, and
+// the rule follows .depgraph.yml (enabled / severity).
+func TestEvaluateDuplicateCode(t *testing.T) {
+	ctx, st := connect(t)
+	key := fmt.Sprintf("zz_test_%d_dupcode", time.Now().UnixNano())
+	g := graphrepo.ForProject(st, key)
+	t.Cleanup(func() { _ = g.Clear(context.Background()) })
+	fp := func(lo int64) []int64 {
+		var out []int64
+		for i := lo; i < lo+20; i++ {
+			out = append(out, i)
+		}
+		return out
+	}
+	sym := func(name string, line int, hash string, f []int64) graph.Symbol {
+		return graph.Symbol{Name: name, Kind: "function", Exported: true, Line: line, EndLine: line + 9,
+			Tokens: 120, CloneHash: hash, Fingerprints: f}
+	}
+	for _, fg := range []*graph.FileGraph{
+		{Path: "a/a.go", Package: "a", Language: graph.Go, Symbols: []graph.Symbol{sym("Total", 3, "h1", fp(0))}},
+		{Path: "b/b.go", Package: "b", Language: graph.Go, Symbols: []graph.Symbol{sym("Sum", 10, "h1", fp(0)), sym("Other", 30, "h2", fp(500))}},
+		{Path: "a/a_test.go", Package: "a", Language: graph.Go, Symbols: []graph.Symbol{sym("TestX", 1, "h1", fp(0))}},
+		{Path: "gen/z.go", Package: "gen", Language: graph.Go, Symbols: []graph.Symbol{sym("Generated", 1, "h1", fp(0))}},
+	} {
+		if err := g.UpsertFile(ctx, fg); err != nil {
+			t.Fatal(err)
+		}
+	}
+	eval := func(cfg rules.Config) []rules.Finding {
+		t.Helper()
+		fs, err := New(st, key).Evaluate(ctx, cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got []rules.Finding
+		for _, f := range fs {
+			if f.Rule == rules.RuleDuplicateCode {
+				got = append(got, f)
+			}
+		}
+		return got
+	}
+	cfg := rules.DefaultConfig()
+	cfg.Ignore = []string{"gen/**"}
+	got := eval(cfg)
+	want := "identical logic in 2 places: a/a.go:3-12 Total, b/b.go:10-19 Sum"
+	if len(got) != 1 || got[0].Message != want || got[0].Severity != "warn" {
+		t.Fatalf("duplicate-code = %+v, want [%q]", got, want)
+	}
+	cfg.Settings = map[string]rules.RuleSetting{rules.RuleDuplicateCode: {Severity: rules.SeverityError}}
+	if got := eval(cfg); len(got) != 1 || got[0].Severity != "error" {
+		t.Errorf("severity override: %+v", got)
+	}
+	cfg.Settings = map[string]rules.RuleSetting{rules.RuleDuplicateCode: {Disabled: true}}
+	if got := eval(cfg); len(got) != 0 {
+		t.Errorf("disabled: %+v", got)
+	}
+}

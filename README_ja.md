@@ -117,7 +117,9 @@ depgraph projects prune [--dry-run]  # root が存在しなくなったプロジ
 - `session-start`：統計と Findings の要約（severity 順、error を先に）。件数の多いルールは
   件数と代表例数件に圧縮し、全体を約 4,000 文字に収める（`duplicate-symbol` が 50 件あっても溢れない）
 - `prompt`：同じセッションで前回注入してから新規・解消した Findings だけ。変化が無ければ何も出さない。
-  前回状態は `session_id` ごとに `<root>/.claude/.depgraph-hook-state.json` に保存（`.gitignore` に追加すること）
+  前回状態は `session_id` ごとに Neo4j のプロジェクトのグラフと並べて保存する（`HookSession` ノード）。
+  1 プロジェクトにつき新しい 20 セッションまで、7 日より古いものは残さず、プロジェクトと一緒に消える（`projects rm`・`--reset`）。
+  リポジトリには何も書かない（以前のバージョンの状態ファイル `.claude/.depgraph-hook-state.json` は削除する）
 - root は `--root`、無ければ `$CLAUDE_PROJECT_DIR`、無ければ hook 入力の `cwd`
 - プロジェクトは `scan` と同じ規則（`--project`・`.depgraph.yml`・ディレクトリ名・`@<worktree>`）で決め、
   そのプロジェクトの Findings だけを注入する
@@ -199,6 +201,7 @@ import は各エコシステム自身の解決方法で、プロジェクトの�
 |---|---|---|
 | `import-cycle` | error | パッケージ間の循環 import |
 | `layer-violation` | error | import してはいけないレイヤーを import している（`handler → repository` など、または独自レイヤー） |
+| `duplicate-code` | warn | 名前に関係なく、同じロジックが複数箇所にある（完全に同じ、または少し手を加えた複製。下記） |
 | `god-package` | warn | 10 パッケージ以上から import されている |
 | `duplicate-symbol` | warn | 同名の exported function/class が複数ファイルに存在 |
 | `unused-export` | warn | プロジェクト内の誰も（自ファイルでさえ）使っていない export（Go: main 以外のパッケージの exported な関数と型。メソッドは対象外 / TS・JS: `export` された宣言。re-export・barrel を辿る / Python: モジュール直下の public な関数とクラス） |
@@ -245,6 +248,7 @@ rules:                      # ルールごと: enabled、severity（error | warn
   layer-violation: {severity: error}
   god-package: {severity: warn, fanIn: 10}
   duplicate-symbol: {enabled: false}
+  duplicate-code: {minTokens: 50, similarity: 0.8}   # 本体の大きさと指紋の類似度
   # duplicate-symbol: {ignore: [main, init, New]}   # 対象外の名前（デフォルトを置き換える）
   unused-export: {ignore: ["pkg/api/**"]}            # 報告しないパス（ライブラリの公開 API など）
   unreachable-file: {entries: ["plugins/**"]}       # depgraph から見えないエントリポイント
@@ -271,6 +275,15 @@ ignore: ["**/testdata/**"]  # すべてのルールから除外するパッケ�
 `infrastructure`・`repositories`・`usecases`）と、禁止ペア `handler → repository / infra / db`、
 `controller → repository / db`、`domain → infra / handler / repository`、`usecase → handler` です。
 このリポジトリ自身の [`.depgraph.yml`](.depgraph.yml) が例になります。
+
+### 重複コード
+
+depgraph は関数・メソッド・クラスごとに本体の「形」を持ちます。構文トークンからコメントを除き、識別子と
+リテラルをすべて伏せたもので、名前を変えた複製は同じ形になります。形が同じもの、またはトークン 4-gram の
+winnowing 指紋（Schleimer ら *Winnowing*）が 80% 以上一致する（Jaccard）ものを複製としてまとめるので、文を
+足したり変えたりした複製も見つかります。50 トークン未満の本体、10 を超える関数に共通する指紋（どの関数にも
+あるエラー処理やループ）、テストコード（`_test.go`・`*.test.*`・`*.spec.*`・`test_*.py`・`tests/` など。テーブル
+テストは意図的に似ている）は対象外です。コンパイラや linter が報告しない「同じことをする、動いている 2 つの関数」を見つけるためのルールです。
 
 手で叩くなら:
 

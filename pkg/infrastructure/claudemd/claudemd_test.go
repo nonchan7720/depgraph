@@ -101,3 +101,10 @@ func TestRenderUnusedRules(t *testing.T) {
 		t.Errorf("list not cut:\n%s", out)
 	}
 }
+
+func TestRenderDuplicateCode(t *testing.T) {
+	out := Render(graph.Stats{}, []rules.Finding{{Rule: "duplicate-code", Severity: "warn", Message: "identical logic in 2 places: a.go:1-9 A, b.go:1-9 B"}})
+	if !strings.Contains(out, "### Duplicated code") || !strings.Contains(out, "a.go:1-9 A") {
+		t.Errorf("render:\n%s", out)
+	}
+}

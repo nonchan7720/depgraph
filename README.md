@@ -123,8 +123,10 @@ Claude Code (read-only: it never scans and never writes CLAUDE.md).
   rules with many findings show the count and a few examples, the whole output is capped
   (about 4,000 characters) so even 50 `duplicate-symbol` findings do not flood the context
 - `prompt`: only the findings that appeared or were resolved since the last injection in the
-  same session; nothing when nothing changed. State is kept per `session_id` in
-  `<root>/.claude/.depgraph-hook-state.json` (add it to `.gitignore`)
+  same session; nothing when nothing changed. The state is kept per `session_id` in
+  Neo4j next to the project's graph (`HookSession` nodes): the 20 newest sessions of a project, none
+  older than 7 days, removed with the project (`projects rm`, `--reset`). Nothing is written into the
+  repository (the state file of earlier versions, `.claude/.depgraph-hook-state.json`, is deleted)
 - Root: `--root`, else `$CLAUDE_PROJECT_DIR`, else `cwd` of the hook input
 - The project is resolved like `scan` does (`--project`, `.depgraph.yml`, directory name,
   `@<worktree>`); only that project's findings are injected
@@ -211,6 +213,7 @@ external, so it never shows up as a dependency. `watch` rescans when one of thes
 |---|---|---|
 | `import-cycle` | error | import cycle between packages |
 | `layer-violation` | error | a package imports a layer it must not import (`handler → repository`, ... or your own layers) |
+| `duplicate-code` | warn | the same logic in several places, whatever the names: identical, or a copy changed a little (see below) |
 | `god-package` | warn | imported by 10 or more packages |
 | `duplicate-symbol` | warn | an exported function/class with the same name exists in several files |
 | `unused-export` | warn | an exported declaration nothing in the project uses, not even its own file (Go: exported functions and types of non-main packages, not methods; TS/JS: `export`ed declarations, followed through re-exports and barrels; Python: public module-level functions and classes) |
@@ -285,6 +288,7 @@ rules:                      # per rule: enabled, severity (error | warn | info),
   layer-violation: {severity: error}
   god-package: {severity: warn, fanIn: 10}
   duplicate-symbol: {enabled: false}
+  duplicate-code: {minTokens: 50, similarity: 0.8}   # body size and fingerprint similarity
   # duplicate-symbol: {ignore: [main, init, New]}   # names not checked (replaces the defaults)
   unused-export: {ignore: ["pkg/api/**"]}            # paths not reported (a library's public API)
   unreachable-file: {entries: ["plugins/**"]}       # entry points depgraph cannot see
@@ -312,6 +316,17 @@ Without `.depgraph.yml` the defaults are the layers `controller`, `db`, `domain`
 pairs `handler → repository / infra / db`, `controller → repository / db`,
 `domain → infra / handler / repository` and `usecase → handler`.
 This repository's own [`.depgraph.yml`](.depgraph.yml) is an example.
+
+### Duplicated code
+
+For every function, method and class, depgraph keeps the shape of its body: the syntax tokens with
+comments dropped and every identifier and literal masked, so a renamed copy has the same shape. Copies
+are grouped when their shapes are identical, or when the winnowed fingerprints of their token 4-grams
+(Schleimer et al., *Winnowing*) are at least 80% the same (Jaccard), which catches a copy with a
+statement added or changed. Bodies under 50 tokens are ignored, as are fingerprints shared by more
+than 10 functions (error handling and loops every function has) and test code (`_test.go`, `*.test.*`,
+`*.spec.*`, `test_*.py`, `tests/`, ...), whose table tests look alike on purpose. This is what
+compilers and linters do not report: two working functions that do the same thing.
 
 To query by hand:
 

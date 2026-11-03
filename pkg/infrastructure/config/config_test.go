@@ -206,3 +206,19 @@ func TestRepositoryConfigIsValid(t *testing.T) {
 		t.Errorf("repository config has no layers: %+v", f.Rules)
 	}
 }
+
+func TestParseDuplicateCodeOptions(t *testing.T) {
+	f, err := Parse([]byte("rules:\n  duplicate-code: {minTokens: 80, similarity: 0.9}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := f.Rules.Clones
+	if c.MinTokens != 80 || c.MinSimilarity != 0.9 || c.MaxFingerprintFreq != rules.DefaultCloneOptions().MaxFingerprintFreq {
+		t.Errorf("clones = %+v", c)
+	}
+	for _, bad := range []string{"{similarity: 1.5}", "{similarity: 0}", "{minTokens: 0}"} {
+		if _, err := Parse([]byte("rules:\n  duplicate-code: " + bad + "\n")); err == nil {
+			t.Errorf("%s: want an error", bad)
+		}
+	}
+}

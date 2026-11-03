@@ -148,7 +148,7 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 		for _, row := range rows {
 			// collect() has no order: sort, so the message is the same on every run
 			files := toStrings(row["files"])
-			sort.Strings(files)
+			sort.Strings(files) // collect() has no order: keep the message stable
 			row["files"] = files
 			out = append(out, rules.Finding{
 				Rule: rules.RuleDuplicateSymbol, Severity: sev(rules.RuleDuplicateSymbol),
@@ -159,7 +159,44 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 		}
 	}
 
-	// 5. Unused code at project level (unused.go).
+	// 5. Duplicated code: the same (or nearly the same) logic in several
+	// places, whatever the names. Test code is left out (table tests look
+	// alike on purpose), and so are ignored packages.
+	if cfg.Enabled(rules.RuleDuplicateCode) {
+		rows, err := r.query(ctx, `
+			MATCH (p:Package {project: $project})-[:CONTAINS]->(f:File)-[:DECLARES]->(s:Symbol)
+			WHERE s.tokens >= $min AND none(rx IN $ignore WHERE p.key =~ rx)
+			RETURN f.path AS file, s.name AS name, s.kind AS kind, s.line AS line, s.endLine AS endLine,
+			       s.tokens AS tokens, s.cloneHash AS hash, s.fingerprints AS fps
+		`, ignore, map[string]any{"min": max(cfg.Clones.MinTokens, 1)})
+		if err != nil {
+			return nil, fmt.Errorf("duplicate code: %w", err)
+		}
+		var cands []rules.CloneCandidate
+		for _, row := range rows {
+			file := fmt.Sprint(row["file"])
+			if rules.IsTestFile(file) {
+				continue
+			}
+			c := rules.CloneCandidate{File: file, Name: fmt.Sprint(row["name"]), Kind: fmt.Sprint(row["kind"]),
+				Line: toInt(row["line"]), EndLine: toInt(row["endLine"]), Tokens: toInt(row["tokens"])}
+			c.Hash, _ = row["hash"].(string)
+			if fps, ok := row["fps"].([]any); ok {
+				for _, f := range fps {
+					if v, ok := f.(int64); ok {
+						c.Fingerprints = append(c.Fingerprints, v)
+					}
+				}
+			}
+			cands = append(cands, c)
+		}
+		for _, f := range rules.FindClones(cands, cfg.Clones) {
+			f.Severity = sev(rules.RuleDuplicateCode)
+			out = append(out, f)
+		}
+	}
+
+	// 6. Unused code at project level (unused.go).
 	unused, err := r.evaluateUnused(ctx, cfg)
 	if err != nil {
 		return nil, err
@@ -177,6 +214,11 @@ func nonNil(s []string) []string {
 		return []string{}
 	}
 	return s
+}
+
+func toInt(v any) int {
+	n, _ := v.(int64)
+	return int(n)
 }
 
 func toStrings(v any) []string {

@@ -1,0 +1,198 @@
+[tool_alias]
+golangci-lint = "go:github.com/golangci/golangci-lint/v2/cmd/golangci-lint"
+
+[tools]
+go = "1.27.3"
+golangci-lint = "2.15.0"
+node = "26.13.0"
+pnpm = "12.14.0"
+"go:golang.org/x/tools/gopls" = "0.24.0"
+"npm:typescript-language-server" = "6.0.2"
+"npm:typescript" = "7.0.2"
+"npm:pyright" = "1.1.414"
+
+[env]
+CGO_ENABLED = "1"
+NEO4J_URI = "bolt://localhost:7687"
+NEO4J_USER = "neo4j"
+NEO4J_PASSWORD = "depgraph123"
+NEO4J_DATABASE = "neo4j"
+DEPGRAPH_ADDR = "127.0.0.1:7777"
+DEPGRAPH_CLAUDE_MD = "CLAUDE.md"
+# keep tool binaries on PATH for `mise run` and shells with mise activated
+_.path = ["bin"]
+
+# ---------------------------------------------------------------------------
+# setup / build
+# ---------------------------------------------------------------------------
+
+[tasks.setup]
+description = "Install toolchain, download modules and build the binary"
+run = [
+  "mise install",
+  "go mod download",
+  "mise run build",
+]
+
+[tasks.deps]
+description = "go mod tidy"
+run = "go mod tidy"
+
+[tasks.build]
+description = "Build ./bin/depgraph"
+depends = ["web:build"]
+sources = ["main.go", "pkg/**/*.go", "pkg/interfaces/handler/ui/dist/**", "go.mod", "go.sum"]
+outputs = ["bin/depgraph"]
+run = "go build -o bin/depgraph ."
+
+[tasks."web:build"]
+description = "Build the browser UI (web/: Cytoscape + ELK) into pkg/interfaces/handler/ui/dist (embedded, served at /)"
+sources = ["web/src/**", "web/public/**", "web/index.html", "web/package.json", "web/pnpm-lock.yaml", "web/.npmrc", "web/tsconfig.json", "web/vite.config.ts"]
+outputs = ["pkg/interfaces/handler/ui/dist/index.html"]
+run = "cd web && pnpm install --frozen-lockfile && pnpm build"
+
+[tasks."web:test"]
+description = "Typecheck and unit-test the browser UI (vitest)"
+run = "cd web && pnpm install --frozen-lockfile && pnpm typecheck && pnpm test"
+
+[tasks."web:dev"]
+description = "Vite dev server for the browser UI; proxies /api and /events to DEPGRAPH_API (default http://127.0.0.1:7792)"
+run = "cd web && pnpm install --frozen-lockfile && pnpm dev"
+
+[tasks."web:check-no-cdn"]
+description = "Fail if the built UI loads anything from a URL (no CDN / web fonts; deps are pinned in web/pnpm-lock.yaml)"
+depends = ["web:build"]
+run = "cd web && pnpm check:no-cdn"
+
+[tasks.test]
+description = "Run unit tests"
+# the ui package embeds web/ build output: never compile it while web:build rewrites dist/
+depends = ["web:build"]
+run = "go test ./..."
+
+[tasks.vet]
+description = "go vet + gofmt check"
+depends = ["web:build"]
+run = [
+  "go vet ./...",
+  "test -z \"$(gofmt -l main.go pkg)\" || (echo 'gofmt needed:' && gofmt -l main.go pkg && exit 1)",
+]
+
+[tasks.lint]
+description = "golangci-lint (the version pinned in [tools])"
+depends = ["web:build"]
+# call the pinned binary by path: a golangci-lint installed with `go install`
+# into the Go toolchain's bin dir would otherwise shadow it on PATH.
+run = '"$(mise where golangci-lint)/bin/golangci-lint" run ./...'
+
+[tasks.fmt]
+description = "gofmt -w"
+run = "gofmt -w main.go pkg"
+
+[tasks.licenses]
+description = "Regenerate THIRD_PARTY_NOTICES.md from the bundled Go and npm dependencies"
+run = "scripts/third-party-notices.sh"
+
+[tasks."licenses:check"]
+description = "Fail if THIRD_PARTY_NOTICES.md is out of date"
+depends = ["web:test"] # needs web/node_modules
+run = "scripts/third-party-notices.sh --check"
+
+[tasks.ci]
+description = "vet + lint + test + web:test + build + web:check-no-cdn + licenses:check"
+depends = ["vet", "lint", "test", "web:test", "build", "web:check-no-cdn", "licenses:check"]
+
+[tasks.clean]
+description = "Remove build output"
+run = "rm -rf bin"
+
+# ---------------------------------------------------------------------------
+# neo4j
+# ---------------------------------------------------------------------------
+
+[tasks.neo4j]
+description = "Start Neo4j via docker compose and wait until it is reachable"
+run = """
+docker compose up -d
+echo -n 'waiting for neo4j'
+for i in $(seq 1 60); do
+  if docker exec depgraph-neo4j wget -qO- http://localhost:7474 >/dev/null 2>&1; then
+    echo; echo "neo4j ready: http://localhost:7474 (user $NEO4J_USER / pass $NEO4J_PASSWORD)"; exit 0
+  fi
+  echo -n .; sleep 2
+done
+echo; echo 'neo4j did not come up in time'; exit 1
+"""
+
+[tasks."neo4j:down"]
+description = "Stop Neo4j (keeps data volume)"
+run = "docker compose down"
+
+[tasks."neo4j:reset"]
+description = "Stop Neo4j and delete its data volume"
+run = "docker compose down -v"
+
+[tasks."neo4j:logs"]
+description = "Tail Neo4j logs"
+run = "docker compose logs -f neo4j"
+
+[tasks."neo4j:shell"]
+description = "Open cypher-shell inside the container"
+run = "docker exec -it depgraph-neo4j cypher-shell -u $NEO4J_USER -p $NEO4J_PASSWORD"
+
+# ---------------------------------------------------------------------------
+# depgraph commands
+#   mise run <task> [root]        e.g. mise run watch /path/to/repo
+#   ROOT=/path/to/repo mise run <task>   (env var also works)
+# root defaults to the current directory. .depgraphignore is read from root.
+# ---------------------------------------------------------------------------
+
+[tasks.scan]
+description = "Full scan of ROOT into Neo4j, run rules, update CLAUDE.md"
+depends = ["build"]
+usage = '''arg "[root]" help="repository root (default: $ROOT or .)"'''
+run = 'bin/depgraph scan --root "${usage_root:-${ROOT:-.}}" --reset'
+
+[tasks.watch]
+description = "Scan ROOT, then watch for changes with the browser UI"
+depends = ["build"]
+usage = '''arg "[root]" help="repository root (default: $ROOT or .)"'''
+run = 'bin/depgraph watch --root "${usage_root:-${ROOT:-.}}"'
+
+[tasks.serve]
+description = "Serve the browser UI for what is already in Neo4j"
+depends = ["build"]
+usage = '''arg "[root]" help="repository root (default: $ROOT or .)"'''
+run = 'bin/depgraph serve --root "${usage_root:-${ROOT:-.}}"'
+
+[tasks.check]
+description = "Run rules against what is already in Neo4j"
+depends = ["build"]
+usage = '''arg "[root]" help="repository root (default: $ROOT or .)"'''
+run = 'bin/depgraph check --root "${usage_root:-${ROOT:-.}}"'
+
+[tasks.parse]
+description = "Print tree-sitter parse of ROOT as JSON (no Neo4j needed)"
+depends = ["build"]
+usage = '''arg "[root]" help="repository root (default: $ROOT or .)"'''
+run = 'bin/depgraph parse --root "${usage_root:-${ROOT:-.}}"'
+
+[tasks.demo]
+description = "Create a throwaway polyglot sample repo and watch it as project depgraph-demo (UI :7778; --reset clears only that project)"
+depends = ["build", "neo4j"]
+run = """
+set -e
+S="${DEMO_DIR:-/tmp/depgraph-demo}"
+rm -rf "$S"; mkdir -p "$S/handler" "$S/repository" "$S/src/api" "$S/src/db" "$S/app/services"
+printf 'module example.com/app\\ngo 1.22\\n' > "$S/go.mod"
+printf 'package handler\\nimport "example.com/app/repository"\\ntype UserHandler struct{}\\nfunc (h *UserHandler) Get() { _ = repository.Find() }\\nfunc Helper() {}\\n' > "$S/handler/user.go"
+printf 'package repository\\nimport "example.com/app/handler"\\nfunc Find() string { _ = handler.Helper; return "x" }\\n' > "$S/repository/user.go"
+printf 'import { query } from "../db";\\nexport class UserController { list() { return query("u"); } }\\nexport const Helper = () => 1;\\n' > "$S/src/api/users.ts"
+printf 'export function query(t: string) { return t; }\\n' > "$S/src/db/index.ts"
+: > "$S/app/__init__.py"; : > "$S/app/services/__init__.py"
+printf 'from ..models import User\\nclass UserService: pass\\ndef Helper(): pass\\n' > "$S/app/services/user.py"
+printf 'class User: ...\\n' > "$S/app/models.py"
+echo "demo repo: $S  (edit files there and watch the UI update; remove with: bin/depgraph projects rm depgraph-demo)"
+# same Neo4j as everything else, separate project: other projects' data is untouched
+bin/depgraph watch --root "$S" --project depgraph-demo --reset --addr 127.0.0.1:7778
+"""

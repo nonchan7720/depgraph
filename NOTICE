@@ -1,0 +1,10 @@
+depgraph
+Copyright 2026 nonchan7720
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+It bundles third-party software distributed under their own licenses,
+listed with their license texts in THIRD_PARTY_NOTICES.md. In particular,
+the browser UI embedded in the binary includes elkjs, used under the
+Eclipse Public License 2.0; its source code is available at
+https://github.com/kieler/elkjs.

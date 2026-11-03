@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "d=\"${CLAUDE_PROJECT_DIR:-.}\"; [ -x \"$d/bin/depgraph\" ] && \"$d/bin/depgraph\" hook session-start; exit 0",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "d=\"${CLAUDE_PROJECT_DIR:-.}\"; [ -x \"$d/bin/depgraph\" ] && \"$d/bin/depgraph\" hook prompt; exit 0",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

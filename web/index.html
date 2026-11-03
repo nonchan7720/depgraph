@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>depgraph</title>
+  </head>
+  <body>
+    <div id="app">
+      <header>
+        <h1>depgraph</h1>
+        <span class="root" id="root"></span>
+        <span class="spacer"></span>
+        <span class="ctl" title="how many path segments are shown before folding into groups">depth
+          <button class="btn" id="d-minus">−</button><b id="d-val">auto</b><button class="btn" id="d-plus">+</button></span>
+        <span class="ctl" title="space between nodes">spacing
+          <button class="btn" id="s-minus">−</button><b id="s-val">3</b><button class="btn" id="s-plus">+</button></span>
+        <button class="btn" id="collapse" title="fold every opened group">collapse all</button>
+        <button class="btn" id="relayout" title="discard dragged positions and re-run the layout">layout</button>
+        <input type="search" id="q" placeholder="filter packages…" />
+        <label class="ctl"><input type="checkbox" id="ext" /> external</label>
+        <span class="stat"><b id="s-pkgs">0</b> pkgs</span>
+        <span class="stat"><b id="s-files">0</b> files</span>
+        <span class="stat"><b id="s-syms">0</b> symbols</span>
+        <span class="live" id="live"><i></i><span id="live-text">connecting</span></span>
+      </header>
+      <main id="stage">
+        <div id="graph"></div>
+        <nav id="crumbs"></nav>
+        <div id="perf"></div>
+        <div id="tip"></div>
+        <canvas id="minimap" title="overview: click or drag to move the view"></canvas>
+        <button class="btn" id="legend-btn">? legend</button>
+        <div id="legend" hidden>
+          <span><i class="sw"></i> package</span>
+          <span><i class="sw g"></i> folded directory · click: drill down · shift+click: open in place</span>
+          <span><i class="sw b"></i> opened directory · click its frame to fold · drag nodes or frames to move them ("layout" resets)</span>
+          <span><i class="sw c"></i> outside the current directory (context)</span>
+          <span><i class="dot" style="background: var(--warn)"></i> contains a god package (high fan-in)</span>
+          <span><i class="dot" style="background: var(--error)"></i> in a cycle / layer violation</span>
+          <span><i class="ln" style="border-color: var(--accent)"></i> imports (selected) <i class="ln" style="border-color: var(--in)"></i> imported by</span>
+          <span>left → right: arrows point to the dependency · thicker = more imports · Esc: up</span>
+        </div>
+      </main>
+      <aside>
+        <section>
+          <h2>Findings <span class="badge" id="f-count">0</span></h2>
+          <div id="findings"><div class="empty">loading…</div></div>
+        </section>
+        <section id="detail">
+          <h2>Detail</h2>
+          <div class="empty">click a package or a directory</div>
+        </section>
+      </aside>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

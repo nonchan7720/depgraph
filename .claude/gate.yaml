@@ -1,0 +1,35 @@
+# feedback-gate: checks run after Claude edits files and before it stops.
+# No CI workflow exists yet; commands mirror the mise tasks (`mise run ci`).
+rules:
+  # Go sources: gofmt / vet / tests of the edited package (same as mise tasks vet, test)
+  - match: ["main.go", "pkg/**/*.go"]
+    per_file_dir: file # one directory = one package
+    timeout: 120
+    run:
+      - { name: fmt, cmd: "test -z \"$(gofmt -l .)\" || { gofmt -l .; exit 1; }" }
+      - { name: vet, cmd: "go vet ." }
+      - { name: test, cmd: "go test ." }
+    run_checks: [go-all]
+
+  # browser UI (web/): typecheck + vitest (same as mise task web:test)
+  - match: ["web/src/**", "web/scripts/**", "web/index.html", "web/package.json", "web/pnpm-lock.yaml", "web/.npmrc", "web/tsconfig.json", "web/vite.config.ts"]
+    timeout: 120
+    run:
+      - { name: web-typecheck, cmd: "cd web && mise exec -- pnpm typecheck", files: false }
+      - { name: web-test, cmd: "cd web && mise exec -- pnpm test", files: false }
+
+  # module / toolchain changes
+  - match: ["go.mod", "go.sum", "mise.toml"]
+    run: [{ name: mod, cmd: "go mod tidy -diff", files: false, timeout: 60 }]
+    run_checks: [go-all]
+
+consistency_checks:
+  # same as `mise run ci` (vet + lint + test + build)
+  - name: go-all
+    timeout: 300
+    run:
+      - parallel:
+          - { name: vet-all, cmd: "mise run vet", files: false }
+          - { name: lint, cmd: "mise run lint", files: false }
+          - { name: test-all, cmd: "mise run test", files: false }
+      - { name: build, cmd: "mise run build", files: false }

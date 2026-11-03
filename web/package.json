@@ -1,0 +1,25 @@
+{
+  "name": "depgraph-web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "packageManager": "pnpm@12.14.0",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check:no-cdn": "node scripts/check-no-cdn.ts ../pkg/interfaces/handler/ui/dist"
+  },
+  "dependencies": {
+    "cytoscape": "3.34.4",
+    "elkjs": "0.12.0"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.5",
+    "typescript": "7.0.2",
+    "vite": "8.3.4",
+    "vitest": "5.0.5"
+  }
+}

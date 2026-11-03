@@ -1,0 +1,10 @@
+# depgraph exclude patterns (one per line, '#' starts a comment).
+# - no '/'  : glob matched against a file/dir name at any depth (e.g. *.gen.go, tmp*)
+# - with '/': repo-relative path prefix or glob; '**' allowed (e.g. internal/**/testdata)
+# - trailing '/' is ignored
+
+# git worktrees checked out inside the repo
+worktrees
+.worktrees
+.claude
+pkg/infrastructure/ent

@@ -1,0 +1,11 @@
+bin/
+*.scip
+.env
+.claude/.gate-status/
+web/node_modules/
+.claude/.depgraph-hook-state.json
+pkg/interfaces/handler/ui/dist/*
+!pkg/interfaces/handler/ui/dist/.gitkeep
+HANDOFF.md
+bin/
+.DS_Store

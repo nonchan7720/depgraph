@@ -28,10 +28,11 @@ background (disable with --no-lsp). A change of .depgraph.yml reloads the
 rules (a change of its project key needs a restart).
 
 Without --neo4j / NEO4J_URI, watch starts Neo4j itself (container provider:
-docker, podman or nerdctl; 10-20 s) and owns it: an ephemeral store is
-stopped and removed with its data when watch exits (ctrl-c, SIGTERM); with
---persist / store.persist the data stays in a named volume and the container
-keeps running for the hook and later runs (depgraph store down / rm).`,
+docker, podman or nerdctl; 10-20 s) and owns it: when watch exits, for any
+reason, an ephemeral store is removed with its data; with --persist /
+store.persist only the data persists (named volume): the container is
+stopped and the next watch / scan / check starts it again
+(depgraph store rm deletes it).`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runWatch(cmd, o)
@@ -58,11 +59,6 @@ func runWatch(cmd *cobra.Command, o *options) error {
 		return err
 	}
 	defer a.close(ctx)
-	if a.neo4j.Persistent {
-		defer func() {
-			_, _ = fmt.Fprintf(out, "Neo4j %s keeps running with its data (persistent): `depgraph store down` stops it, `depgraph store rm` deletes it\n", a.neo4j.Describe)
-		}()
-	}
 
 	if !o.noUI {
 		srv := ui.New(a.graph, o.root)

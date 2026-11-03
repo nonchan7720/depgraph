@@ -5,9 +5,11 @@
 //   - ephemeral (default): `run -d --rm` with /data on tmpfs; the process that
 //     started it stops it on exit. A crashed owner's container is removed by
 //     the next depgraph start on the same machine (owner PID + host labels).
-//   - persistent: data in a named volume per project, no --rm; the container
-//     keeps running after depgraph exits and is reused by later runs, until
-//     `depgraph store down` (stop) or `depgraph store rm` (delete).
+//   - persistent: data in a named volume per project, no --rm. The data
+//     persists, not the process: the process that started (or restarted) the
+//     container stops it on exit, and the next start of the root starts the
+//     same container again. `depgraph store down` stops it, `depgraph store
+//     rm` deletes container and volume.
 //
 // Bolt is published on 127.0.0.1 only, on a random port, with a random
 // password handed to the CLI through its environment (never argv). Commands
@@ -46,6 +48,9 @@ type ProviderConfig struct {
 	// the wait for a container to accept connections.
 	Poll         time.Duration
 	StartTimeout time.Duration
+	// Watchdog starts the watchdog child of a container this process
+	// started (nil: SpawnWatchdog).
+	Watchdog Spawner
 }
 
 // Provider is the container Neo4j provider.
@@ -86,7 +91,31 @@ func New(cfg ProviderConfig) *Provider {
 	if cfg.StartTimeout == 0 {
 		cfg.StartTimeout = 2 * time.Minute
 	}
+	if cfg.Watchdog == nil {
+		cfg.Watchdog = SpawnWatchdog
+	}
 	return &Provider{cfg: cfg}
+}
+
+// arm starts the watchdog of a container this process started. Without one
+// (it could not be started) the container is still cleaned up on a normal
+// exit and by the next start's sweep, which is reported.
+func (p *Provider) arm(o neo4jprovider.StoreRequest, id, name string, mode WatchMode) func(context.Context) {
+	disarm, err := p.cfg.Watchdog(p.rt.CLI, id, mode)
+	if err != nil {
+		o.Logf("no watchdog for container %s (%v): it is still cleaned up on a normal exit and by the next start", name, err)
+		return func(context.Context) {}
+	}
+	return disarm
+}
+
+// then runs release, then disarm (the watchdog then finds nothing to do).
+func then(release func(context.Context) error, disarm func(context.Context)) func(context.Context) error {
+	return func(ctx context.Context) error {
+		err := release(ctx)
+		disarm(ctx)
+		return err
+	}
 }
 
 func (p *Provider) Name() string { return neo4jprovider.Container }
@@ -292,17 +321,34 @@ func (p *Provider) restart(ctx context.Context, o neo4jprovider.StoreRequest, i 
 	if _, err := p.run(ctx, nil, "start", i.ID); err != nil {
 		return neo4jprovider.Conn{}, err
 	}
+	release := then(p.stopper(i.ID), p.arm(o, i.ID, i.Name, WatchStop))
 	i, err := p.waitPort(ctx, i)
 	if err != nil {
+		_ = release(ctx)
 		return neo4jprovider.Conn{}, err
 	}
 	c := p.conn(i)
 	c.Started = true
 	if err := p.waitReady(ctx, o, c, i.ID); err != nil {
+		_ = release(ctx)
 		return neo4jprovider.Conn{}, err
 	}
 	o.Logf("Neo4j ready in %.1fs (%s)", time.Since(began).Seconds(), c.URI)
-	return c, nil
+	return c.WithRelease(release), nil
+}
+
+// stopper stops (never removes) a persistent container: the data is what
+// persists, not the process. The next start of the root starts it again
+// (same container, so the password in its environment survives).
+func (p *Provider) stopper(id string) func(context.Context) error {
+	return func(ctx context.Context) error {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		if _, err := p.run(ctx, nil, "stop", "-t", "10", id); err != nil && !isNoSuch(err) {
+			return err
+		}
+		return nil
+	}
 }
 
 func randomPassword() (string, error) {
@@ -403,6 +449,13 @@ func (p *Provider) start(ctx context.Context, o neo4jprovider.StoreRequest) (neo
 		}
 		return err
 	}
+	// from here on the watchdog guarantees cleanup, whatever happens to this process
+	var release func(context.Context) error
+	if o.Persist {
+		release = then(p.stopper(id), p.arm(o, id, name, WatchStop))
+	} else {
+		release = then(remove, p.arm(o, id, name, WatchRemove))
+	}
 	inst, err := p.waitPort(ctx, Instance{ID: id, Name: name, Persist: o.Persist, State: "running"})
 	if err == nil {
 		inst.Password = pw
@@ -410,15 +463,10 @@ func (p *Provider) start(ctx context.Context, o neo4jprovider.StoreRequest) (neo
 		c.Started = true
 		if err = p.waitReady(ctx, o, c, id); err == nil {
 			o.Logf("Neo4j ready in %.1fs (%s)", time.Since(began).Seconds(), c.URI)
-			if !o.Persist {
-				c = c.WithRelease(remove)
-			}
-			return c, nil
+			return c.WithRelease(release), nil
 		}
 	}
-	if !o.Persist {
-		_ = remove(ctx)
-	}
+	_ = release(ctx)
 	return neo4jprovider.Conn{}, err
 }
 

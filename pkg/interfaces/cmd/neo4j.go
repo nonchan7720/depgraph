@@ -104,7 +104,10 @@ func openStore(ctx context.Context, o *options, policy neo4jprovider.Policy, out
 	giveBack := func(ctx context.Context) {
 		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer cancel()
-		if conn.Started && !conn.Persistent {
+		switch {
+		case conn.Started && conn.Persistent:
+			_, _ = fmt.Fprintf(out, "stopping Neo4j %s (persistent: data kept for the next start; `depgraph store rm` deletes it)\n", conn.Describe)
+		case conn.Started:
 			_, _ = fmt.Fprintf(out, "stopping Neo4j %s\n", conn.Describe)
 		}
 		if err := conn.Release(rctx); err != nil {

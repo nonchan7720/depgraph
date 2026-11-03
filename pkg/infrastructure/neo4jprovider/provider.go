@@ -61,9 +61,10 @@ func (o StoreRequest) Logf(format string, args ...any) {
 // Conn is a Neo4j to connect to.
 type Conn struct {
 	URI, User, Password, Database string
-	// Started: this process started it, so Release stops it (unless persistent).
+	// Started: this process started it, so Release stops it (an ephemeral
+	// store is removed with its data; a persistent one is only stopped).
 	Started bool
-	// Persistent: its data outlives the process.
+	// Persistent: its data outlives the process (the process does not).
 	Persistent bool
 	// Describe names it for messages, e.g. "container depgraph-app-1a2b3c4d (docker)".
 	Describe string
@@ -76,8 +77,9 @@ func (c Conn) WithRelease(fn func(ctx context.Context) error) Conn {
 	return c
 }
 
-// Release gives back what Provide acquired: an ephemeral store this process
-// started is stopped and removed; anything else is left as it is.
+// Release gives back what Provide acquired: a store this process started is
+// stopped (ephemeral: removed with its data; persistent: stopped, data and
+// container kept for the next start); a store it only reused is left running.
 func (c Conn) Release(ctx context.Context) error {
 	if c.release == nil {
 		return nil

@@ -100,6 +100,7 @@ a browser UI.`,
 		newHookCommand(o),
 		newProjectsCommand(o),
 		newStoreCommand(o),
+		newContainerWatchdogCommand(),
 		newVersionCommand(),
 	)
 	return root
@@ -138,7 +139,7 @@ func addNeo4jFlags(fs *pflag.FlagSet, o *options) {
 
 // addPersistFlag is for the commands that may start a store.
 func addPersistFlag(fs *pflag.FlagSet, o *options) {
-	fs.BoolVar(&o.persist, "persist", false, "container provider: keep the data in a named volume and the container running after exit (default: store.persist in .depgraph.yml, else ephemeral; delete with `depgraph store rm`)")
+	fs.BoolVar(&o.persist, "persist", false, "container provider: keep the data in a named volume (the container is stopped on exit and started again next time; default: store.persist in .depgraph.yml, else ephemeral; delete with `depgraph store rm`)")
 }
 
 func addClaudeMDFlag(fs *pflag.FlagSet, o *options) {

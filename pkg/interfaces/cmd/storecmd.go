@@ -125,6 +125,22 @@ Neo4j (--neo4j / NEO4J_URI) is never managed.`,
 	return c
 }
 
+// newContainerWatchdogCommand is the hidden child depgraph starts for every
+// container it starts (see container.SpawnWatchdog): it waits for depgraph to
+// go away, however that happens, and then stops / removes that container.
+func newContainerWatchdogCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:                container.WatchdogCommand,
+		Hidden:             true,
+		DisableFlagParsing: true,
+		Args:               cobra.ArbitraryArgs,
+		PersistentPreRunE:  func(*cobra.Command, []string) error { return nil },
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return container.WatchdogMain(args, cmd.InOrStdin(), container.ExecRunner{})
+		},
+	}
+}
+
 func printStore(w io.Writer, insts []container.Instance, vols []container.Volume) {
 	if len(insts) == 0 && len(vols) == 0 {
 		_, _ = fmt.Fprintln(w, "no managed Neo4j containers or volumes")

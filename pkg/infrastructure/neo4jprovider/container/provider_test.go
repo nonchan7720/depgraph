@@ -30,6 +30,10 @@ func newTestProvider(f *fakeCLI, alive ...int) *Provider {
 		Alive: func(pid int) bool { return live[pid] },
 		PID:   myPID, Host: myHost, Image: "neo4j:test",
 		Poll: time.Millisecond, StartTimeout: time.Second,
+		// never a real watchdog against fake container ids
+		Watchdog: func(string, string, WatchMode) (func(context.Context), error) {
+			return func(context.Context) {}, nil
+		},
 	})
 }
 
@@ -193,14 +197,61 @@ func TestProvidePersistentKeepsContainerAndVolume(t *testing.T) {
 	if !strings.Contains(log.String(), vol) || !strings.Contains(log.String(), "depgraph store rm") {
 		t.Errorf("persistent start must name the volume and how to remove it: %q", log.String())
 	}
+	// Persist the data, not the process: Release stops (never removes) the
+	// container this process started.
+	before := len(f.commands())
 	if err := c.Release(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+	released := f.commands()[before:]
 	if len(f.containers) != 1 {
-		t.Fatal("Release must keep a persistent container running")
+		t.Fatal("Release must keep a persistent container (stopped)")
+	}
+	for _, ct := range f.containers {
+		if ct.state != "exited" {
+			t.Errorf("after Release: %s, want exited", ct.state)
+		}
+	}
+	if len(released) != 1 || !strings.HasPrefix(released[0], "stop -t 10 ") {
+		t.Errorf("Release ran %q, want only `stop -t 10 <id>`", released)
 	}
 
-	// store down: stopped, kept; the next Provide restarts it (same password)
+	// the next start restarts the same container (same password, same volume)
+	c2, err := p.Provide(context.Background(), opts(neo4jprovider.StartIfPersistent, false, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !f.ran("start ") || c2.Password != c.Password || !c2.Persistent || !c2.Started {
+		t.Errorf("restart: %+v (calls %q)", c2, f.commands())
+	}
+	// a store another process started is left running by this one's Release
+	other := newTestProvider(f)
+	c3, err := other.Provide(context.Background(), opts(neo4jprovider.Start, true, nil))
+	if err != nil || c3.Started {
+		t.Fatalf("reuse: %+v %v", c3, err)
+	}
+	if err := c3.Release(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for _, ct := range f.containers {
+		if ct.state != "running" {
+			t.Errorf("Release of a reused store stopped it: %s", ct.state)
+		}
+	}
+	// the restarting process stops it again on exit
+	if err := c2.Release(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for _, ct := range f.containers {
+		if ct.state != "exited" {
+			t.Errorf("after the restarter's Release: %s", ct.state)
+		}
+	}
+
+	// store down on a running one: stopped, kept
+	if _, err := p.Provide(context.Background(), opts(neo4jprovider.Start, true, nil)); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := p.Down(context.Background(), testRoot); err != nil {
 		t.Fatal(err)
 	}
@@ -208,13 +259,6 @@ func TestProvidePersistentKeepsContainerAndVolume(t *testing.T) {
 		if ct.state != "exited" {
 			t.Errorf("after down: %s", ct.state)
 		}
-	}
-	c2, err := p.Provide(context.Background(), opts(neo4jprovider.StartIfPersistent, false, nil))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !f.ran("start ") || c2.Password != c.Password || !c2.Persistent {
-		t.Errorf("restart: %+v (calls %q)", c2, f.commands())
 	}
 
 	// store rm: container and volume gone

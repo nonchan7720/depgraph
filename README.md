@@ -48,8 +48,8 @@ is pulled once), scans the repository, then watches for file changes and re-anal
 what changed. A browser UI starts at http://127.0.0.1:7777 and the graph and findings update
 live (SSE). Findings are printed to stderr, and the `<!-- depgraph:start -->` ...
 `<!-- depgraph:end -->` section of `/path/to/your/repo/CLAUDE.md` is updated (hand-written
-content is kept). When `watch` exits (ctrl-c), the container and its data are removed; add
-`--persist` to keep them (see [Neo4j](#neo4j)).
+content is kept). When `watch` exits, for whatever reason (even a crash), the container is
+removed with its data; add `--persist` to keep the data (see [Neo4j](#neo4j)).
 
 To try it on a generated sample repository, run `mise run demo`. It watches the sample as
 the project `depgraph-demo` in the docker compose Neo4j below (UI http://127.0.0.1:7778); its
@@ -96,15 +96,25 @@ What depgraph runs (fixed argument lists, never a shell):
 - Memory: heap 128 MiB initial / 512 MiB max, page cache 64 MiB, transaction logs not
   preallocated. Measured about 330 MiB idle and 480 MiB after scanning this repository.
 - Who starts it: `watch`, `scan` and `check` reuse the running store of the root or start one
-  (a `scan` / `check` without `watch` starts an ephemeral one only for itself). `serve` and
-  `projects` use a running one (and start a stopped persistent one). The Claude Code hook
-  only looks for a running one: it never starts anything and prints nothing when there is none.
+  (a `scan` / `check` without `watch` starts one only for itself). `serve` and `projects` use
+  a running one (and start a stopped persistent one). Whoever starts a container stops it on
+  exit; a store another process started is left to that process. The Claude Code hook only
+  looks for a running one: it never starts anything and prints nothing when there is none.
 
-**Ephemeral (default).** Data is on a tmpfs inside the container. The process that started
-the container stops and removes it on exit (also on ctrl-c / SIGTERM). If that process is
-killed, the next `watch` / `scan` / `check` on the same machine removes the leftover: every
-container carries the owner's PID and a host id, and only containers labelled
-`depgraph.managed=1`, ephemeral, of this host and with a dead owner are removed.
+**The process that starts a container always stops it**, however that process ends: a normal
+exit, ctrl-c / SIGTERM, a panic in any goroutine, `os.Exit`, SIGKILL or a closed terminal.
+Right after `run` / `start`, depgraph starts itself as a small watchdog child
+(`depgraph __container-watchdog --cli <cli> --id <container> --mode rm|stop`, fixed argv, no
+shell) in its own session / process group. The child ignores SIGINT / SIGTERM / SIGHUP and
+waits on a pipe from its parent. The pipe closes when the parent is gone, whatever the
+reason, and the child then stops or removes exactly that container and exits. A normal exit
+cleans up first, so the watchdog finds nothing to do. No reaper container and no network port
+are involved. As a last resort (e.g. a power loss), the next `watch` / `scan` / `check` on
+the same machine removes ephemeral leftovers whose owner process is gone (owner PID and host id
+labels); only containers labelled `depgraph.managed=1` are ever touched.
+
+**Ephemeral (default).** Data is on a tmpfs inside the container; stopping it removes it with
+its data.
 
 **Persistent (opt-in).** `--persist` (scan / check / watch / serve) or in `.depgraph.yml`:
 
@@ -115,9 +125,12 @@ store:
   # containerCli: podman # docker | podman | nerdctl | a path
 ```
 
-The data is kept in the volume `depgraph-<project>-<hash>` and the container (no `--rm`)
-keeps running after `watch` exits, so the hook and `check` keep working and the next `watch`
-starts without a full rebuild of the store. Persisted data never accumulates silently:
+The **data** persists, not the process. It is kept in the volume
+`depgraph-<project>-<hash>`. The container (no `--rm`) is stopped when the process that
+started it exits, and the next `watch` / `scan` / `check` starts the same container again
+(same password; about 5 s, the store is not rebuilt). `serve` and `projects` also start a
+stopped persistent container. The hook works while a `watch` runs. Persisted data never
+accumulates silently:
 
 ```bash
 depgraph store ls                     # every container and volume depgraph manages

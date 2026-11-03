@@ -149,6 +149,23 @@ func TestServeNeverStartsAnEphemeralStore(t *testing.T) {
 	}
 }
 
+// The watchdog child is reachable under the name the spawner uses, is hidden
+// and parses its own arguments (no root preparation, no other flags).
+func TestContainerWatchdogCommand(t *testing.T) {
+	root := newRootCommand(&options{})
+	c, _, err := root.Find([]string{container.WatchdogCommand})
+	if err != nil || c.Name() != container.WatchdogCommand || !c.Hidden {
+		t.Fatalf("watchdog command = %v, %v", c, err)
+	}
+	root.SetIn(strings.NewReader(""))
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&bytes.Buffer{})
+	root.SetArgs(container.WatchdogArgs("docker", "abc", "kill"))
+	if err := root.Execute(); err == nil || !strings.Contains(err.Error(), `unknown --mode "kill"`) {
+		t.Errorf("err = %v", err)
+	}
+}
+
 func TestStoreLsWithNothingManaged(t *testing.T) {
 	clearNeo4jEnv(t)
 	var out bytes.Buffer

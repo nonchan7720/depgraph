@@ -52,14 +52,25 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 
 	// 1. Import cycles between in-repo packages (none through an ignored one).
 	if cfg.Enabled(rules.RuleImportCycle) {
+		// For every import a -> b, the shortest way back from b to a closes
+		// the shortest cycle through that import: every import on a cycle of
+		// at most 8 packages is reported, in polynomial time. (Enumerating
+		// every elementary cycle, as before, is exponential: a 700-file
+		// repository took 17 s, beyond the hook's budget.) shortestPath, not
+		// GQL SHORTEST, which the 5.26 planner ran ~500x slower here. Cycles
+		// are rotated to start at their smallest key and deduplicated.
 		rows, err := r.query(ctx, `
-			MATCH p = (a:Package {project: $project})-[:IMPORTS*2..8]->(a)
-			WHERE a.external = false
-			  AND none(n IN nodes(p) WHERE any(rx IN $ignore WHERE n.key =~ rx))
-			WITH [n IN nodes(p) | n.key] AS cyc
-			WITH cyc, reduce(m = cyc[0], x IN cyc | CASE WHEN x < m THEN x ELSE m END) AS minKey
-			WHERE cyc[0] = minKey
-			RETURN DISTINCT cyc LIMIT 50
+			MATCH (a:Package {project: $project})-[:IMPORTS]->(b:Package {project: $project})
+			WHERE a.external = false AND b.external = false AND a <> b
+			  AND none(rx IN $ignore WHERE a.key =~ rx OR b.key =~ rx)
+			MATCH p = shortestPath((b)-[:IMPORTS*1..7]->(a))
+			WHERE all(x IN nodes(p) WHERE x.external = false AND none(rx IN $ignore WHERE x.key =~ rx))
+			WITH [a.key] + [n IN nodes(p) | n.key] AS cyc
+			WITH cyc[0..size(cyc)-1] AS ring
+			WITH ring, reduce(m = 0, i IN range(0, size(ring) - 1) | CASE WHEN ring[i] < ring[m] THEN i ELSE m END) AS s
+			WITH ring[s..] + ring[..s] AS r
+			WITH DISTINCT r + [r[0]] AS cyc
+			RETURN cyc ORDER BY size(cyc), cyc LIMIT 50
 		`, ignore, nil)
 		if err != nil {
 			return nil, fmt.Errorf("cycles: %w", err)

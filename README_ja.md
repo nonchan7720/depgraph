@@ -199,7 +199,7 @@ import は各エコシステム自身の解決方法で、プロジェクトの�
 
 | rule | severity | 内容 |
 |---|---|---|
-| `import-cycle` | error | パッケージ間の循環 import |
+| `import-cycle` | error | パッケージ間の循環 import。8 パッケージ以下の循環に乗る import ごとに、それを通る最短の循環（最大 50 件） |
 | `layer-violation` | error | import してはいけないレイヤーを import している（`handler → repository` など、または独自レイヤー） |
 | `duplicate-code` | warn | 名前に関係なく、同じロジックが複数箇所にある（完全に同じ、または少し手を加えた複製。下記） |
 | `god-package` | warn | 10 パッケージ以上から import されている |

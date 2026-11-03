@@ -211,7 +211,7 @@ external, so it never shows up as a dependency. `watch` rescans when one of thes
 
 | rule | severity | description |
 |---|---|---|
-| `import-cycle` | error | import cycle between packages |
+| `import-cycle` | error | import cycle between packages: for every import on a cycle of at most 8 packages, the shortest cycle through it (up to 50) |
 | `layer-violation` | error | a package imports a layer it must not import (`handler → repository`, ... or your own layers) |
 | `duplicate-code` | warn | the same logic in several places, whatever the names: identical, or a copy changed a little (see below) |
 | `god-package` | warn | imported by 10 or more packages |

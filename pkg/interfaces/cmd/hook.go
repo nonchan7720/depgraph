@@ -80,7 +80,7 @@ func runHook(parent context.Context, o *options, ev hook.Event, stdin io.Reader,
 			return
 		}
 		root := hook.ResolveRoot(flagRoot, os.Getenv("CLAUDE_PROJECT_DIR"), in.Cwd)
-		st, err := graphrepo.New(ctx, o.neo4jURI, o.neo4jUser, o.neo4jPass, o.neo4jDB)
+		st, err := hookStore(ctx, o, root) // never starts Neo4j
 		if err != nil {
 			debugf("%v", err)
 			done <- ""

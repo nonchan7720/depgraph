@@ -207,6 +207,25 @@ func TestRepositoryConfigIsValid(t *testing.T) {
 	}
 }
 
+func TestParseStore(t *testing.T) {
+	f, err := Parse([]byte("store:\n  provider: container\n  persist: true\n  containerCli: podman\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.Store.Provider != "container" || f.Store.Persist == nil || !*f.Store.Persist || f.Store.ContainerCLI != "podman" {
+		t.Errorf("store = %+v", f.Store)
+	}
+	// unset: no opinion (nil), so a flag or the default decides
+	f, err = Parse([]byte("project: x\n"))
+	if err != nil || f.Store.Persist != nil || f.Store.Provider != "" || f.Store.ContainerCLI != "" {
+		t.Errorf("store = %+v, %v", f.Store, err)
+	}
+	// decoding stays strict below store:
+	if _, err := Parse([]byte("store:\n  persistent: true\n")); err == nil {
+		t.Error("unknown key under store: must be an error")
+	}
+}
+
 func TestParseDuplicateCodeOptions(t *testing.T) {
 	f, err := Parse([]byte("rules:\n  duplicate-code: {minTokens: 80, similarity: 0.9}\n"))
 	if err != nil {

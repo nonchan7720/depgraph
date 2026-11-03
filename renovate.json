@@ -10,6 +10,19 @@
   "timezone": "Asia/Tokyo",
   "minimumReleaseAge": "7 days",
   "internalChecksFilter": "strict",
+  "customManagers": [
+    {
+      "description": "The Neo4j image the container provider runs (kept equal to docker-compose.yml and ci.yml by a test)",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^pkg/infrastructure/neo4jprovider/container/image\\.go$/"
+      ],
+      "matchStrings": [
+        "\"docker\\.io/library/(?<depName>neo4j):(?<currentValue>[^@\"]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+      ],
+      "datasourceTemplate": "docker"
+    }
+  ],
   "postUpdateOptions": [
     "gomodTidy",
     "gomodUpdateImportPaths"

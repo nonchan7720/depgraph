@@ -2,16 +2,22 @@ package cmd
 
 import (
 	"github.com/spf13/cobra"
+
+	"github.com/nonchan7720/depgraph/pkg/infrastructure/neo4jprovider"
 )
 
 func newCheckCommand(o *options) *cobra.Command {
 	c := &cobra.Command{
 		Use:   "check",
 		Short: "Run rules against what is already in Neo4j (updates CLAUDE.md)",
-		Args:  cobra.NoArgs,
+		Long: `Run rules against what is already in Neo4j (updates CLAUDE.md).
+Without --neo4j / NEO4J_URI the running depgraph Neo4j of the root is used;
+when none runs, one is started (10-20 s; an ephemeral one is empty, so run
+scan or watch first, or use --persist / store.persist).`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
-			a, err := newApp(ctx, o, reportWriter(o), cmd.ErrOrStderr())
+			a, err := newApp(ctx, o, neo4jprovider.Start, reportWriter(o), cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
@@ -20,6 +26,7 @@ func newCheckCommand(o *options) *cobra.Command {
 		},
 	}
 	addNeo4jFlags(c.Flags(), o)
+	addPersistFlag(c.Flags(), o)
 	addClaudeMDFlag(c.Flags(), o)
 	return c
 }

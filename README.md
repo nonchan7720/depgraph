@@ -7,6 +7,8 @@ During vibe coding it updates the graph every time a file is rewritten and immed
 
 Supported languages (tree-sitter): Go / TypeScript / JavaScript / Python
 
+Parsing uses [gotreesitter](https://github.com/odvcencio/gotreesitter), a pure-Go tree-sitter runtime, so depgraph needs no C toolchain: it builds with `CGO_ENABLED=0` and cross-compiles to any `GOOS`/`GOARCH` with plain `go build`.
+
 ## Quick start
 
 ```bash
@@ -14,7 +16,7 @@ Supported languages (tree-sitter): Go / TypeScript / JavaScript / Python
 docker compose up -d
 
 # 2. Build
-mise run build   # or: go build -o bin/depgraph .
+mise run build   # or: CGO_ENABLED=0 go build -o bin/depgraph .
 
 # 3. Watch the target repository
 ./bin/depgraph watch --root /path/to/your/repo
@@ -189,7 +191,7 @@ pkg/infrastructure/repository/rules/ rule evaluation in Cypher
 pkg/infrastructure/repository/project/ Project nodes
 pkg/infrastructure/workspace/        .depgraph.yml and git (origin, worktree) of a root
 pkg/infrastructure/resolver/         repository walk + exclude patterns
-  treesitter/                        default: structural analysis (imports / declarations)
+  treesitter/                        default: structural analysis (imports / declarations, gotreesitter)
   lsp/                               refinement with language servers (callHierarchy / references)
 pkg/infrastructure/watch/            fsnotify + debounce
 pkg/infrastructure/claudemd/         CLAUDE.md managed section

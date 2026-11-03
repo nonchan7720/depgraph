@@ -7,6 +7,8 @@ AIが書いたコードの依存関係を Neo4j に入れて可視化・ルー�
 
 対応言語（tree-sitter）: Go / TypeScript / JavaScript / Python
 
+構文解析には pure Go の tree-sitter 実装 [gotreesitter](https://github.com/odvcencio/gotreesitter) を使うため、C コンパイラは不要です。`CGO_ENABLED=0` でビルドでき、`go build` だけで任意の `GOOS`/`GOARCH` にクロスビルドできます。
+
 ## Quick start
 
 ```bash
@@ -14,7 +16,7 @@ AIが書いたコードの依存関係を Neo4j に入れて可視化・ルー�
 docker compose up -d
 
 # 2. ビルド
-mise run build   # または go build -o bin/depgraph .
+mise run build   # または CGO_ENABLED=0 go build -o bin/depgraph .
 
 # 3. 対象リポジトリを監視
 ./bin/depgraph watch --root /path/to/your/repo
@@ -182,7 +184,7 @@ pkg/infrastructure/repository/rules/ Cypher ルール評価
 pkg/infrastructure/repository/project/ Project ノード
 pkg/infrastructure/workspace/        root の .depgraph.yml と git（origin・worktree）
 pkg/infrastructure/resolver/         リポジトリ走査 + 除外パターン
-  treesitter/                        デフォルト: 構造解析（import / 宣言）
+  treesitter/                        デフォルト: 構造解析（import / 宣言、gotreesitter）
   lsp/                               言語サーバー（callHierarchy / references）による精密化
 pkg/infrastructure/watch/            fsnotify + デバウンス
 pkg/infrastructure/claudemd/         CLAUDE.md の管理区間更新

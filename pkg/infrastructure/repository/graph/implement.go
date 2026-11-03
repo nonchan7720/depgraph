@@ -85,7 +85,9 @@ func (s *Store) EnsureSchema(ctx context.Context) error {
 		`CREATE INDEX symbol_kind IF NOT EXISTS FOR (s:Symbol) ON (s.kind)`,
 	}
 	for _, st := range stmts {
-		if err := s.Exec(ctx, st, nil); err != nil {
+		// several depgraph processes (or test packages) may start on an empty
+		// database at once; losing that race is not an error.
+		if err := s.Exec(ctx, st, nil); err != nil && !isSchemaRace(st, err) {
 			return err
 		}
 	}

@@ -10,7 +10,8 @@
   "minimumReleaseAge": "7 days",
   "internalChecksFilter": "strict",
   "postUpdateOptions": [
-    "gomodTidy"
+    "gomodTidy",
+    "gomodUpdateImportPaths"
   ],
   "lockFileMaintenance": {
     "enabled": true,

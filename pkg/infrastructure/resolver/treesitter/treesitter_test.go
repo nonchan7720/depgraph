@@ -58,6 +58,8 @@ func helper() {}
 
 func TestTypeScript(t *testing.T) {
 	root := t.TempDir()
+	// "@/" is an alias only because tsconfig says so
+	writeFile(t, root, "tsconfig.json", `{"compilerOptions":{"baseUrl":".","paths":{"@/*":["src/*"]}}}`)
 	writeFile(t, root, "src/db/index.ts", "export function query() {}\n")
 	writeFile(t, root, "src/db/util.ts", "export const format = (x: string) => x;\n")
 	writeFile(t, root, "src/api/users.ts", `import { query } from '../db';
@@ -190,6 +192,49 @@ func TestSymbolNamePositionTSAndPython(t *testing.T) {
 	for k, w := range want {
 		if got[k] != w {
 			t.Errorf("%s = %v, want %v", k, got[k], w)
+		}
+	}
+}
+
+// Imports are resolved with the project's own configuration, and an import
+// that points nowhere is reported as unresolved instead of external.
+func TestResolveImportsWithProjectConfig(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "package.json", `{"name":"app"}`)
+	writeFile(t, root, "tsconfig.json", `{"compilerOptions":{"baseUrl":".","paths":{"~lib/*":["lib/*"]}}}`)
+	writeFile(t, root, "lib/util.ts", "export const u = 1\n")
+	writeFile(t, root, "src/db/index.ts", "export const db = 1\n")
+	writeFile(t, root, "src/api/users.ts", `import { u } from "~lib/util"
+import { db } from "../db/index.js"
+import { gone } from "../missing"
+import React from "react"
+`)
+	r := New()
+	t.Cleanup(r.Close)
+	fg, err := r.ResolveFile(context.Background(), root, "src/api/users.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	type imp struct {
+		target               string
+		external, unresolved bool
+	}
+	want := []imp{
+		{"lib", false, false},      // tsconfig paths
+		{"src/db", false, false},   // ESM ".js" written for a .ts file
+		{"", false, true},          // relative import of nothing
+		{"ext:react", true, false}, // package
+	}
+	if len(fg.Imports) != len(want) {
+		t.Fatalf("imports = %+v", fg.Imports)
+	}
+	for i, w := range want {
+		g := fg.Imports[i]
+		if (imp{g.Target, g.External, g.Unresolved}) != w {
+			t.Errorf("import %q = %+v, want %+v", g.Spec, g, w)
+		}
+		if g.Unresolved && g.Reason == "" {
+			t.Errorf("import %q: unresolved without a reason", g.Spec)
 		}
 	}
 }

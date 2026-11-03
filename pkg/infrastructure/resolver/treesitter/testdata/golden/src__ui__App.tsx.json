@@ -63,8 +63,10 @@
     },
     {
       "spec": "./App.module.css",
-      "target": "ext:src/ui/App.module.css",
-      "external": true
+      "target": "",
+      "external": false,
+      "unresolved": true,
+      "reason": "Could not resolve \"./App.module.css\""
     }
   ]
 }

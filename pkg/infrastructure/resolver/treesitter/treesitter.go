@@ -11,10 +11,8 @@ import (
 	"bytes"
 	"context"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
-	"sync"
 	"sync/atomic"
 
 	gts "github.com/odvcencio/gotreesitter"
@@ -26,16 +24,27 @@ import (
 
 	"github.com/nonchan7720/depgraph/pkg/domain/graph"
 	"github.com/nonchan7720/depgraph/pkg/infrastructure/resolver"
+	"github.com/nonchan7720/depgraph/pkg/infrastructure/resolver/imports"
 )
 
-// Resolver implements resolver.Resolver.
+// Resolver implements resolver.Resolver. Imports are resolved by the
+// imports package with each ecosystem's own rules and project configuration.
 type Resolver struct {
-	mu       sync.Mutex
-	goModule map[string]string // repo root -> go module path (cached)
+	imp *imports.Multi
 }
 
-// New returns a tree-sitter resolver.
-func New() *Resolver { return &Resolver{goModule: map[string]string{}} }
+// New returns a tree-sitter resolver. Call Close when done.
+func New() *Resolver { return &Resolver{imp: imports.New()} }
+
+// Close releases the import resolvers.
+func (r *Resolver) Close() { r.imp.Close() }
+
+// ConfigChanged drops cached project configuration when rel (repo-relative)
+// is a file import resolution depends on (go.mod, tsconfig.json,
+// package.json, pyproject.toml, ...). It reports whether rel was one.
+func (r *Resolver) ConfigChanged(root, rel string) bool {
+	return r.imp.InvalidateFor(root, filepath.ToSlash(rel))
+}
 
 // Name implements resolver.Resolver.
 func (r *Resolver) Name() string { return "treesitter" }
@@ -148,9 +157,7 @@ func (r *Resolver) ResolveFile(ctx context.Context, root, rel string) (*graph.Fi
 		}
 	}
 
-	for i := range fg.Imports {
-		fg.Imports[i].Target, fg.Imports[i].External = r.resolveImport(root, fg.Path, lang, fg.Imports[i].Spec)
-	}
+	r.resolveImports(ctx, root, fg)
 	return fg, nil
 }
 
@@ -353,114 +360,23 @@ func (x *extractor) pyDecl(n *gts.Node) {
 
 // ---- import resolution ---------------------------------------------------
 
-func (r *Resolver) goModulePath(root string) string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if m, ok := r.goModule[root]; ok {
-		return m
+func (r *Resolver) resolveImports(ctx context.Context, root string, fg *graph.FileGraph) {
+	if len(fg.Imports) == 0 {
+		return
 	}
-	m := ""
-	if b, err := os.ReadFile(filepath.Join(root, "go.mod")); err == nil {
-		for _, line := range strings.Split(string(b), "\n") {
-			line = strings.TrimSpace(line)
-			if strings.HasPrefix(line, "module ") {
-				m = strings.TrimSpace(strings.TrimPrefix(line, "module "))
-				break
-			}
-		}
+	reqs := make([]imports.Request, len(fg.Imports))
+	for i, im := range fg.Imports {
+		reqs[i] = imports.Request{FromFile: fg.Path, Spec: im.Spec}
 	}
-	r.goModule[root] = m
-	return m
-}
-
-func isDir(root, rel string) bool {
-	st, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel)))
-	return err == nil && st.IsDir()
-}
-
-func isFile(root, rel string) bool {
-	st, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel)))
-	return err == nil && !st.IsDir()
-}
-
-func external(spec string) (string, bool) { return "ext:" + spec, true }
-
-// resolveImport maps an import spec to an in-repo package key, or an external key.
-func (r *Resolver) resolveImport(root, fromFile string, lang graph.Language, spec string) (string, bool) {
-	switch lang {
-	case graph.Go:
-		mod := r.goModulePath(root)
-		if mod == "" {
-			return external(spec)
-		}
-		if spec == mod {
-			return ".", false
-		}
-		if strings.HasPrefix(spec, mod+"/") {
-			return strings.TrimPrefix(spec, mod+"/"), false
-		}
-		return external(spec)
-
-	case graph.TypeScript, graph.JavaScript:
-		var cand string
-		switch {
-		case strings.HasPrefix(spec, "."):
-			cand = path.Clean(path.Join(path.Dir(fromFile), spec))
-		case strings.HasPrefix(spec, "@/"): // common tsconfig alias: "@/*" -> "src/*"
-			rest := strings.TrimPrefix(spec, "@/")
-			if isDir(root, "src") {
-				cand = path.Join("src", rest)
-			} else {
-				cand = rest
-			}
+	for i, res := range r.imp.ResolveBatch(ctx, root, reqs) {
+		im := &fg.Imports[i]
+		switch res.Kind {
+		case imports.InRepo:
+			im.Target = res.Target
+		case imports.External:
+			im.Target, im.External = res.Target, true
 		default:
-			return external(spec)
-		}
-		return resolvePathToPackage(root, cand, []string{".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"}, "index")
-
-	case graph.Python:
-		var cand string
-		if strings.HasPrefix(spec, ".") {
-			dots := 0
-			for dots < len(spec) && spec[dots] == '.' {
-				dots++
-			}
-			base := path.Dir(fromFile)
-			for i := 1; i < dots; i++ {
-				base = path.Dir(base)
-			}
-			rest := strings.ReplaceAll(spec[dots:], ".", "/")
-			cand = path.Clean(path.Join(base, rest))
-		} else {
-			cand = strings.ReplaceAll(spec, ".", "/")
-			if !isDir(root, cand) && !isFile(root, cand+".py") && isDir(root, "src") {
-				cand = path.Join("src", cand)
-			}
-		}
-		if t, ext := resolvePathToPackage(root, cand, []string{".py"}, "__init__"); !ext {
-			return t, false
-		}
-		return external(spec)
-	}
-	return external(spec)
-}
-
-// resolvePathToPackage turns a repo-relative module path (without extension)
-// into a package key: the directory containing the matched file/dir.
-func resolvePathToPackage(root, cand string, exts []string, indexName string) (string, bool) {
-	if isDir(root, cand) {
-		return cand, false
-	}
-	for _, e := range exts {
-		if isFile(root, cand+e) {
-			return graph.PackageKey(cand + e), false
+			im.Unresolved, im.Reason = true, res.Reason
 		}
 	}
-	// directory with index file
-	for _, e := range exts {
-		if isFile(root, path.Join(cand, indexName+e)) {
-			return cand, false
-		}
-	}
-	return external(cand)
 }

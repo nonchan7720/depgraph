@@ -272,3 +272,47 @@ func TestConfigChanged(t *testing.T) {
 		t.Errorf("after ConfigChanged: %q, want b", got)
 	}
 }
+
+// Type aliases (`type A = B`) are declarations like any other type; they
+// were dropped because the grammar puts them in type_alias, not type_spec.
+func TestGoTypeAlias(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "go.mod", "module example.com/app\n")
+	writeFile(t, root, "p/p.go", `package p
+type Single = string
+type (
+	Grouped = int
+	Spec    struct{}
+	inner   = Spec
+)
+type Set[T comparable] = map[T]struct{}
+`)
+	fg, err := New().ResolveFile(context.Background(), root, "p/p.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	type sym struct {
+		kind     string
+		exported bool
+		line     int
+	}
+	want := map[string]sym{
+		"Single":  {"type", true, 2},
+		"Grouped": {"type", true, 4},
+		"Spec":    {"struct", true, 5},
+		"inner":   {"type", false, 6},
+		"Set":     {"type", true, 8},
+	}
+	got := map[string]sym{}
+	for _, s := range fg.Symbols {
+		got[s.Name] = sym{s.Kind, s.Exported, s.Line}
+	}
+	if len(got) != len(want) {
+		t.Fatalf("symbols = %+v, want %v", fg.Symbols, want)
+	}
+	for name, w := range want {
+		if got[name] != w {
+			t.Errorf("%s = %+v, want %+v", name, got[name], w)
+		}
+	}
+}

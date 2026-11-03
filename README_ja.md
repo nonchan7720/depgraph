@@ -194,9 +194,60 @@ import は各エコシステム自身の解決方法で、プロジェクトの�
 | rule | severity | 内容 |
 |---|---|---|
 | `import-cycle` | error | パッケージ間の循環 import |
-| `layer-violation` | error | `handler → repository` などの禁止ペア（`rules.DefaultConfig` で変更） |
+| `layer-violation` | error | import してはいけないレイヤーを import している（`handler → repository` など、または独自レイヤー） |
 | `god-package` | warn | 10 パッケージ以上から import されている |
 | `duplicate-symbol` | warn | 同名の exported function/class が複数ファイルに存在 |
+
+レイヤー・禁止 import・severity・閾値は `.depgraph.yml` で設定します（次節）。
+
+### 設定（`.depgraph.yml`）
+
+スキャンする root に `.depgraph.yml` を置いてアーキテクチャを宣言します。キーはすべて省略可能です。
+`scan`・`check`・`watch`・`serve`・`hook` が読み、`watch` は変更されると読み直します
+（`project` の変更は再起動が必要）。
+
+```yaml
+project: my-repo            # プロジェクト key（Projects 参照）
+
+layers:                     # レイヤー名 -> パッケージパスの glob
+  domain: ["pkg/domain/**"]
+  services: ["pkg/services/**"]
+  infrastructure: ["pkg/infrastructure/**"]
+  interfaces: ["pkg/interfaces/**", "cmd/**"]
+
+forbidden:                  # レイヤー -> import してはいけないレイヤー
+  domain: [infrastructure, services, interfaces]
+  services: [interfaces]
+  infrastructure: [interfaces, services]
+
+rules:                      # ルールごと: enabled、severity（error | warn | info）、オプション
+  import-cycle: {severity: error}
+  layer-violation: {severity: error}
+  god-package: {severity: warn, fanIn: 10}
+  duplicate-symbol: {enabled: false}
+  # duplicate-symbol: {ignore: [main, init, New]}   # 対象外の名前（デフォルトを置き換える）
+
+ignore: ["**/testdata/**"]  # すべてのルールから除外するパッケージ
+```
+
+- **パッケージ glob** はパッケージ key（root からのディレクトリ、root は `.`）にパスセグメント単位で
+  マッチします。`**` は任意個のセグメント、`*` と `?` は 1 セグメント内だけ。
+  `pkg/domain/**` は `pkg/domain` とその配下すべて、`**/db/**` は `db` や `internal/db/sql` にマッチし、
+  `pkg/feedback` にはマッチしません。
+- 1 つのパッケージが複数のレイヤーに属してもかまいません。違反になるのはペアをまたぐ import だけで、
+  両方が禁止される側のレイヤー、または両方が import する側のレイヤーに属するなら報告しません。
+- `layers` を書くとデフォルトのレイヤーを置き換え、デフォルトの禁止ペアもなくなります。
+  `forbidden` だけを書いた場合はデフォルトのレイヤーを参照します。
+- `ignore` のパッケージは検出結果から外れます（それを通る循環、それからの扇入れなど）。
+  `.depgraphignore` と違い、スキャンはされ UI にも表示されます。
+- デコードは厳密です。未知のキー・ルール・オプション・severity や、未定義のレイヤーを指す
+  `forbidden` は、黙って無視せずファイル名つきのエラーにします。
+
+`.depgraph.yml` が無いときのデフォルトは、レイヤー `controller`・`db`・`domain`・`handler`・`infra`・
+`repository`・`usecase`（それぞれ同名のパスセグメント。加えて `controllers`・`handlers`・
+`infrastructure`・`repositories`・`usecases`）と、禁止ペア `handler → repository / infra / db`、
+`controller → repository / db`、`domain → infra / handler / repository`、`usecase → handler` です。
+このリポジトリ自身の [`.depgraph.yml`](.depgraph.yml) が例になります。
 
 手で叩くなら:
 
@@ -215,13 +266,14 @@ RETURN p.key, count(q) AS fanIn ORDER BY fanIn DESC LIMIT 10;
 ```
 main.go                              エントリポイント（cmd.Execute() を呼ぶだけ）
 pkg/domain/graph/                    言語非依存のグラフモデル、Repository / Resolver interface
-pkg/domain/rules/                    Finding / Config / 差分、Repository interface
+pkg/domain/rules/                    ルール、Config（レイヤー・パッケージ glob）、Finding / 差分、Repository interface
 pkg/domain/project/                  Project、key 決定・移動/衝突判定、Repository interface
 pkg/services/analysis/               スキャン・差分適用・ルール評価・LSP 精密化のサービス
 pkg/infrastructure/repository/graph/ Neo4j 投入・クエリ
 pkg/infrastructure/repository/rules/ Cypher ルール評価
 pkg/infrastructure/repository/project/ Project ノード
-pkg/infrastructure/workspace/        root の .depgraph.yml と git（origin・worktree）
+pkg/infrastructure/config/           .depgraph.yml（プロジェクト key・ルール設定）
+pkg/infrastructure/workspace/        root のプロジェクト識別（.depgraph.yml、git の origin・worktree）
 pkg/infrastructure/resolver/         リポジトリ走査 + 除外パターン
   treesitter/                        デフォルト: 構造解析（import / 宣言、gotreesitter）
   imports/                           エコシステムごとの import 解決（esbuild、go.mod / go.work、Python の import システム）
@@ -242,7 +294,7 @@ pkg/interfaces/handler/hook/         Claude Code hook（要約・差分・状態
 - [ ] `Commit` ノードで時系列分析（AIセッションごとの依存増加量）
 - [ ] SCIP インデックス取り込み（CI 向けバッチ精密解析）
 - [x] 1 DB で複数プロジェクト（`--project`、`.depgraph.yml` の `project:`、`depgraph projects`）
-- [ ] `.depgraph.yml` でのルール設定（今は `project:` のみ読む）
+- [x] `.depgraph.yml` でのルール設定（レイヤー・禁止 import・severity・ignore）
 - [ ] MCP サーバーモード（Claude Code / Cursor から直接問い合わせ）
 
 ## リリース手順

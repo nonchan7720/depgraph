@@ -10,6 +10,7 @@ import (
 	"github.com/nonchan7720/depgraph/pkg/domain/graph"
 	"github.com/nonchan7720/depgraph/pkg/domain/project"
 	"github.com/nonchan7720/depgraph/pkg/infrastructure/claudemd"
+	"github.com/nonchan7720/depgraph/pkg/infrastructure/config"
 	graphrepo "github.com/nonchan7720/depgraph/pkg/infrastructure/repository/graph"
 	projectrepo "github.com/nonchan7720/depgraph/pkg/infrastructure/repository/project"
 	rulesrepo "github.com/nonchan7720/depgraph/pkg/infrastructure/repository/rules"
@@ -53,6 +54,11 @@ func newApp(ctx context.Context, o *options, report analysis.ReportWriter, out i
 }
 
 func buildApp(ctx context.Context, st *graphrepo.Store, o *options, report analysis.ReportWriter, out io.Writer) (*app, error) {
+	// .depgraph.yml first: an invalid file fails before anything is written.
+	settings, err := config.Load(o.root)
+	if err != nil {
+		return nil, err
+	}
 	if err := st.EnsureSchema(ctx); err != nil {
 		return nil, err
 	}
@@ -75,6 +81,7 @@ func buildApp(ctx context.Context, st *graphrepo.Store, o *options, report analy
 		Scan:     resolver.ScanRepoWorkers(o.workers),
 		Report:   report,
 		Out:      out,
+		Config:   &settings.Rules,
 	}, analysis.Options{Root: o.root, Reset: o.reset})
 	return &app{store: st, graph: g, projects: projects, project: p, resolver: r, svc: svc}, nil
 }

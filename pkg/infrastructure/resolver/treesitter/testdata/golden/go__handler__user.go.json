@@ -32,6 +32,15 @@
       "col": 1
     },
     {
+      "name": "Alias",
+      "kind": "type",
+      "exported": true,
+      "line": 29,
+      "endLine": 29,
+      "nameLine": 29,
+      "col": 1
+    },
+    {
       "name": "List",
       "kind": "type",
       "exported": true,

@@ -107,12 +107,14 @@ type fakeRules struct {
 	mu   sync.Mutex
 	next []rules.Finding
 	n    int
+	cfg  rules.Config // the last configuration evaluated
 }
 
-func (r *fakeRules) Evaluate(context.Context, rules.Config) ([]rules.Finding, error) {
+func (r *fakeRules) Evaluate(_ context.Context, cfg rules.Config) ([]rules.Finding, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.n++
+	r.cfg = cfg
 	return append([]rules.Finding(nil), r.next...), nil
 }
 
@@ -298,6 +300,30 @@ func TestEvaluateWithoutReport(t *testing.T) {
 	f.svc = New(Deps{Repo: f.repo, Rules: f.rules, Resolver: fakeResolver{}, Scan: scanAll, Out: f.out}, Options{Root: f.root})
 	if err := f.svc.Evaluate(context.Background()); err != nil {
 		t.Fatalf("a nil Report disables CLAUDE.md updates: %v", err)
+	}
+}
+
+// The configuration from Deps is evaluated; SetConfig replaces it (watch
+// reloads .depgraph.yml) for the next evaluation.
+func TestEvaluateUsesConfig(t *testing.T) {
+	f := newFixture(t, Options{})
+	ctx := context.Background()
+	if err := f.svc.Evaluate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if f.rules.cfg.GodPackageFanIn != rules.DefaultConfig().GodPackageFanIn {
+		t.Errorf("default config not used: %+v", f.rules.cfg)
+	}
+	cfg := rules.DefaultConfig()
+	cfg.GodPackageFanIn = 42
+	f.svc = New(Deps{Repo: f.repo, Rules: f.rules, Resolver: fakeResolver{}, Scan: scanAll, Out: f.out, Config: &cfg}, Options{Root: f.root})
+	if err := f.svc.Evaluate(ctx); err != nil || f.rules.cfg.GodPackageFanIn != 42 {
+		t.Errorf("Deps.Config not used: %+v, %v", f.rules.cfg, err)
+	}
+	cfg.GodPackageFanIn = 7
+	f.svc.SetConfig(cfg)
+	if err := f.svc.Evaluate(ctx); err != nil || f.rules.cfg.GodPackageFanIn != 7 {
+		t.Errorf("SetConfig not used: %+v, %v", f.rules.cfg, err)
 	}
 }
 

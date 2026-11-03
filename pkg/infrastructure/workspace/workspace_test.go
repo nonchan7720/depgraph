@@ -8,20 +8,16 @@ import (
 	"testing"
 )
 
-func TestLoadSettings(t *testing.T) {
-	dir := t.TempDir()
-	c, err := LoadSettings(dir)
-	if err != nil || c.Project != "" {
-		t.Fatalf("missing file: %+v, %v", c, err)
-	}
-	write(t, filepath.Join(dir, SettingsFile), "# comment\nproject: my-key\nrules: {future: true}\n")
-	c, err = LoadSettings(dir)
-	if err != nil || c.Project != "my-key" {
-		t.Fatalf("LoadSettings = %+v, %v", c, err)
-	}
-	write(t, filepath.Join(dir, SettingsFile), "project: [broken\n")
-	if _, err := LoadSettings(dir); err == nil {
-		t.Error("broken yaml must be an error")
+// The key is read with the same strict decoder as the rules (package config):
+// an invalid file is an error, not a silently ignored setting.
+func TestIdentifyInvalidSettings(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	for _, body := range []string{"project: [broken\n", "project: x\nrules: {future: true}\n"} {
+		write(t, filepath.Join(root, SettingsFile), body)
+		if _, err := Identify(ctx, root, ""); err == nil {
+			t.Errorf("%q: error expected", body)
+		}
 	}
 }
 

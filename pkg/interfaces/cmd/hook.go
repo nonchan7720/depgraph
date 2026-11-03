@@ -91,6 +91,7 @@ func runHook(parent context.Context, o *options, ev hook.Event, stdin io.Reader,
 			scoped: func(key string) (statsReader, rules.Repository) {
 				return graphrepo.ForProject(st, key), rulesrepo.New(st, key)
 			},
+			config: loadRules,
 		}
 		text, err := hook.Run(ctx, ev, in, root, src, time.Now())
 		if err != nil {

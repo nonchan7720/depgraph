@@ -1,0 +1,10 @@
+# depgraph's own architecture (see "Configuration" in README.md).
+layers:
+  domain: ["pkg/domain/**"]
+  services: ["pkg/services/**"]
+  infrastructure: ["pkg/infrastructure/**"]
+  interfaces: ["pkg/interfaces/**"]
+forbidden:
+  domain: [infrastructure, services, interfaces]
+  services: [interfaces]
+  infrastructure: [interfaces, services]

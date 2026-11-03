@@ -208,6 +208,9 @@ func (x *extractor) addSym(n *gts.Node, kind, name string, exported bool) {
 		sym.NameLine = int(p.Row) + 1
 		sym.Col = utf16Col(x.src, int(id.StartByte()), int(p.Column))
 	}
+	if hasShape[kind] {
+		sym.Tokens, sym.CloneHash, sym.Fingerprints = x.shape(n)
+	}
 	x.fg.Symbols = append(x.fg.Symbols, sym)
 }
 

@@ -195,6 +195,7 @@ import は各エコシステム自身の解決方法で、プロジェクトの�
 |---|---|---|
 | `import-cycle` | error | パッケージ間の循環 import |
 | `layer-violation` | error | import してはいけないレイヤーを import している（`handler → repository` など、または独自レイヤー） |
+| `duplicate-code` | warn | 名前に関係なく、同じロジックが複数箇所にある（完全に同じ、または少し手を加えた複製。下記） |
 | `god-package` | warn | 10 パッケージ以上から import されている |
 | `duplicate-symbol` | warn | 同名の exported function/class が複数ファイルに存在 |
 
@@ -225,6 +226,7 @@ rules:                      # ルールごと: enabled、severity（error | warn
   layer-violation: {severity: error}
   god-package: {severity: warn, fanIn: 10}
   duplicate-symbol: {enabled: false}
+  duplicate-code: {minTokens: 50, similarity: 0.8}   # 本体の大きさと指紋の類似度
   # duplicate-symbol: {ignore: [main, init, New]}   # 対象外の名前（デフォルトを置き換える）
 
 ignore: ["**/testdata/**"]  # すべてのルールから除外するパッケージ
@@ -248,6 +250,15 @@ ignore: ["**/testdata/**"]  # すべてのルールから除外するパッケ�
 `infrastructure`・`repositories`・`usecases`）と、禁止ペア `handler → repository / infra / db`、
 `controller → repository / db`、`domain → infra / handler / repository`、`usecase → handler` です。
 このリポジトリ自身の [`.depgraph.yml`](.depgraph.yml) が例になります。
+
+### 重複コード
+
+depgraph は関数・メソッド・クラスごとに本体の「形」を持ちます。構文トークンからコメントを除き、識別子と
+リテラルをすべて伏せたもので、名前を変えた複製は同じ形になります。形が同じもの、またはトークン 4-gram の
+winnowing 指紋（Schleimer ら *Winnowing*）が 80% 以上一致する（Jaccard）ものを複製としてまとめるので、文を
+足したり変えたりした複製も見つかります。50 トークン未満の本体、10 を超える関数に共通する指紋（どの関数にも
+あるエラー処理やループ）、テストコード（`_test.go`・`*.test.*`・`*.spec.*`・`test_*.py`・`tests/` など。テーブル
+テストは意図的に似ている）は対象外です。コンパイラや linter が報告しない「同じことをする、動いている 2 つの関数」を見つけるためのルールです。
 
 手で叩くなら:
 

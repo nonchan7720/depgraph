@@ -36,6 +36,15 @@ type Symbol struct {
 	// offset within that line (the unit LSP uses). Zero means unknown.
 	NameLine int `json:"nameLine,omitempty"`
 	Col      int `json:"col,omitempty"`
+	// The shape of a function / method / class's code, for duplicate-code:
+	// Tokens counts its syntax tokens, CloneHash identifies the token
+	// sequence with identifiers and literals masked (a renamed copy has the
+	// same hash) and Fingerprints are winnowed k-gram hashes (shared by a copy
+	// that was changed a little). Empty for other kinds. Not part of the JSON
+	// of `parse` (it is stored in the graph).
+	Tokens       int     `json:"-"`
+	CloneHash    string  `json:"-"`
+	Fingerprints []int64 `json:"-"`
 }
 
 // Import is one import statement in a file.

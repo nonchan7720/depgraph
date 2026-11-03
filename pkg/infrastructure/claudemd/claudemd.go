@@ -34,11 +34,11 @@ func Render(stats graph.Stats, findings []rules.Finding) string {
 
 	b.WriteString("### Rules for the AI assistant\n\n")
 	b.WriteString("- Before adding an import, check it does not create a cycle or cross a forbidden layer listed below.\n")
-	b.WriteString("- Before writing a new function/class, search for an existing one with the same name listed under duplicates and reuse or consolidate it.\n")
+	b.WriteString("- Before writing a new function/class, search for existing code that already does it (same name, or the same logic under another name) and reuse or consolidate it.\n")
 	b.WriteString("- Prefer fixing the violations below over adding new code that depends on them.\n\n")
 
 	byRule := map[string][]rules.Finding{}
-	order := []string{"import-cycle", "layer-violation", "god-package", "duplicate-symbol"}
+	order := []string{"import-cycle", "layer-violation", "duplicate-code", "god-package", "duplicate-symbol"}
 	known := map[string]bool{}
 	for _, r := range order {
 		known[r] = true
@@ -56,6 +56,7 @@ func Render(stats graph.Stats, findings []rules.Finding) string {
 	titles := map[string]string{
 		"import-cycle":     "Import cycles (must fix)",
 		"layer-violation":  "Layer violations (must fix)",
+		"duplicate-code":   "Duplicated code (extract the shared logic and reuse it; do not add another copy)",
 		"god-package":      "God packages (high fan-in; avoid adding more dependents)",
 		"duplicate-symbol": "Duplicate symbols (consolidate before adding more)",
 	}

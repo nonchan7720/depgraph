@@ -305,3 +305,10 @@ func TestParseEvent(t *testing.T) {
 		t.Error("want error for unknown event")
 	}
 }
+
+func TestSummarizeDuplicateCodeHint(t *testing.T) {
+	out := Summarize(graph.Stats{}, []rules.Finding{{Rule: "duplicate-code", Severity: "warn", Message: "identical logic in 2 places"}}, DefaultLimits())
+	if !strings.Contains(out, "extract and reuse") {
+		t.Errorf("summary:\n%s", out)
+	}
+}

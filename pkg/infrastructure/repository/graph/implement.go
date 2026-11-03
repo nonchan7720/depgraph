@@ -10,6 +10,7 @@ import (
 	"github.com/neo4j/neo4j-go-driver/v6/neo4j"
 
 	"github.com/nonchan7720/depgraph/pkg/domain/graph"
+	"github.com/nonchan7720/depgraph/pkg/domain/view"
 )
 
 // Store wraps a Neo4j driver.
@@ -35,27 +36,20 @@ func (s *Store) Close(ctx context.Context) error { return s.driver.Close(ctx) }
 
 // Exec runs a write statement.
 func (s *Store) Exec(ctx context.Context, cypher string, params map[string]any) error {
-	_, err := s.write(ctx, cypher, params)
+	_, err := s.execute(ctx, cypher, params)
 	return err
-}
-
-func (s *Store) write(ctx context.Context, cypher string, params map[string]any) ([]map[string]any, error) {
-	res, err := neo4j.ExecuteQuery(ctx, s.driver, cypher, params, neo4j.EagerResultTransformer,
-		neo4j.ExecuteQueryWithDatabase(s.db))
-	if err != nil {
-		return nil, err
-	}
-	out := make([]map[string]any, 0, len(res.Records))
-	for _, rec := range res.Records {
-		out = append(out, rec.AsMap())
-	}
-	return out, nil
 }
 
 // Query runs a read query and returns rows as maps.
 func (s *Store) Query(ctx context.Context, cypher string, params map[string]any) ([]map[string]any, error) {
-	res, err := neo4j.ExecuteQuery(ctx, s.driver, cypher, params, neo4j.EagerResultTransformer,
-		neo4j.ExecuteQueryWithDatabase(s.db), neo4j.ExecuteQueryWithReadersRouting())
+	return s.execute(ctx, cypher, params, neo4j.ExecuteQueryWithReadersRouting())
+}
+
+// execute runs cypher on the store's database and returns rows as maps;
+// extra configures it (readers routing for reads).
+func (s *Store) execute(ctx context.Context, cypher string, params map[string]any, extra ...neo4j.ExecuteQueryConfigurationOption) ([]map[string]any, error) {
+	opts := append([]neo4j.ExecuteQueryConfigurationOption{neo4j.ExecuteQueryWithDatabase(s.db)}, extra...)
+	res, err := neo4j.ExecuteQuery(ctx, s.driver, cypher, params, neo4j.EagerResultTransformer, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -317,7 +311,7 @@ func (r *Graph) PruneEmptyPackages(ctx context.Context) error {
 }
 
 // Stats returns the project's node/edge counts.
-func (r *Graph) Stats(ctx context.Context) (graph.Stats, error) {
+func (r *Graph) Stats(ctx context.Context) (view.Stats, error) {
 	rows, err := r.query(ctx, `
 		RETURN
 		  count { MATCH (p:Package {project: $project}) WHERE p.external = false } AS packages,
@@ -327,10 +321,10 @@ func (r *Graph) Stats(ctx context.Context) (graph.Stats, error) {
 		  count { MATCH (:Symbol {project: $project})-[:CALLS]->(:Symbol) } AS calls
 	`, nil)
 	if err != nil || len(rows) == 0 {
-		return graph.Stats{}, err
+		return view.Stats{}, err
 	}
 	row := rows[0]
-	return graph.Stats{
+	return view.Stats{
 		Packages: i64(row["packages"]),
 		Files:    i64(row["files"]),
 		Symbols:  i64(row["symbols"]),

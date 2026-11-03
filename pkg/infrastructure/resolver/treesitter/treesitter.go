@@ -339,7 +339,7 @@ func (x *extractor) tsDecl(n *gts.Node, exported bool) {
 					kind = "function"
 				}
 			}
-			x.addSym(d, kind, x.fieldText(d, "name"), exported)
+			x.addDeclarator(d, kind, exported)
 		}
 	}
 }

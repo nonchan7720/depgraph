@@ -117,6 +117,14 @@ type Config struct {
 	Ignore []string
 	// Settings: per-rule overrides by rule name.
 	Settings map[string]RuleSetting
+	// UnusedEntries: path globs of entry points nothing in the repository
+	// shows (a plugin loaded by name, a file an external tool runs). They
+	// are reachable and their exports are used. A `depgraph:entry` comment
+	// in the file does the same.
+	UnusedEntries []string
+	// UnusedIgnore: path globs (files or Go package dirs) the unused-code
+	// rules never report, e.g. a library's public API.
+	UnusedIgnore []string
 }
 
 // segmentLayer is a default layer: the name (and its other spellings) as a

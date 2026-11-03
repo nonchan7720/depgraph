@@ -1,6 +1,7 @@
 package claudemd
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -77,5 +78,26 @@ func TestRenderListsEveryRule(t *testing.T) {
 	}
 	if i, j := strings.Index(out, "Import cycles"), strings.Index(out, "### zz-custom"); i < 0 || j < i {
 		t.Errorf("known rules come first:\n%s", out)
+	}
+}
+
+// The unused-code rules have titles, and a long list is cut (all of them are
+// in `depgraph check`): CLAUDE.md is read by every prompt.
+func TestRenderUnusedRules(t *testing.T) {
+	fs := []rules.Finding{
+		rules.UnreachableFile("src/old.ts", nil, false),
+		rules.UnreachablePackage("pkg/old", nil, false),
+	}
+	for i := 0; i < 40; i++ {
+		fs = append(fs, rules.UnusedExport("src/a.ts", i+1, "function", fmt.Sprintf("f%02d", i)))
+	}
+	out := Render(graph.Stats{}, fs)
+	for _, want := range []string{"### Unused exports", "### Unreachable files", "### Unreachable Go packages", "src/old.ts", "f19", "20 more"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "f20") {
+		t.Errorf("list not cut:\n%s", out)
 	}
 }

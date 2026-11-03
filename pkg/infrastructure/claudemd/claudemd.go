@@ -38,7 +38,8 @@ func Render(stats graph.Stats, findings []rules.Finding) string {
 	b.WriteString("- Prefer fixing the violations below over adding new code that depends on them.\n\n")
 
 	byRule := map[string][]rules.Finding{}
-	order := []string{"import-cycle", "layer-violation", "god-package", "duplicate-symbol"}
+	order := []string{"import-cycle", "layer-violation", "god-package", "duplicate-symbol",
+		rules.RuleUnusedExport, rules.RuleUnreachableFile, rules.RuleUnreachablePackage}
 	known := map[string]bool{}
 	for _, r := range order {
 		known[r] = true
@@ -54,10 +55,13 @@ func Render(stats graph.Stats, findings []rules.Finding) string {
 	sort.Strings(extra)
 	order = append(order, extra...)
 	titles := map[string]string{
-		"import-cycle":     "Import cycles (must fix)",
-		"layer-violation":  "Layer violations (must fix)",
-		"god-package":      "God packages (high fan-in; avoid adding more dependents)",
-		"duplicate-symbol": "Duplicate symbols (consolidate before adding more)",
+		"import-cycle":               "Import cycles (must fix)",
+		"layer-violation":            "Layer violations (must fix)",
+		"god-package":                "God packages (high fan-in; avoid adding more dependents)",
+		"duplicate-symbol":           "Duplicate symbols (consolidate before adding more)",
+		rules.RuleUnusedExport:       "Unused exports (nothing in the project uses them: delete them, do not build on them)",
+		rules.RuleUnreachableFile:    "Unreachable files (no entry point imports them: delete or wire them up)",
+		rules.RuleUnreachablePackage: "Unreachable Go packages (no main package or test imports them)",
 	}
 	for _, rule := range order {
 		fs := byRule[rule]
@@ -69,12 +73,22 @@ func Render(stats graph.Stats, findings []rules.Finding) string {
 			title = rule
 		}
 		fmt.Fprintf(&b, "### %s\n\n", title)
-		for _, f := range fs {
+		for i, f := range fs {
+			if n := listLimit[rule]; n > 0 && i == n {
+				fmt.Fprintf(&b, "- ... and %d more (`depgraph check` lists them all)\n", len(fs)-n)
+				break
+			}
 			fmt.Fprintf(&b, "- %s\n", f.Message)
 		}
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// listLimit caps the rules that can list one item per declaration or file:
+// the section is read with every prompt.
+var listLimit = map[string]int{
+	rules.RuleUnusedExport: 20, rules.RuleUnreachableFile: 20, rules.RuleUnreachablePackage: 20,
 }
 
 // Update writes body into the managed section of path, creating the file if needed.

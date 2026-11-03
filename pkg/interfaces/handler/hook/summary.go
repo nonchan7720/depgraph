@@ -25,13 +25,20 @@ func DefaultLimits() Limits {
 	return Limits{ErrorExamples: 10, OtherExamples: 5, DiffItems: 20, MaxChars: 4000}
 }
 
-var ruleOrder = map[string]int{"import-cycle": 0, "layer-violation": 1, "god-package": 2, "duplicate-symbol": 3}
+var ruleOrder = map[string]int{
+	"import-cycle": 0, "layer-violation": 1, "god-package": 2, "duplicate-symbol": 3,
+	rules.RuleUnusedExport: 4, rules.RuleUnreachableFile: 5, rules.RuleUnreachablePackage: 6,
+}
 
 var ruleHints = map[string]string{
 	"import-cycle":     "must fix; do not add imports that close a cycle",
 	"layer-violation":  "must fix; respect layer boundaries",
 	"god-package":      "avoid adding more dependents",
 	"duplicate-symbol": "reuse or consolidate instead of re-implementing",
+
+	rules.RuleUnusedExport:       "nothing uses these: delete them instead of building on them",
+	rules.RuleUnreachableFile:    "no entry point imports these: delete or wire them up",
+	rules.RuleUnreachablePackage: "no main package or test imports these: delete or wire them up",
 }
 
 func severityRank(s string) int {

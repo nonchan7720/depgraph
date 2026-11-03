@@ -238,3 +238,37 @@ import React from "react"
 		}
 	}
 }
+
+// Project configuration is cached; after ConfigChanged the next resolution
+// reads the new tsconfig.json.
+func TestConfigChanged(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "package.json", `{"name":"app"}`)
+	writeFile(t, root, "tsconfig.json", `{"compilerOptions":{"baseUrl":".","paths":{"@/*":["a/*"]}}}`)
+	writeFile(t, root, "a/x.ts", "export const x = 1\n")
+	writeFile(t, root, "b/x.ts", "export const x = 2\n")
+	writeFile(t, root, "main.ts", "import { x } from '@/x'\n")
+	r := New()
+	t.Cleanup(r.Close)
+	target := func() string {
+		t.Helper()
+		fg, err := r.ResolveFile(context.Background(), root, "main.ts")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return fg.Imports[0].Target
+	}
+	if got := target(); got != "a" {
+		t.Fatalf("before: %q", got)
+	}
+	writeFile(t, root, "tsconfig.json", `{"compilerOptions":{"baseUrl":".","paths":{"@/*":["b/*"]}}}`)
+	if !r.IsConfigFile("tsconfig.json") || r.IsConfigFile("main.ts") {
+		t.Error("IsConfigFile")
+	}
+	if !r.ConfigChanged(root, "tsconfig.json") {
+		t.Error("tsconfig.json is a config file")
+	}
+	if got := target(); got != "b" {
+		t.Errorf("after ConfigChanged: %q, want b", got)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -80,11 +81,44 @@ func runWatch(cmd *cobra.Command, o *options) error {
 		}()
 	}
 
-	return watch.Run(ctx, o.root, a.resolver.Supports, o.debounce, func(changed []string) {
-		sort.Strings(changed)
+	watched := func(rel string) bool { return a.resolver.Supports(rel) || a.resolver.IsConfigFile(rel) }
+	return watch.Run(ctx, o.root, watched, o.debounce, func(changed []string) {
+		config, sources := splitChanges(changed, a.resolver.IsConfigFile, a.resolver.Supports)
 		_, _ = fmt.Fprintf(out, "\n%s changed %d file(s)\n", time.Now().Format("15:04:05"), len(changed))
-		if err := a.svc.HandleChanges(ctx, changed); err != nil {
+		if len(config) == 0 {
+			if err := a.svc.HandleChanges(ctx, sources); err != nil {
+				_, _ = fmt.Fprintf(out, "  error: %v\n", err)
+			}
+			return
+		}
+		// go.mod / tsconfig.json / pyproject.toml ... can change how every
+		// import resolves: drop the cached configuration and rescan.
+		for _, rel := range config {
+			a.resolver.ConfigChanged(o.root, rel)
+		}
+		_, _ = fmt.Fprintf(out, "  %s changed: rescanning\n", strings.Join(config, ", "))
+		if err := a.fullScan(ctx); err != nil {
+			_, _ = fmt.Fprintf(out, "  error: %v\n", err)
+			return
+		}
+		if err := a.svc.Evaluate(ctx); err != nil {
 			_, _ = fmt.Fprintf(out, "  error: %v\n", err)
 		}
 	})
+}
+
+// splitChanges sorts a batch of changed paths into the files import
+// resolution depends on and the source files to re-analyse (a file can be
+// both, e.g. __init__.py).
+func splitChanges(changed []string, isConfig, supports func(rel string) bool) (config, sources []string) {
+	sort.Strings(changed)
+	for _, rel := range changed {
+		if isConfig(rel) {
+			config = append(config, rel)
+		}
+		if supports(rel) {
+			sources = append(sources, rel)
+		}
+	}
+	return config, sources
 }

@@ -39,6 +39,10 @@ func New() *Resolver { return &Resolver{imp: imports.New()} }
 // Close releases the import resolvers.
 func (r *Resolver) Close() { r.imp.Close() }
 
+// IsConfigFile reports whether import resolution depends on rel
+// (repo-relative): a change to it must be followed by ConfigChanged.
+func (r *Resolver) IsConfigFile(rel string) bool { return imports.IsConfigFile(rel) }
+
 // ConfigChanged drops cached project configuration when rel (repo-relative)
 // is a file import resolution depends on (go.mod, tsconfig.json,
 // package.json, pyproject.toml, ...). It reports whether rel was one.

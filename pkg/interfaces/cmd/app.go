@@ -96,7 +96,10 @@ func (a *app) fullScan(ctx context.Context) error {
 }
 
 // close releases the Neo4j driver; it works after ctx was cancelled.
-func (a *app) close(ctx context.Context) { _ = a.store.Close(context.WithoutCancel(ctx)) }
+func (a *app) close(ctx context.Context) {
+	a.resolver.Close()
+	_ = a.store.Close(context.WithoutCancel(ctx))
+}
 
 // reportWriter returns the CLAUDE.md writer for --claude-md, or nil when disabled.
 // A relative path is taken relative to --root.

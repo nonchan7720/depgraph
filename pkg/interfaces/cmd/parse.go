@@ -20,6 +20,7 @@ one FileGraph per line. Neo4j is not needed.`,
 		RunE: func(cmd *cobra.Command, files []string) error {
 			ctx := cmd.Context()
 			r := treesitter.New()
+			defer r.Close()
 			enc := json.NewEncoder(cmd.OutOrStdout())
 			if len(files) == 0 {
 				return resolver.ScanRepoWorkers(o.workers)(ctx, r, o.root, func(fg *graph.FileGraph) error { return enc.Encode(fg) })

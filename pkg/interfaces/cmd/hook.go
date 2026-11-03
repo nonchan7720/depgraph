@@ -29,7 +29,10 @@ removed with it). Nothing is printed
 when Neo4j is unreachable, the root's project (same key rules as scan:
 --project, .depgraph.yml, directory name, @worktree) is not scanned or its key
 belongs to another root, or --timeout expires.
-The root is --root, else $CLAUDE_PROJECT_DIR, else the cwd of the hook input.`,
+The root is --root, else $CLAUDE_PROJECT_DIR, else the cwd of the hook input.
+--format text prints the context itself instead of the hook JSON, for a
+runner that injects stdout as is (claude-hook-gate's session_start); the
+session is then $CLAUDE_SESSION_ID when the input has none.`,
 		Args:      cobra.ExactArgs(1),
 		ValidArgs: []string{"session-start", "prompt"},
 		// root の prepare（.depgraphignore 読込など）は hook には不要で、失敗の種にもなるので行わない。
@@ -38,6 +41,10 @@ The root is --root, else $CLAUDE_PROJECT_DIR, else the cwd of the hook input.`,
 			ev, err := hook.ParseEvent(args[0])
 			if err != nil {
 				return err // 設定ミス（Claude Code 側では非ブロッキングのエラー扱い）
+			}
+			format, err := hook.ParseFormat(o.hookFormat)
+			if err != nil {
+				return err
 			}
 			flagRoot := ""
 			if cmd.Flags().Changed("root") {
@@ -50,13 +57,14 @@ The root is --root, else $CLAUDE_PROJECT_DIR, else the cwd of the hook input.`,
 				}
 			}
 			text := runHook(cmd.Context(), o, ev, cmd.InOrStdin(), flagRoot, debugf)
-			_, _ = cmd.OutOrStdout().Write(hook.Output(ev, text))
+			_, _ = cmd.OutOrStdout().Write(hook.OutputAs(ev, text, format))
 			return nil
 		},
 	}
 	addNeo4jFlags(c.Flags(), o)
 	c.Flags().DurationVar(&o.hookTimeout, "timeout", 3*time.Second, "give up (print nothing) after this long")
 	c.Flags().BoolVar(&o.hookDebug, "debug", false, "report why nothing was injected on stderr")
+	c.Flags().StringVar(&o.hookFormat, "format", string(hook.FormatJSON), "json: Claude Code hook output; text: the context itself (for claude-hook-gate's session_start)")
 	return c
 }
 
@@ -79,6 +87,7 @@ func runHook(parent context.Context, o *options, ev hook.Event, stdin io.Reader,
 			done <- ""
 			return
 		}
+		in = in.WithSession(os.Getenv("CLAUDE_SESSION_ID"))
 		root := hook.ResolveRoot(flagRoot, os.Getenv("CLAUDE_PROJECT_DIR"), in.Cwd)
 		st, err := hookStore(ctx, o, root) // never starts Neo4j
 		if err != nil {

@@ -217,7 +217,7 @@ Flags (see `depgraph <command> --help`):
 | `--addr` | watch / serve | `$DEPGRAPH_ADDR` or `127.0.0.1:7777` |
 | `--debounce` | watch | `400ms` |
 | `--no-ui` / `--no-lsp` | watch | false |
-| `--timeout` / `--debug` | hook | `3s` / false |
+| `--timeout` / `--debug` / `--format` | hook | `3s` / false / `json` (`text`: the context itself, for claude-hook-gate's `session_start`) |
 | `--fail-on` / `--timeout` | gate | `warn` / `60s` |
 
 ## Claude Code hooks
@@ -286,8 +286,17 @@ rules:
   since its baseline. With any it exits 1: the gate hands the list to the agent, and because a failing
   rule is rerun when the agent stops, **the agent cannot finish while the debt it added remains**
   (claude-hook-gate gives up after 5 blocked stops). Debt that was there when the session started never fails it.
-- The baseline is recorded by `depgraph hook session-start` (keep that hook; the gate has no
-  session-start phase). Without one, the findings before the first gate run's changes are the baseline.
+- The baseline is recorded by `depgraph hook session-start`. Without one, the findings before the first
+  gate run's changes are the baseline. With a claude-hook-gate that has the `session_start` phase, the
+  whole integration lives in `gate.yaml` (instead of the `SessionStart` hook in `settings.json`):
+
+  ```yaml
+  session_start:
+    - { name: depgraph, timeout: 10, cmd: "command -v depgraph >/dev/null || exit 0; depgraph hook session-start --format text" }
+  ```
+
+  `--format text` prints the summary itself (the gate injects stdout as is); the session comes from
+  `$CLAUDE_SESSION_ID` when the hook input has none.
 - `--fail-on error` fails only on new import cycles and layer violations; the other findings then
   still reach the agent through the `prompt` hook.
 - It passes (exit 0, the reason on stderr) whenever it cannot tell: no running store (it never starts

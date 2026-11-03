@@ -357,3 +357,36 @@ func TestSummarizeDuplicateCodeHint(t *testing.T) {
 		t.Errorf("summary:\n%s", out)
 	}
 }
+
+// --format text prints the context itself, for runners that inject a
+// command's stdout as is (claude-hook-gate's session_start).
+func TestOutputFormat(t *testing.T) {
+	if got := string(OutputAs(SessionStart, "ctx", FormatText)); got != "ctx\n" {
+		t.Errorf("text = %q", got)
+	}
+	if OutputAs(SessionStart, "", FormatText) != nil {
+		t.Error("empty context must print nothing")
+	}
+	if string(OutputAs(Prompt, "ctx", FormatJSON)) != string(Output(Prompt, "ctx")) {
+		t.Error("json is the hook output")
+	}
+	for _, s := range []string{"json", "text"} {
+		if _, err := ParseFormat(s); err != nil {
+			t.Errorf("ParseFormat(%q): %v", s, err)
+		}
+	}
+	if _, err := ParseFormat("yaml"); err == nil {
+		t.Error("want an error for an unknown format")
+	}
+}
+
+// A runner that gives no stdin (claude-hook-gate) passes the session in
+// $CLAUDE_SESSION_ID; the hook input wins when it has one.
+func TestInputSessionFallback(t *testing.T) {
+	if got := (Input{}).WithSession("env"); got.SessionID != "env" {
+		t.Errorf("empty input: %q", got.SessionID)
+	}
+	if got := (Input{SessionID: "in"}).WithSession("env"); got.SessionID != "in" {
+		t.Errorf("input must win: %q", got.SessionID)
+	}
+}

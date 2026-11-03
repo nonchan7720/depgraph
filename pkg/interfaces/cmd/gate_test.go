@@ -12,6 +12,7 @@ import (
 	"time"
 
 	graphrepo "github.com/nonchan7720/depgraph/pkg/infrastructure/repository/graph"
+	"github.com/nonchan7720/depgraph/pkg/infrastructure/repository/hooksession"
 	projectrepo "github.com/nonchan7720/depgraph/pkg/infrastructure/repository/project"
 )
 
@@ -155,5 +156,16 @@ func TestGateEndToEnd(t *testing.T) {
 	}
 	if out, e, err := run("", "gate"); err != nil || out != "" {
 		t.Fatalf("s2 started with the cycle: out=%q err=%v\n%s", out, err, e)
+	}
+
+	// claude-hook-gate's session_start: no stdin, the session in the
+	// environment, the context as plain text; the baseline is recorded
+	t.Setenv("CLAUDE_SESSION_ID", "s3")
+	out, e, err = run("", "hook", "session-start", "--format", "text", "--timeout", "20s")
+	if err != nil || !strings.HasPrefix(out, "## depgraph") || strings.Contains(out, "hookSpecificOutput") {
+		t.Fatalf("session-start --format text: out=%q err=%v\n%s", out, err, e)
+	}
+	if base, ok, err := hooksession.New(st, key).Baseline(ctx, "s3"); err != nil || !ok || len(base) == 0 {
+		t.Fatalf("no baseline for the env session: %+v ok=%v err=%v", base, ok, err)
 	}
 }

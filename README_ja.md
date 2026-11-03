@@ -203,7 +203,7 @@ depgraph projects prune [--dry-run]  # root が存在しなくなったプロジ
 | `--addr` | watch / serve | `$DEPGRAPH_ADDR` または `127.0.0.1:7777` |
 | `--debounce` | watch | `400ms` |
 | `--no-ui` / `--no-lsp` | watch | false |
-| `--timeout` / `--debug` | hook | `3s` / false |
+| `--timeout` / `--debug` / `--format` | hook | `3s` / false / `json`（`text`: 文脈そのものを出力。claude-hook-gate の `session_start` 用） |
 | `--fail-on` / `--timeout` | gate | `warn` / `60s` |
 
 ## Claude Code hooks
@@ -270,8 +270,17 @@ rules:
   gate はその一覧をエージェントに渡し、失敗した rule はエージェントの終了時に再実行されるので、
   **自分が増やした負債が残っている間、エージェントは終われません**（claude-hook-gate は 5 回止めたら諦めます）。
   セッション開始時からあった負債では失敗しません。
-- 基準は `depgraph hook session-start` が記録します（gate にはセッション開始のタイミングが無いので、この hook は残してください）。
-  無いときは、最初の gate 実行で変更を反映する前の Findings を基準にします。
+- 基準は `depgraph hook session-start` が記録します。無いときは、最初の gate 実行で変更を反映する前の
+  Findings を基準にします。`session_start` フェーズのある claude-hook-gate なら、`settings.json` の
+  `SessionStart` hook の代わりに `gate.yaml` だけで連携できます:
+
+  ```yaml
+  session_start:
+    - { name: depgraph, timeout: 10, cmd: "command -v depgraph >/dev/null || exit 0; depgraph hook session-start --format text" }
+  ```
+
+  `--format text` は要約そのものを出力します（gate は標準出力をそのまま注入するため）。hook 入力に
+  セッションが無いときは `$CLAUDE_SESSION_ID` を使います。
 - `--fail-on error` にすると、新しい循環 import とレイヤー違反でだけ失敗します。それ以外の Findings は
   `prompt` の hook でエージェントに届きます。
 - 判断できないときは通します（exit 0、理由は標準エラー）: 稼働中のストアが無い（Neo4j は起動しません）、

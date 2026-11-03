@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/nonchan7720/depgraph/pkg/domain/rules"
@@ -89,4 +91,35 @@ func Output(ev Event, context string) []byte {
 		},
 	})
 	return buf.Bytes()
+}
+
+// Format is how the hook prints the context.
+type Format string
+
+const (
+	// FormatJSON is the Claude Code hook output (hookSpecificOutput).
+	FormatJSON Format = "json"
+	// FormatText is the context itself, for runners that inject a command's
+	// stdout as is (claude-hook-gate's session_start).
+	FormatText Format = "text"
+)
+
+// ParseFormat validates a --format value.
+func ParseFormat(s string) (Format, error) {
+	switch f := Format(s); f {
+	case FormatJSON, FormatText:
+		return f, nil
+	}
+	return "", fmt.Errorf("unknown format %q (want json or text)", s)
+}
+
+// OutputAs prints context in format f; nil when context is empty.
+func OutputAs(ev Event, context string, f Format) []byte {
+	if f == FormatText {
+		if context == "" {
+			return nil
+		}
+		return []byte(strings.TrimRight(context, "\n") + "\n")
+	}
+	return Output(ev, context)
 }

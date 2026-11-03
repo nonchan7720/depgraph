@@ -1,0 +1,35 @@
+name: auto-approve
+
+# The "PR Approve" ruleset requires one approving review. The owner works on
+# this repository alone, so PRs opened by the owner, and Renovate patch
+# updates labelled automerge-patch, are approved by github-actions[bot].
+# Merging still requires the required `ci` status check to pass.
+# Needs Settings > Actions > General > "Allow GitHub Actions to create and
+# approve pull requests".
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, synchronize]
+    branches:
+      - main
+      - release/v[0-9]* # release/v1, release/v1.0, release/v1.0.0
+
+permissions:
+  contents: read
+
+jobs:
+  auto-approve:
+    # not a required check, so skipping it on other PRs is fine
+    if: >-
+      (github.event.pull_request.user.login == 'renovate[bot]' &&
+        contains(github.event.pull_request.labels.*.name, 'automerge-patch')) ||
+      github.event.pull_request.user.login == 'nonchan7720'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Approve pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr review "${PR_URL}" --approve

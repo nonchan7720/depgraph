@@ -155,3 +155,22 @@ func TestPythonInvalidate(t *testing.T) {
 	r.Invalidate(root)
 	runCases(t, r, root, []resolveCase{{"after", "main.py", "newpkg.m", inRepo("lib/newpkg")}})
 }
+
+// A directory without __init__.py is at most a namespace package, and a
+// regular module anywhere on sys.path (the standard library included) wins
+// over it, so `import logging` with a stray logging/ dir is the stdlib.
+// With __init__.py the in-repo package shadows the stdlib.
+func TestPythonStdlibNamedDirectory(t *testing.T) {
+	root := tree(t, map[string]string{
+		"main.py":           "",
+		"logging/notes.txt": "",
+		"json/__init__.py":  "",
+		"app/__init__.py":   "",
+		"app/services/x.py": "",
+	})
+	runCases(t, NewPython(), root, []resolveCase{
+		{"namespace dir named like stdlib", "main.py", "logging", ext("logging")},
+		{"regular package shadows stdlib", "main.py", "json", inRepo("json")},
+		{"namespace package of the repo", "main.py", "app.services", inRepo("app/services")},
+	})
+}

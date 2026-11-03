@@ -214,3 +214,22 @@ func TestTypeScriptBatchEdgeCases(t *testing.T) {
 		}
 	}
 }
+
+// A spec that is neither relative nor a valid npm package name (an alias the
+// project forgot to configure, a typo) cannot be an external package.
+func TestTypeScriptInvalidBareSpecIsUnresolved(t *testing.T) {
+	root := tree(t, map[string]string{
+		"package.json": `{"name":"app"}`,
+		"src/a.ts":     "",
+	})
+	r := NewTypeScript()
+	t.Cleanup(r.Close)
+	runCases(t, r, root, []resolveCase{
+		{"tilde alias", "src/a.ts", "~lib/x", unresolved()},
+		{"hash without imports field", "src/a.ts", "#internal/x", unresolved()},
+		{"valid bare name", "src/a.ts", "react", ext("react")},
+		// legacy npm names may contain capitals (JSONStream): still a package
+		{"legacy capitalised name", "src/a.ts", "JSONStream", ext("JSONStream")},
+		{"scoped name", "src/a.ts", "@scope/pkg/sub", ext("@scope/pkg")},
+	})
+}

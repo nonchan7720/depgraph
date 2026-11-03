@@ -54,16 +54,37 @@ func (p *Python) Resolve(ctx context.Context, root, fromFile, spec string) Resul
 	r := p.cache.get(root, loadPy)
 	parts := strings.Split(spec, ".")
 	tried := map[string]bool{}
+	// A top-level directory without __init__.py is only a namespace package:
+	// the import system keeps looking, and a regular package or module in any
+	// later sys.path entry (the standard library included) wins over it.
+	var namespace *Result
 	for _, base := range append(importerRoots(root, fromDir), r.roots...) {
 		if tried[base] {
 			continue
 		}
 		tried[base] = true
-		if res, ok := pyModule(root, path.Join(append([]string{base}, parts...)...)); ok {
+		res, ok := pyModule(root, path.Join(append([]string{base}, parts...)...))
+		if !ok {
+			continue
+		}
+		if !pyNamespace(root, path.Join(base, parts[0])) {
 			return res
 		}
+		if namespace == nil {
+			namespace = &res
+		}
+	}
+	if namespace != nil && !pyStdlib[parts[0]] {
+		return *namespace
 	}
 	return external(spec)
+}
+
+// pyNamespace reports whether the top-level name at dir is a namespace
+// package: a directory with no __init__.py and no module file of that name.
+func pyNamespace(root, dir string) bool {
+	return isDirAt(root, dir) && !isFileAt(root, path.Join(dir, "__init__.py")) &&
+		!isFileAt(root, dir+".py") && !isFileAt(root, dir+".pyi")
 }
 
 func resolvePyRelative(root, fromDir, spec string) Result {

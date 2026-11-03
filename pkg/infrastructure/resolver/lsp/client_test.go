@@ -128,7 +128,7 @@ func TestServerRequestsAreAnswered(t *testing.T) {
 	_ = c
 
 	got := map[string]inMsgResult{}
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		m := srv.readResp()
 		got[string(m.ID)] = m
 	}

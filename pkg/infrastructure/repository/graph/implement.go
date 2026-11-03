@@ -5,6 +5,7 @@ package graph
 import (
 	"context"
 	"fmt"
+	"maps"
 	"path"
 
 	"github.com/neo4j/neo4j-go-driver/v6/neo4j"
@@ -109,9 +110,7 @@ func (r *Graph) Project() string { return r.project }
 // params adds $project to p.
 func (r *Graph) params(p map[string]any) map[string]any {
 	out := map[string]any{"project": r.project}
-	for k, v := range p {
-		out[k] = v
-	}
+	maps.Copy(out, p)
 	return out
 }
 

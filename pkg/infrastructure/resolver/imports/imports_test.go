@@ -75,9 +75,7 @@ func TestConcurrentResolve(t *testing.T) {
 	t.Cleanup(m.Close)
 	var wg sync.WaitGroup
 	for i := range 16 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			if i%5 == 0 {
 				m.Invalidate(root)
 			}
@@ -87,7 +85,7 @@ func TestConcurrentResolve(t *testing.T) {
 			if got := m.Resolve(context.Background(), root, "main.go", "example.com/app/pkg"); got.Target != "pkg" {
 				t.Errorf("go: %+v", got)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }

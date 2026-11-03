@@ -61,7 +61,7 @@ func TestResolveRoot(t *testing.T) {
 
 func TestSummarizeOrdersBySeverityAndCompresses(t *testing.T) {
 	var fs []rules.Finding
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		fs = append(fs, f("duplicate-symbol", "warn", fmt.Sprintf("dup%02d in a.go, b.go", i)))
 	}
 	fs = append(fs, f("god-package", "warn", "pkg/x imported by 12"), f("import-cycle", "error", "a -> b -> a"))
@@ -86,8 +86,8 @@ func TestSummarizeOrdersBySeverityAndCompresses(t *testing.T) {
 func TestSummarizeCapsLength(t *testing.T) {
 	var fs []rules.Finding
 	long := strings.Repeat("x", 300)
-	for r := 0; r < 40; r++ { // 40 ルール × 5 例 × 300 文字 ≫ 上限
-		for i := 0; i < 6; i++ {
+	for r := range 40 { // 40 ルール × 5 例 × 300 文字 ≫ 上限
+		for i := range 6 {
 			fs = append(fs, f(fmt.Sprintf("rule-%02d", r), "warn", fmt.Sprintf("%d %s", i, long)))
 		}
 	}
@@ -142,7 +142,7 @@ func TestRenderDiff(t *testing.T) {
 	}
 
 	var many []rules.Finding
-	for i := 0; i < 30; i++ {
+	for i := range 30 {
 		many = append(many, f("duplicate-symbol", "warn", fmt.Sprintf("d%02d", i)))
 	}
 	out = RenderDiff(many, nil, many, DefaultLimits())

@@ -255,7 +255,7 @@ func TestManagerWarnsOnceAndDisables(t *testing.T) {
 		Warn: func(f string, a ...any) { warns = append(warns, f) },
 	}
 	fg := &graph.FileGraph{Path: "a.go", Language: graph.Go}
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		if err := m.Enrich(context.Background(), fg); err != nil {
 			t.Fatalf("disabled server must not be an error: %v", err)
 		}

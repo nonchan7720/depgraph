@@ -103,7 +103,7 @@ type graphResponse struct {
 func parseViewOptions(q url.Values) ViewOptions {
 	o := ViewOptions{Query: q.Get("q"), External: q.Get("ext") == "1", Focus: strings.Trim(q.Get("focus"), "/")}
 	o.Depth, _ = strconv.Atoi(q.Get("depth"))
-	for _, e := range strings.Split(q.Get("expand"), ",") {
+	for e := range strings.SplitSeq(q.Get("expand"), ",") {
 		if e = strings.TrimSpace(e); e != "" {
 			o.Expanded = append(o.Expanded, e)
 		}

@@ -540,8 +540,8 @@ func (m *manifests) loadHTML(root, rel string) {
 	for _, sm := range scriptSrcRe.FindAllSubmatch(b, -1) {
 		src := string(sm[1])
 		base := dir
-		if strings.HasPrefix(src, "/") {
-			base, src = scope, strings.TrimPrefix(src, "/")
+		if after, ok := strings.CutPrefix(src, "/"); ok {
+			base, src = scope, after
 		}
 		for _, f := range tsCandidates(root, base, src, nil) {
 			m.addFile(f, "<script> of "+rel)

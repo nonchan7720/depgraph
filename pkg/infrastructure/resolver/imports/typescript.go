@@ -113,8 +113,8 @@ func tsResolved(realRoot, spec, p string, isExternal bool, namespace string) Res
 		p = real
 	}
 	slash := filepath.ToSlash(p)
-	if i := strings.LastIndex(slash, "/node_modules/"); i >= 0 {
-		if name := packageName(slash[i+len("/node_modules/"):]); validPackageName(name) {
+	if _, after, ok := strings.CutLast(slash, "/node_modules/"); ok {
+		if name := packageName(after); validPackageName(name) {
 			return external(name)
 		}
 		return external(packageName(spec))

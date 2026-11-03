@@ -49,7 +49,7 @@ func cleanupKey(t *testing.T, p *Provider, root, key string) {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
 		var err error
-		for attempt := 0; attempt < 5; attempt++ {
+		for range 5 {
 			if _, _, err = p.Remove(ctx, Selection{Root: root, Projects: []string{key}}); err == nil {
 				break
 			}

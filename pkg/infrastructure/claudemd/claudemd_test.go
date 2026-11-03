@@ -88,7 +88,7 @@ func TestRenderUnusedRules(t *testing.T) {
 		rules.UnreachableFile("src/old.ts", nil, false),
 		rules.UnreachablePackage("pkg/old", nil, false),
 	}
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		fs = append(fs, rules.UnusedExport("src/a.ts", i+1, "function", fmt.Sprintf("f%02d", i)))
 	}
 	out := Render(view.Stats{}, fs)

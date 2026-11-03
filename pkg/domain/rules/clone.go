@@ -112,7 +112,7 @@ func FindClones(cands []CloneCandidate, opt CloneOptions) []Finding {
 		if common(f) {
 			continue
 		}
-		for a := 0; a < len(members); a++ {
+		for a := range members {
 			for b := a + 1; b < len(members); b++ {
 				cand[[2]int{members[a], members[b]}] = true
 			}
@@ -151,7 +151,7 @@ func FindClones(cands []CloneCandidate, opt CloneOptions) []Finding {
 			}
 		}
 		if !identical {
-			for a := 0; a < len(g); a++ {
+			for a := range g {
 				for b := a + 1; b < len(g); b++ {
 					p := [2]int{min(g[a], g[b]), max(g[a], g[b])}
 					if s, ok := sim[p]; ok && s < low {

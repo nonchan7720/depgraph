@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -395,20 +396,16 @@ func TestStartFailureCleansUp(t *testing.T) {
 func TestDetect(t *testing.T) {
 	on := func(names ...string) func(string) (string, error) {
 		return func(n string) (string, error) {
-			for _, x := range names {
-				if x == n {
-					return "/bin/" + n, nil
-				}
+			if slices.Contains(names, n) {
+				return "/bin/" + n, nil
 			}
 			return "", errors.New("not found")
 		}
 	}
 	answering := func(ok ...string) Runner {
 		return runnerFunc(func(cli string) error {
-			for _, x := range ok {
-				if x == cli {
-					return nil
-				}
+			if slices.Contains(ok, cli) {
+				return nil
 			}
 			return errors.New("cannot connect")
 		})

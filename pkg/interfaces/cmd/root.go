@@ -103,6 +103,7 @@ a browser UI.`,
 		newGateCommand(o),
 		newProjectsCommand(o),
 		newStoreCommand(o),
+		newSchemaCommand(),
 		newContainerWatchdogCommand(),
 		newVersionCommand(),
 	)

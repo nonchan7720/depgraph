@@ -101,6 +101,10 @@ run = '"$(mise where golangci-lint)/bin/golangci-lint" run ./...'
 description = "gofmt -w"
 run = "gofmt -w main.go pkg"
 
+[tasks.schema]
+description = "Regenerate schema/depgraph.schema.json (the JSON Schema of .depgraph.yml)"
+run = "go run . schema > schema/depgraph.schema.json"
+
 [tasks.licenses]
 description = "Regenerate THIRD_PARTY_NOTICES.md from the bundled Go and npm dependencies"
 run = "scripts/third-party-notices.sh"

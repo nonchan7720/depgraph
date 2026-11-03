@@ -197,6 +197,7 @@ depgraph projects prune [--dry-run]  # delete projects whose root no longer exis
 | `gate [files...] [--fail-on warn]` | quality-gate check ([claude-hook-gate](#quality-gate-claude-hook-gate)): apply the changed files, exit 1 on findings the session added |
 | `projects list` / `projects rm <key>` / `projects prune [--dry-run]` | list / delete the projects in the database |
 | `store ls` / `store down` / `store rm [<key>...] [--all]` | list / stop / delete the Neo4j containers and data volumes depgraph manages (container provider) |
+| `schema` | print the JSON Schema of `.depgraph.yml` (see [Configuration](#configuration-depgraphyml)) |
 | `version` / `--version` | print the version (`version` adds the commit, build date and Go toolchain) |
 
 Flags (see `depgraph <command> --help`):
@@ -417,6 +418,18 @@ Layers, forbidden imports, severities and thresholds are set in `.depgraph.yml` 
 Put `.depgraph.yml` in the scanned root to declare the architecture. Every key is optional;
 `scan`, `check`, `watch`, `serve` and `hook` read it, and `watch` reloads it when it changes
 (a change of `project` needs a restart).
+
+Editors complete and check the file with its JSON Schema,
+[`schema/depgraph.schema.json`](schema/depgraph.schema.json) (also printed by `depgraph schema`).
+With yaml-language-server (VS Code's YAML extension, Neovim, Zed, ...), put this line at the top;
+use a release tag instead of `main` to match the depgraph you run:
+
+```yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/nonchan7720/depgraph/main/schema/depgraph.schema.json
+```
+
+The schema is generated from the rule registry and the decoder (`mise run schema`; a test fails when it is
+stale), so it accepts exactly what depgraph accepts.
 
 ```yaml
 project: my-repo            # project key (see Projects)

@@ -168,6 +168,7 @@ func (r *Graph) UpsertFile(ctx context.Context, fg *graph.FileGraph) error {
 			  SET p.external = false
 			MERGE (f:File {project: $project, path: $path})
 			  SET f.language = $lang, f.lines = $lines, f.updatedAt = datetime()
+			SET f += $usage
 			MERGE (p)-[:CONTAINS]->(f)
 			WITH f
 			OPTIONAL MATCH (f)-[:DECLARES]->(old:Symbol)
@@ -178,6 +179,7 @@ func (r *Graph) UpsertFile(ctx context.Context, fg *graph.FileGraph) error {
 		`, r.params(map[string]any{
 			"pkg": fg.Package, "pkgName": path.Base(fg.Package),
 			"path": fg.Path, "lang": string(fg.Language), "lines": fg.Lines,
+			"usage": usageProps(fg),
 		})); err != nil {
 			return nil, err
 		}

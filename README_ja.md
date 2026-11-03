@@ -35,27 +35,109 @@ mise install && mise run build   # bin/depgraph ができる
 
 ## Quick start
 
+必要なもの: depgraph（Install 参照）とコンテナランタイム（Docker・Podman・nerdctl のいずれか。
+[Neo4j](#neo4j) 参照）。compose ファイルも Neo4j のインストールも不要です。
+
 ```bash
-# 1. Neo4j を起動（neo4j / depgraph123）
-docker compose up -d
-
-# 2. ビルド
-mise run build   # または mise exec -- go build -o bin/depgraph .（mise.toml の env が付く）
-
-# 3. 対象リポジトリを監視
-./bin/depgraph watch --root /path/to/your/repo
+depgraph watch --root /path/to/your/repo
 ```
 
-初回フルスキャン後、ファイル変更を監視して差分だけ再解析します。
+depgraph が Neo4j をコンテナで起動し（起動ごとに初回 10〜20 秒。約 1 GB のイメージの取得は最初の 1 回だけ）、
+リポジトリをスキャンしたあとファイル変更を監視して差分だけ再解析します。
 同時に http://127.0.0.1:7777 でブラウザ UI が立ち上がり、グラフと違反一覧がライブ更新されます（SSE）。
 検出結果は標準エラーに出力され、`/path/to/your/repo/CLAUDE.md` の
 `<!-- depgraph:start -->` 〜 `<!-- depgraph:end -->` 区間が更新されます（手書き部分は保持）。
+`watch` を終了すると（ctrl-c）コンテナとデータは削除されます。残したいときは `--persist` を付けます（[Neo4j](#neo4j) 参照）。
 
-Neo4j Browser: http://localhost:7474
-
-自動生成のサンプルリポジトリで試すときは `mise run demo` を使います。同じ Neo4j の別プロジェクト
+自動生成のサンプルリポジトリで試すときは `mise run demo` を使います。下記の docker compose の Neo4j の別プロジェクト
 `depgraph-demo` として監視します（UI http://127.0.0.1:7778）。`--reset` で消えるのはそのプロジェクトだけなので、
 他のプロジェクトのデータには触れません。消すときは `bin/depgraph projects rm depgraph-demo` です。
+
+## Neo4j
+
+グラフは Neo4j に入り、ルールは Cypher クエリです。depgraph が Neo4j をどう用意するかは **プロバイダー** で、
+次の順に決まります。
+
+1. `--neo4j-provider <name>`、なければ `$DEPGRAPH_NEO4J_PROVIDER`、なければ `.depgraph.yml` の `store.provider`
+2. URI が設定されていれば（`--neo4j` か `$NEO4J_URI`）`external`
+3. コンテナランタイムが応答すれば `container`
+4. `local`（予定: マシンにインストールされた Neo4j を子プロセスとして起動。未実装）
+
+どれも使えないときは、プロバイダーごとに何が足りないかを 1 行で示して止まります。
+
+### `container`（既定）: depgraph が Neo4j を起動・後片付けする
+
+対応するコンテナ CLI: **docker**（Docker Desktop / Engine、OrbStack、Colima、dockerd の Rancher Desktop）、
+**podman**（rootless を含む。macOS / Windows では `podman machine` が起動していること）、
+**nerdctl**（containerd: containerd の Rancher Desktop、Finch、Lima）。
+nerdctl なしの素の containerd（`ctr`）はポートを公開できないため対応しません。
+CLI は `--container-cli`（名前かパス）、なければ `$DEPGRAPH_CONTAINER_CLI`、なければ `.depgraph.yml` の
+`store.containerCli`、なければ docker・podman・nerdctl の順に `PATH` にあり `<cli> version` に 2 秒以内に応答した最初のものです。
+CLI はユーザーの環境変数のまま実行するので `DOCKER_HOST`・docker context・`CONTAINER_HOST` が効きます。
+ポートはデーモン側のループバックに公開するため、デーモンはこのマシン上にある必要があります。
+
+実行するコマンド（固定の引数列。シェルは使いません）:
+
+```
+<cli> run -d --rm --name depgraph-<project>-<hash> --label depgraph.managed=1 --label depgraph.root=<hash> ...
+          -p 127.0.0.1::7687 -e NEO4J_AUTH -e NEO4J_server_memory_heap_max__size=512m ...
+          --tmpfs /logs --tmpfs /data docker.io/library/neo4j:5.26.32@sha256:249a1ec6...
+```
+
+- イメージは `docker-compose.yml` と CI と同じリリース・同じダイジェストです。
+- Bolt は `127.0.0.1` だけにランダムなポートで公開します。パスワードはコンテナごとにランダムで、CLI には
+  環境変数で渡し（値なしの `-e NEO4J_AUTH`）、コマンドラインには載せません。各コマンドは root のストアを
+  ラベルで探し、ポートとパスワードを `<cli> inspect` で読みます。ディスクには何も書きません。
+- メモリ: ヒープ初期 128 MiB / 最大 512 MiB、ページキャッシュ 64 MiB、トランザクションログの事前確保なし。
+  実測で待機時 約 330 MiB、このリポジトリのスキャン後 約 480 MiB。
+- 起動するコマンド: `watch`・`scan`・`check` は root の稼働中のストアを使い、なければ起動します
+  （`watch` なしの `scan` / `check` は自分だけのエフェメラルなストアを起動します）。`serve` と `projects` は
+  稼働中のもの（と停止中の永続ストア）だけを使います。Claude Code の hook は稼働中のものを探すだけで、
+  何も起動せず、なければ何も出力しません。
+
+**エフェメラル（既定）。** データはコンテナ内の tmpfs にあります。コンテナを起動したプロセスが終了時
+（ctrl-c / SIGTERM を含む）に停止・削除します。そのプロセスが kill された場合は、同じマシンで次に
+`watch` / `scan` / `check` を実行したときに残骸を削除します。各コンテナには所有プロセスの PID とホスト ID の
+ラベルがあり、`depgraph.managed=1` でエフェメラルかつこのホストのもので所有プロセスが死んでいるものだけを削除します。
+
+**永続（オプトイン）。** `--persist`（scan / check / watch / serve）か `.depgraph.yml`:
+
+```yaml
+store:
+  persist: true          # データをプロジェクト key ごとの名前付きボリュームに残す
+  # provider: container  # external | container
+  # containerCli: podman # docker | podman | nerdctl | パス
+```
+
+データはボリューム `depgraph-<project>-<hash>` に残り、コンテナ（`--rm` なし）は `watch` の終了後も
+動き続けるので、hook や `check` がそのまま使え、次の `watch` もストアを作り直さずに始まります。
+永続データが黙って溜まることはありません:
+
+```bash
+depgraph store ls                     # depgraph が管理するコンテナとボリュームをすべて表示
+depgraph store down [--root DIR]      # root のストアを止める（エフェメラル: 削除、永続: 停止してデータは保持）
+depgraph store rm [--root DIR]        # root のプロジェクトのコンテナとデータボリュームを削除
+depgraph store rm <project-key>...    # 指定したプロジェクトの分を削除
+depgraph store rm --all               # すべてのプロジェクトの分を削除
+```
+
+永続ボリュームのコンテナを depgraph 以外で削除するとパスワードが失われます。その場合 depgraph は
+`depgraph store rm` でボリュームを消すよう案内します（次のスキャンでグラフは作り直せます）。
+
+### `external`: 自分で用意した Neo4j（docker compose、サーバー、Aura）
+
+`--neo4j bolt://host:7687`（と `--user`・`--pass`・`--db`）か `NEO4J_URI`（と `NEO4J_USER`・`NEO4J_PASSWORD`・
+`NEO4J_DATABASE`）を設定します。depgraph は接続するだけで、起動・停止・削除は一切しません。
+このリポジトリの `docker-compose.yml` がその例です:
+
+```bash
+docker compose up -d                  # bolt://localhost:7687 の Neo4j（neo4j / depgraph123）、ブラウザ http://localhost:7474
+NEO4J_URI=bolt://localhost:7687 depgraph watch --root /path/to/your/repo
+```
+
+このリポジトリでは `mise.toml` が `NEO4J_URI`（と compose のユーザー / パスワード）を設定するので、
+`mise run watch` / `scan` などとテストは compose の Neo4j を使います（`mise run neo4j` で起動）。
+mise のシェルからコンテナプロバイダーを使うときは `mise run watch:container` か `--neo4j-provider container` を使います。
 
 ## Projects
 
@@ -90,6 +172,7 @@ depgraph projects prune [--dry-run]  # root が存在しなくなったプロジ
 | `parse --root DIR [files...]` | Neo4j なしで tree-sitter の解析結果を JSON（1 行 1 ファイル）で出力（デバッグ用） |
 | `hook <session-start\|prompt>` | Claude Code の hook。Findings を追加文脈として出力（読むだけ、常に exit 0） |
 | `projects list` / `projects rm <key>` / `projects prune [--dry-run]` | DB 内のプロジェクトの一覧・削除 |
+| `store ls` / `store down` / `store rm [<key>...] [--all]` | depgraph が管理する Neo4j コンテナとデータボリュームの一覧・停止・削除（container プロバイダー） |
 | `version` / `--version` | バージョンを表示（`version` はコミット・ビルド日時・Go ツールチェーンも表示） |
 
 フラグ（`depgraph <command> --help` で一覧）:
@@ -100,7 +183,10 @@ depgraph projects prune [--dry-run]  # root が存在しなくなったプロジ
 | `--project` | 全コマンド | `<root>/.depgraph.yml` の `project`、無ければ `--root` のディレクトリ名（linked worktree では `@<worktree 名>` を付加） |
 | `--exclude` | 全コマンド | なし（カンマ区切りの除外パターン） |
 | `--ignore-file` | 全コマンド | `.depgraphignore`（`--root` 基準、空で無効） |
-| `--neo4j` / `--user` / `--pass` / `--db` | scan / check / watch / serve / hook / projects | `$NEO4J_URI` / `$NEO4J_USER` / `$NEO4J_PASSWORD` / `$NEO4J_DATABASE`（未設定時 `bolt://localhost:7687` / `neo4j` / `depgraph123` / `neo4j`） |
+| `--neo4j` / `--user` / `--pass` / `--db` | scan / check / watch / serve / hook / projects | 外部 Neo4j: `$NEO4J_URI` / `$NEO4J_USER` / `$NEO4J_PASSWORD` / `$NEO4J_DATABASE`（URI 未設定時は depgraph が Neo4j を用意。ユーザー / パスワード / DB の未設定時 `neo4j` / `depgraph123` / `neo4j`） |
+| `--neo4j-provider` | scan / check / watch / serve / hook / projects | `$DEPGRAPH_NEO4J_PROVIDER`、なければ `store.provider`、なければ URI があれば external、なければ container |
+| `--container-cli` | scan / check / watch / serve / hook / projects / store | `$DEPGRAPH_CONTAINER_CLI`、なければ `store.containerCli`、なければ docker / podman / nerdctl で最初に応答したもの |
+| `--persist` | scan / check / watch / serve | `store.persist`、なければ false（エフェメラル） |
 | `--claude-md` | scan / check / watch | `$DEPGRAPH_CLAUDE_MD` または `CLAUDE.md`（`--root` 基準、空で無効） |
 | `--reset` | scan / watch | false（スキャン前にこのプロジェクトのデータを消去。他のプロジェクトは残る） |
 | `--workers` | parse / scan / watch | `0`（フルスキャンで並列に解析するファイル数。0 は GOMAXPROCS。出力順はこの値に依存しない） |
@@ -143,7 +229,9 @@ depgraph projects prune [--dry-run]  # root が存在しなくなったプロジ
 }
 ```
 
-Neo4j の接続先は `--neo4j` 等か `$NEO4J_URI` 等（既定 `bolt://localhost:7687`）。
+hook は他のコマンドと同じ Neo4j を使います（[Neo4j](#neo4j) 参照）。`--neo4j` / `$NEO4J_URI` があれば外部の Neo4j、
+なければ root の稼働中の depgraph コンテナをラベルで探して使います。コンテナを起動することはなく、
+稼働中のものがなければ何も出力しません。
 
 ## Browser UI
 
@@ -228,6 +316,11 @@ rules:                      # ルールごと: enabled、severity（error | warn
   # duplicate-symbol: {ignore: [main, init, New]}   # 対象外の名前（デフォルトを置き換える）
 
 ignore: ["**/testdata/**"]  # すべてのルールから除外するパッケージ
+
+store:                      # Neo4j の用意の仕方（Neo4j 参照）。フラグと環境変数が優先
+  persist: false
+  provider: container
+  containerCli: docker
 ```
 
 - **パッケージ glob** はパッケージ key（root からのディレクトリ、root は `.`）にパスセグメント単位で
@@ -272,7 +365,9 @@ pkg/services/analysis/               スキャン・差分適用・ルール評�
 pkg/infrastructure/repository/graph/ Neo4j 投入・クエリ
 pkg/infrastructure/repository/rules/ Cypher ルール評価
 pkg/infrastructure/repository/project/ Project ノード
-pkg/infrastructure/config/           .depgraph.yml（プロジェクト key・ルール設定）
+pkg/infrastructure/config/           .depgraph.yml（プロジェクト key・ルール設定・ストア設定）
+pkg/infrastructure/neo4jprovider/    Neo4j の用意の仕方: Provider の契約、選択、external
+  container/                         docker / podman / nerdctl のコンテナの Neo4j（ライフサイクル・ラベル・後片付け）
 pkg/infrastructure/workspace/        root のプロジェクト識別（.depgraph.yml、git の origin・worktree）
 pkg/infrastructure/resolver/         リポジトリ走査 + 除外パターン
   treesitter/                        デフォルト: 構造解析（import / 宣言、gotreesitter）
@@ -280,7 +375,7 @@ pkg/infrastructure/resolver/         リポジトリ走査 + 除外パターン
   lsp/                               言語サーバー（callHierarchy / references）による精密化
 pkg/infrastructure/watch/            fsnotify + デバウンス
 pkg/infrastructure/claudemd/         CLAUDE.md の管理区間更新
-pkg/interfaces/cmd/                  CLI（cobra: parse / scan / check / watch / serve / hook / projects）
+pkg/interfaces/cmd/                  CLI（cobra: parse / scan / check / watch / serve / hook / projects / store）
 pkg/interfaces/handler/ui/           HTTP サーバー + SSE + 埋め込み UI（web/ のビルド成果物）
 web/                                 ブラウザ UI のソース（Vite + TypeScript、Cytoscape + elkjs）
 pkg/interfaces/handler/hook/         Claude Code hook（要約・差分・状態ファイル）
@@ -296,6 +391,8 @@ pkg/interfaces/handler/hook/         Claude Code hook（要約・差分・状態
 - [x] 1 DB で複数プロジェクト（`--project`、`.depgraph.yml` の `project:`、`depgraph projects`）
 - [x] `.depgraph.yml` でのルール設定（レイヤー・禁止 import・severity・ignore）
 - [ ] MCP サーバーモード（Claude Code / Cursor から直接問い合わせ）
+- [x] depgraph 自身がコンテナ（docker / podman / nerdctl）で Neo4j を用意（エフェメラル / 永続）
+- [ ] `local` Neo4j プロバイダー: インストール済みの Neo4j（`NEO4J_HOME` か `PATH` の `neo4j`）を子プロセスで起動。データは実行ごとのディレクトリ、ループバックのみ
 
 ## リリース手順
 
@@ -320,4 +417,5 @@ pkg/interfaces/handler/hook/         Claude Code hook（要約・差分・状態
 
 ## License
 
-Apache-2.0（予定）。Neo4j 本体は同梱しません。ユーザー自身の Neo4j に接続するツールです。
+Apache-2.0（予定）。Neo4j 本体は同梱しません。ユーザー自身の Neo4j に接続するか、
+ユーザーのコンテナランタイムで公式の Neo4j Community イメージ（GPLv3）を実行します。

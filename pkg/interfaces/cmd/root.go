@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	"github.com/nonchan7720/depgraph/pkg/infrastructure/neo4jprovider/container"
 	"github.com/nonchan7720/depgraph/pkg/infrastructure/resolver"
 	"github.com/nonchan7720/depgraph/pkg/version"
 )
@@ -38,6 +39,15 @@ type options struct {
 
 	hookTimeout time.Duration
 	hookDebug   bool
+
+	// how Neo4j is provided (see neo4j.go)
+	neo4jProvider string
+	containerCLI  string
+	persist       bool
+	persistSet    bool // --persist was given (it then beats .depgraph.yml)
+	// containerConfig is the base of the container provider (tests replace
+	// the runner / PATH lookup).
+	containerConfig container.ProviderConfig
 }
 
 func env(key, def string) string {
@@ -70,6 +80,7 @@ a browser UI.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+			o.persistSet = cmd.Flags().Changed("persist")
 			return o.prepare()
 		},
 	}
@@ -88,6 +99,7 @@ a browser UI.`,
 		newServeCommand(o),
 		newHookCommand(o),
 		newProjectsCommand(o),
+		newStoreCommand(o),
 		newVersionCommand(),
 	)
 	return root
@@ -113,11 +125,20 @@ func (o *options) prepare() error {
 
 // ---- shared flag groups ----------------------------------------------------
 
+// addNeo4jFlags registers how Neo4j is reached. Without --neo4j / NEO4J_URI
+// depgraph provides Neo4j itself (see neo4j.go and --neo4j-provider).
 func addNeo4jFlags(fs *pflag.FlagSet, o *options) {
-	fs.StringVar(&o.neo4jURI, "neo4j", env("NEO4J_URI", "bolt://localhost:7687"), "Neo4j bolt URI ($NEO4J_URI)")
-	fs.StringVar(&o.neo4jUser, "user", env("NEO4J_USER", "neo4j"), "Neo4j user ($NEO4J_USER)")
-	fs.StringVar(&o.neo4jPass, "pass", env("NEO4J_PASSWORD", "depgraph123"), "Neo4j password ($NEO4J_PASSWORD)")
-	fs.StringVar(&o.neo4jDB, "db", env("NEO4J_DATABASE", "neo4j"), "Neo4j database ($NEO4J_DATABASE)")
+	fs.StringVar(&o.neo4jURI, "neo4j", env("NEO4J_URI", ""), "bolt URI of an external Neo4j ($NEO4J_URI); unset: depgraph starts and cleans up its own Neo4j (see --neo4j-provider)")
+	fs.StringVar(&o.neo4jUser, "user", env("NEO4J_USER", "neo4j"), "external Neo4j user ($NEO4J_USER)")
+	fs.StringVar(&o.neo4jPass, "pass", env("NEO4J_PASSWORD", "depgraph123"), "external Neo4j password ($NEO4J_PASSWORD)")
+	fs.StringVar(&o.neo4jDB, "db", env("NEO4J_DATABASE", "neo4j"), "external Neo4j database ($NEO4J_DATABASE)")
+	fs.StringVar(&o.neo4jProvider, "neo4j-provider", env("DEPGRAPH_NEO4J_PROVIDER", ""), "how Neo4j is provided: external, container (local is planned); default: external when a URI is set, else container ($DEPGRAPH_NEO4J_PROVIDER, store.provider in .depgraph.yml)")
+	fs.StringVar(&o.containerCLI, "container-cli", env("DEPGRAPH_CONTAINER_CLI", ""), "container CLI of the container provider: docker, podman, nerdctl or a path; default: the first of them that answers ($DEPGRAPH_CONTAINER_CLI, store.containerCli in .depgraph.yml)")
+}
+
+// addPersistFlag is for the commands that may start a store.
+func addPersistFlag(fs *pflag.FlagSet, o *options) {
+	fs.BoolVar(&o.persist, "persist", false, "container provider: keep the data in a named volume and the container running after exit (default: store.persist in .depgraph.yml, else ephemeral; delete with `depgraph store rm`)")
 }
 
 func addClaudeMDFlag(fs *pflag.FlagSet, o *options) {

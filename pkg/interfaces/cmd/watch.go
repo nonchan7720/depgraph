@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/nonchan7720/depgraph/pkg/infrastructure/config"
+	"github.com/nonchan7720/depgraph/pkg/infrastructure/neo4jprovider"
 	"github.com/nonchan7720/depgraph/pkg/infrastructure/watch"
 	"github.com/nonchan7720/depgraph/pkg/interfaces/handler/ui"
 	"github.com/nonchan7720/depgraph/pkg/services/analysis"
@@ -24,7 +25,13 @@ func newWatchCommand(o *options) *cobra.Command {
 tree-sitter, rules are evaluated and the UI / CLAUDE.md are refreshed; then
 language servers refine the same files with CALLS / REFERENCES edges in the
 background (disable with --no-lsp). A change of .depgraph.yml reloads the
-rules (a change of its project key needs a restart).`,
+rules (a change of its project key needs a restart).
+
+Without --neo4j / NEO4J_URI, watch starts Neo4j itself (container provider:
+docker, podman or nerdctl; 10-20 s) and owns it: an ephemeral store is
+stopped and removed with its data when watch exits (ctrl-c, SIGTERM); with
+--persist / store.persist the data stays in a named volume and the container
+keeps running for the hook and later runs (depgraph store down / rm).`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runWatch(cmd, o)
@@ -32,6 +39,7 @@ rules (a change of its project key needs a restart).`,
 	}
 	fs := c.Flags()
 	addNeo4jFlags(fs, o)
+	addPersistFlag(fs, o)
 	addClaudeMDFlag(fs, o)
 	addResetFlag(fs, o)
 	addWorkersFlag(fs, o)
@@ -45,11 +53,16 @@ rules (a change of its project key needs a restart).`,
 func runWatch(cmd *cobra.Command, o *options) error {
 	ctx := cmd.Context()
 	out := cmd.ErrOrStderr()
-	a, err := newApp(ctx, o, reportWriter(o), out)
+	a, err := newApp(ctx, o, neo4jprovider.Start, reportWriter(o), out)
 	if err != nil {
 		return err
 	}
 	defer a.close(ctx)
+	if a.neo4j.Persistent {
+		defer func() {
+			_, _ = fmt.Fprintf(out, "Neo4j %s keeps running with its data (persistent): `depgraph store down` stops it, `depgraph store rm` deletes it\n", a.neo4j.Describe)
+		}()
+	}
 
 	if !o.noUI {
 		srv := ui.New(a.graph, o.root)

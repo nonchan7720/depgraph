@@ -5,6 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/nonchan7720/depgraph/pkg/infrastructure/neo4jprovider"
 	"github.com/nonchan7720/depgraph/pkg/interfaces/handler/ui"
 )
 
@@ -12,11 +13,15 @@ func newServeCommand(o *options) *cobra.Command {
 	c := &cobra.Command{
 		Use:   "serve",
 		Short: "Serve the browser UI over what is already in Neo4j (does not touch CLAUDE.md)",
-		Args:  cobra.NoArgs,
+		Long: `Serve the browser UI over what is already in Neo4j (does not touch CLAUDE.md).
+Without --neo4j / NEO4J_URI the running depgraph Neo4j of the root is used; a
+stopped persistent one is started, an ephemeral one is never started (it
+would be empty).`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
 			out := cmd.ErrOrStderr()
-			a, err := newApp(ctx, o, nil, out) // serve never writes CLAUDE.md
+			a, err := newApp(ctx, o, neo4jprovider.StartIfPersistent, nil, out) // serve never writes CLAUDE.md
 			if err != nil {
 				return err
 			}
@@ -31,6 +36,7 @@ func newServeCommand(o *options) *cobra.Command {
 		},
 	}
 	addNeo4jFlags(c.Flags(), o)
+	addPersistFlag(c.Flags(), o)
 	addAddrFlag(c.Flags(), o)
 	return c
 }

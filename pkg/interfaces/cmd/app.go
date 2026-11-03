@@ -11,6 +11,7 @@ import (
 	"github.com/nonchan7720/depgraph/pkg/domain/project"
 	"github.com/nonchan7720/depgraph/pkg/infrastructure/claudemd"
 	"github.com/nonchan7720/depgraph/pkg/infrastructure/config"
+	"github.com/nonchan7720/depgraph/pkg/infrastructure/neo4jprovider"
 	graphrepo "github.com/nonchan7720/depgraph/pkg/infrastructure/repository/graph"
 	projectrepo "github.com/nonchan7720/depgraph/pkg/infrastructure/repository/project"
 	rulesrepo "github.com/nonchan7720/depgraph/pkg/infrastructure/repository/rules"
@@ -29,27 +30,27 @@ type app struct {
 	project  project.Project
 	resolver *treesitter.Resolver
 	svc      analysis.Service
+	// neo4j is the Neo4j in use; release gives it back (see openStore).
+	neo4j   neo4jprovider.Conn
+	release func(context.Context)
 }
 
-// connect opens the Neo4j store. The caller must close it.
-func connect(ctx context.Context, o *options) (*graphrepo.Store, error) {
-	return graphrepo.New(ctx, o.neo4jURI, o.neo4jUser, o.neo4jPass, o.neo4jDB)
-}
-
-// newApp connects to Neo4j, ensures the schema (removing data of the
-// pre-project layout), resolves the project of --root and builds the analysis
-// service over that project's graph. A key collision with another live root is
-// an error before anything is written. The caller must call close.
-func newApp(ctx context.Context, o *options, report analysis.ReportWriter, out io.Writer) (*app, error) {
-	st, err := connect(ctx, o)
+// newApp connects to the Neo4j of --root (provided as policy allows), ensures
+// the schema (removing data of the pre-project layout), resolves the project
+// of --root and builds the analysis service over that project's graph. A key
+// collision with another live root is an error before anything is written.
+// The caller must call close.
+func newApp(ctx context.Context, o *options, policy neo4jprovider.Policy, report analysis.ReportWriter, out io.Writer) (*app, error) {
+	st, conn, release, err := openStore(ctx, o, policy, out)
 	if err != nil {
 		return nil, err
 	}
 	a, err := buildApp(ctx, st, o, report, out)
 	if err != nil {
-		_ = st.Close(context.WithoutCancel(ctx))
+		release(ctx)
 		return nil, err
 	}
+	a.neo4j, a.release = conn, release
 	return a, nil
 }
 
@@ -102,10 +103,12 @@ func (a *app) fullScan(ctx context.Context) error {
 	return a.projects.Upsert(ctx, a.project)
 }
 
-// close releases the Neo4j driver; it works after ctx was cancelled.
+// close releases the Neo4j driver and the provided Neo4j (an ephemeral
+// container this process started is stopped); it works after ctx was
+// cancelled.
 func (a *app) close(ctx context.Context) {
 	a.resolver.Close()
-	_ = a.store.Close(context.WithoutCancel(ctx))
+	a.release(ctx)
 }
 
 // reportWriter returns the CLAUDE.md writer for --claude-md, or nil when disabled.

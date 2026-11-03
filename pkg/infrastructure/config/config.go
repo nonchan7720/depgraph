@@ -27,11 +27,28 @@ type File struct {
 	Project string
 	// Rules is rules.DefaultConfig() with the file's settings applied.
 	Rules rules.Config
+	// Store is how Neo4j is provided (the store: section).
+	Store StoreSettings
+}
+
+// StoreSettings is the store: section. Every field is optional; flags and
+// environment variables take precedence over it.
+type StoreSettings struct {
+	// Provider names the Neo4j provider ("external", "container"; "" lets
+	// depgraph choose).
+	Provider string `yaml:"provider"`
+	// Persist keeps a container provider's data in a named volume across
+	// runs (nil: not set here).
+	Persist *bool `yaml:"persist"`
+	// ContainerCLI is the container CLI the container provider runs
+	// (docker, podman, nerdctl or a path; "" detects one).
+	ContainerCLI string `yaml:"containerCli"`
 }
 
 // fileYAML is the on-disk schema.
 type fileYAML struct {
-	Project string `yaml:"project"`
+	Project string        `yaml:"project"`
+	Store   StoreSettings `yaml:"store"`
 	// Layers: layer name -> package globs. Replaces the default layers (and
 	// their forbidden pairs) when present.
 	Layers map[string][]string `yaml:"layers"`
@@ -113,7 +130,7 @@ func Parse(b []byte) (File, error) {
 	if err := c.Validate(); err != nil {
 		return File{}, err
 	}
-	return File{Project: y.Project, Rules: c}, nil
+	return File{Project: y.Project, Rules: c, Store: y.Store}, nil
 }
 
 func applyRule(c *rules.Config, name string, n yaml.Node) error {

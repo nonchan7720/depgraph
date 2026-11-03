@@ -1,0 +1,176 @@
+[
+     {
+          "Id": "8c1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e",
+          "Created": "2026-11-03T11:30:00.123456789Z",
+          "Path": "tini",
+          "Args": [
+               "-g",
+               "--",
+               "/startup/docker-entrypoint.sh",
+               "neo4j"
+          ],
+          "State": {
+               "OciVersion": "1.2.0",
+               "Status": "running",
+               "Running": true,
+               "Paused": false,
+               "Restarting": false,
+               "OOMKilled": false,
+               "Dead": false,
+               "Pid": 4321,
+               "ConmonPid": 4319,
+               "ExitCode": 0,
+               "Error": "",
+               "StartedAt": "2026-11-03T11:30:00.223456789Z",
+               "FinishedAt": "0001-01-01T00:00:00Z",
+               "CgroupPath": "/user.slice/user-1001.slice/user@1001.service/user.slice/libpod-8c1e2f3a4b5c.scope",
+               "CheckpointedAt": "0001-01-01T00:00:00Z",
+               "RestoredAt": "0001-01-01T00:00:00Z"
+          },
+          "Image": "4bd2c3e1f0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3",
+          "ImageDigest": "sha256:249a1ec6e3c52d82101a5ed33d6ed2b5ed5b0017b21a28c0bfebc335e87fb177",
+          "ImageName": "docker.io/library/neo4j:5.26.32@sha256:249a1ec6e3c52d82101a5ed33d6ed2b5ed5b0017b21a28c0bfebc335e87fb177",
+          "Rootfs": "",
+          "Pod": "",
+          "ResolvConfPath": "/run/user/1001/containers/overlay-containers/8c1e2f3a4b5c/userdata/resolv.conf",
+          "HostnamePath": "/run/user/1001/containers/overlay-containers/8c1e2f3a4b5c/userdata/hostname",
+          "HostsPath": "/run/user/1001/containers/overlay-containers/8c1e2f3a4b5c/userdata/hosts",
+          "Name": "depgraph-zz_test_integrationephemeral_6557c6c1-1036b289",
+          "RestartCount": 0,
+          "Driver": "overlay",
+          "MountLabel": "",
+          "ProcessLabel": "",
+          "AppArmorProfile": "",
+          "EffectiveCaps": null,
+          "BoundingCaps": [
+               "CAP_CHOWN",
+               "CAP_SETGID",
+               "CAP_SETUID"
+          ],
+          "ExecIDs": [],
+          "Mounts": [],
+          "Dependencies": [],
+          "NetworkSettings": {
+               "EndpointID": "",
+               "Gateway": "",
+               "IPAddress": "",
+               "IPPrefixLen": 0,
+               "IPv6Gateway": "",
+               "GlobalIPv6Address": "",
+               "GlobalIPv6PrefixLen": 0,
+               "MacAddress": "",
+               "Bridge": "",
+               "SandboxID": "",
+               "HairpinMode": false,
+               "LinkLocalIPv6Address": "",
+               "LinkLocalIPv6PrefixLen": 0,
+               "Ports": {
+                    "7473/tcp": null,
+                    "7474/tcp": null,
+                    "7687/tcp": [
+                         {
+                              "HostIp": "127.0.0.1",
+                              "HostPort": "32773"
+                         }
+                    ]
+               },
+               "SandboxKey": "/run/user/1001/netns/netns-0a1b2c3d"
+          },
+          "Namespace": "",
+          "IsInfra": false,
+          "IsService": false,
+          "KubeExitCodePropagation": "invalid",
+          "lockNumber": 0,
+          "Config": {
+               "Hostname": "8c1e2f3a4b5c",
+               "Domainname": "",
+               "User": "",
+               "AttachStdin": false,
+               "AttachStdout": false,
+               "AttachStderr": false,
+               "Tty": false,
+               "OpenStdin": false,
+               "StdinOnce": false,
+               "Env": [
+                    "NEO4J_AUTH=neo4j/fixturepassword",
+                    "NEO4J_server_memory_heap_initial__size=128m",
+                    "NEO4J_server_memory_heap_max__size=512m",
+                    "PATH=/opt/java/openjdk/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                    "container=podman",
+                    "HOSTNAME=8c1e2f3a4b5c",
+                    "HOME=/root"
+               ],
+               "Cmd": [
+                    "neo4j"
+               ],
+               "Image": "docker.io/library/neo4j:5.26.32@sha256:249a1ec6e3c52d82101a5ed33d6ed2b5ed5b0017b21a28c0bfebc335e87fb177",
+               "Volumes": null,
+               "WorkingDir": "/var/lib/neo4j",
+               "Entrypoint": [
+                    "tini",
+                    "-g",
+                    "--",
+                    "/startup/docker-entrypoint.sh"
+               ],
+               "OnBuild": null,
+               "Labels": {
+                    "depgraph.host": "hostid000000",
+                    "depgraph.managed": "1",
+                    "depgraph.owner-pid": "60318",
+                    "depgraph.persist": "0",
+                    "depgraph.project": "zz_test_integrationephemeral_6557c6c1",
+                    "depgraph.root": "f683a430aa33895d",
+                    "depgraph.root-path": "/work/app"
+               },
+               "Annotations": {
+                    "io.container.manager": "libpod",
+                    "io.podman.annotations.autoremove": "TRUE",
+                    "org.opencontainers.image.stopSignal": "15"
+               },
+               "StopSignal": 15,
+               "HealthcheckOnFailureAction": "none",
+               "CreateCommand": [
+                    "podman",
+                    "run",
+                    "-d",
+                    "--rm"
+               ],
+               "Umask": "0022",
+               "Timeout": 0,
+               "StopTimeout": 10,
+               "Passwd": true,
+               "sdNotifyMode": "container"
+          },
+          "HostConfig": {
+               "Binds": [],
+               "CgroupManager": "systemd",
+               "CgroupMode": "private",
+               "ContainerIDFile": "",
+               "LogConfig": {
+                    "Type": "journald",
+                    "Config": null,
+                    "Path": "",
+                    "Tag": "",
+                    "Size": "0B"
+               },
+               "NetworkMode": "slirp4netns",
+               "PortBindings": {
+                    "7687/tcp": [
+                         {
+                              "HostIp": "127.0.0.1",
+                              "HostPort": "32773"
+                         }
+                    ]
+               },
+               "RestartPolicy": {
+                    "Name": "no",
+                    "MaximumRetryCount": 0
+               },
+               "AutoRemove": true,
+               "Tmpfs": {
+                    "/data": "rw,rprivate,nosuid,nodev,tmpcopyup",
+                    "/logs": "rw,rprivate,nosuid,nodev,tmpcopyup"
+               }
+          }
+     }
+]

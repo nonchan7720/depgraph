@@ -36,28 +36,115 @@ Builds use the tags in `GOFLAGS` of `mise.toml` (`gotreesitter_no_copyleft` and 
 
 ## Quick start
 
+Requirements: depgraph (see Install) and a container runtime: Docker, Podman or nerdctl
+(see [Neo4j](#neo4j)). No compose file, no Neo4j installation.
+
 ```bash
-# 1. Start Neo4j (neo4j / depgraph123)
-docker compose up -d
-
-# 2. Build
-mise run build   # or: mise exec -- go build -o bin/depgraph .  (applies the env of mise.toml)
-
-# 3. Watch the target repository
-./bin/depgraph watch --root /path/to/your/repo
+depgraph watch --root /path/to/your/repo
 ```
 
-After the initial full scan, depgraph watches for file changes and re-analyzes only what changed.
-A browser UI starts at http://127.0.0.1:7777 and the graph and findings update live (SSE).
-Findings are printed to stderr, and the `<!-- depgraph:start -->` ... `<!-- depgraph:end -->`
-section of `/path/to/your/repo/CLAUDE.md` is updated (hand-written content is kept).
-
-Neo4j Browser: http://localhost:7474
+depgraph starts Neo4j in a container (10-20 s the first time per run; the image, about 1 GB,
+is pulled once), scans the repository, then watches for file changes and re-analyzes only
+what changed. A browser UI starts at http://127.0.0.1:7777 and the graph and findings update
+live (SSE). Findings are printed to stderr, and the `<!-- depgraph:start -->` ...
+`<!-- depgraph:end -->` section of `/path/to/your/repo/CLAUDE.md` is updated (hand-written
+content is kept). When `watch` exits (ctrl-c), the container and its data are removed; add
+`--persist` to keep them (see [Neo4j](#neo4j)).
 
 To try it on a generated sample repository, run `mise run demo`. It watches the sample as
-the project `depgraph-demo` in the same Neo4j (UI http://127.0.0.1:7778); its `--reset` clears
-only that project, so other projects are never touched. Remove it with
+the project `depgraph-demo` in the docker compose Neo4j below (UI http://127.0.0.1:7778); its
+`--reset` clears only that project, so other projects are never touched. Remove it with
 `bin/depgraph projects rm depgraph-demo`.
+
+## Neo4j
+
+The graph lives in Neo4j and the rules are Cypher queries. How depgraph gets a Neo4j is a
+**provider**, chosen in this order:
+
+1. `--neo4j-provider <name>`, else `$DEPGRAPH_NEO4J_PROVIDER`, else `store.provider` in `.depgraph.yml`
+2. `external` when a URI is configured (`--neo4j` or `$NEO4J_URI`)
+3. `container` when a container runtime answers
+4. `local` (planned: a Neo4j installation on the machine run as a child process; not implemented yet)
+
+If none is usable, depgraph stops with one line that says what each provider is missing.
+
+### `container` (default): depgraph runs and cleans up Neo4j
+
+Supported container CLIs: **docker** (Docker Desktop / Engine, OrbStack, Colima, Rancher
+Desktop with dockerd), **podman** (including rootless; on macOS / Windows with a running
+`podman machine`) and **nerdctl** (containerd: Rancher Desktop with containerd, Finch, Lima).
+Bare containerd without nerdctl (`ctr`) is not supported: it cannot publish ports.
+The CLI is `--container-cli` (a name or a path), else `$DEPGRAPH_CONTAINER_CLI`, else
+`store.containerCli` in `.depgraph.yml`, else the first of docker, podman, nerdctl that is on
+`PATH` and answers `<cli> version` within 2 s. The CLI runs with your environment, so
+`DOCKER_HOST`, docker contexts and `CONTAINER_HOST` apply. The daemon must be on this machine:
+the port is published on its loopback interface.
+
+What depgraph runs (fixed argument lists, never a shell):
+
+```
+<cli> run -d --rm --name depgraph-<project>-<hash> --label depgraph.managed=1 --label depgraph.root=<hash> ...
+          -p 127.0.0.1::7687 -e NEO4J_AUTH -e NEO4J_server_memory_heap_max__size=512m ...
+          --tmpfs /logs --tmpfs /data docker.io/library/neo4j:5.26.32@sha256:249a1ec6...
+```
+
+- The image is the same release and digest as `docker-compose.yml` and CI.
+- Bolt is published on `127.0.0.1` only, on a random port. The password is random per
+  container and is handed to the CLI through its environment (`-e NEO4J_AUTH` without a
+  value), never on the command line. Commands find the store of a root by its labels and read
+  the port and password with `<cli> inspect`; nothing is written to disk.
+- Memory: heap 128 MiB initial / 512 MiB max, page cache 64 MiB, transaction logs not
+  preallocated. Measured about 330 MiB idle and 480 MiB after scanning this repository.
+- Who starts it: `watch`, `scan` and `check` reuse the running store of the root or start one
+  (a `scan` / `check` without `watch` starts an ephemeral one only for itself). `serve` and
+  `projects` use a running one (and start a stopped persistent one). The Claude Code hook
+  only looks for a running one: it never starts anything and prints nothing when there is none.
+
+**Ephemeral (default).** Data is on a tmpfs inside the container. The process that started
+the container stops and removes it on exit (also on ctrl-c / SIGTERM). If that process is
+killed, the next `watch` / `scan` / `check` on the same machine removes the leftover: every
+container carries the owner's PID and a host id, and only containers labelled
+`depgraph.managed=1`, ephemeral, of this host and with a dead owner are removed.
+
+**Persistent (opt-in).** `--persist` (scan / check / watch / serve) or in `.depgraph.yml`:
+
+```yaml
+store:
+  persist: true          # keep the data in a named volume per project key
+  # provider: container  # external | container
+  # containerCli: podman # docker | podman | nerdctl | a path
+```
+
+The data is kept in the volume `depgraph-<project>-<hash>` and the container (no `--rm`)
+keeps running after `watch` exits, so the hook and `check` keep working and the next `watch`
+starts without a full rebuild of the store. Persisted data never accumulates silently:
+
+```bash
+depgraph store ls                     # every container and volume depgraph manages
+depgraph store down [--root DIR]      # stop the store of a root (ephemeral: removed; persistent: stopped, data kept)
+depgraph store rm [--root DIR]        # delete the container and data volume of the root's project
+depgraph store rm <project-key>...    # ... of these projects
+depgraph store rm --all               # ... of every project
+```
+
+If the container of a persistent volume is removed outside depgraph, its password is lost;
+depgraph then asks you to `depgraph store rm` the volume (the next scan rebuilds the graph).
+
+### `external`: your own Neo4j (docker compose, a server, Aura)
+
+Set `--neo4j bolt://host:7687` (with `--user`, `--pass`, `--db`) or `NEO4J_URI` (and
+`NEO4J_USER`, `NEO4J_PASSWORD`, `NEO4J_DATABASE`). depgraph only connects; it never starts,
+stops or deletes anything. This repository's `docker-compose.yml` is such a Neo4j:
+
+```bash
+docker compose up -d                  # Neo4j on bolt://localhost:7687 (neo4j / depgraph123), browser http://localhost:7474
+NEO4J_URI=bolt://localhost:7687 depgraph watch --root /path/to/your/repo
+```
+
+In this repository, `mise.toml` sets `NEO4J_URI` (and the user / password of the compose
+file), so `mise run watch` / `scan` / ... and the tests use the compose Neo4j (`mise run neo4j`
+starts it). To use the container provider from a mise shell, run `mise run watch:container`
+or pass `--neo4j-provider container`.
 
 ## Projects
 
@@ -95,6 +182,7 @@ depgraph projects prune [--dry-run]  # delete projects whose root no longer exis
 | `parse --root DIR [files...]` | print the tree-sitter result as JSON, one file per line, without Neo4j (debugging) |
 | `hook <session-start\|prompt>` | Claude Code hook: print findings as additional context (read-only, always exits 0) |
 | `projects list` / `projects rm <key>` / `projects prune [--dry-run]` | list / delete the projects in the database |
+| `store ls` / `store down` / `store rm [<key>...] [--all]` | list / stop / delete the Neo4j containers and data volumes depgraph manages (container provider) |
 | `version` / `--version` | print the version (`version` adds the commit, build date and Go toolchain) |
 
 Flags (see `depgraph <command> --help`):
@@ -105,7 +193,10 @@ Flags (see `depgraph <command> --help`):
 | `--project` | all | `project` in `<root>/.depgraph.yml`, else the directory name of `--root` (`@<worktree>` added in a linked git worktree) |
 | `--exclude` | all | none (comma-separated exclude patterns) |
 | `--ignore-file` | all | `.depgraphignore` (relative to `--root`, empty to disable) |
-| `--neo4j` / `--user` / `--pass` / `--db` | scan / check / watch / serve / hook / projects | `$NEO4J_URI` / `$NEO4J_USER` / `$NEO4J_PASSWORD` / `$NEO4J_DATABASE` (fallback `bolt://localhost:7687` / `neo4j` / `depgraph123` / `neo4j`) |
+| `--neo4j` / `--user` / `--pass` / `--db` | scan / check / watch / serve / hook / projects | external Neo4j: `$NEO4J_URI` / `$NEO4J_USER` / `$NEO4J_PASSWORD` / `$NEO4J_DATABASE` (no URI: depgraph provides Neo4j; fallback user / password / database `neo4j` / `depgraph123` / `neo4j`) |
+| `--neo4j-provider` | scan / check / watch / serve / hook / projects | `$DEPGRAPH_NEO4J_PROVIDER`, else `store.provider`, else external when a URI is set, else container |
+| `--container-cli` | scan / check / watch / serve / hook / projects / store | `$DEPGRAPH_CONTAINER_CLI`, else `store.containerCli`, else the first of docker / podman / nerdctl that answers |
+| `--persist` | scan / check / watch / serve | `store.persist`, else false (ephemeral) |
 | `--claude-md` | scan / check / watch | `$DEPGRAPH_CLAUDE_MD` or `CLAUDE.md` (relative to `--root`, empty to disable) |
 | `--reset` | scan / watch | false (clear this project's data before scanning; other projects are kept) |
 | `--workers` | parse / scan / watch | `0` (files parsed in parallel during a full scan; 0 = GOMAXPROCS. Output order does not depend on it) |
@@ -150,7 +241,9 @@ that repository's `.claude/settings.json` (this repository uses `bin/depgraph` t
 }
 ```
 
-The Neo4j connection comes from `--neo4j` etc. or `$NEO4J_URI` etc. (default `bolt://localhost:7687`).
+The hook uses the same Neo4j as the other commands (see [Neo4j](#neo4j)): an external one
+when `--neo4j` / `$NEO4J_URI` is set, else the running depgraph container of the root, found by
+its labels. It never starts a container; with none running it prints nothing.
 
 ## Browser UI
 
@@ -237,6 +330,11 @@ rules:                      # per rule: enabled, severity (error | warn | info),
   # duplicate-symbol: {ignore: [main, init, New]}   # names not checked (replaces the defaults)
 
 ignore: ["**/testdata/**"]  # packages left out of every rule
+
+store:                      # how Neo4j is provided (see Neo4j); flags and env take precedence
+  persist: false
+  provider: container
+  containerCli: docker
 ```
 
 - **Package globs** match the package key (the directory from the root, `.` for the root) by
@@ -282,7 +380,9 @@ pkg/services/analysis/               scan, apply changes, evaluate rules, LSP re
 pkg/infrastructure/repository/graph/ Neo4j writes and queries
 pkg/infrastructure/repository/rules/ rule evaluation in Cypher
 pkg/infrastructure/repository/project/ Project nodes
-pkg/infrastructure/config/           .depgraph.yml (project key, rule configuration)
+pkg/infrastructure/config/           .depgraph.yml (project key, rule configuration, store settings)
+pkg/infrastructure/neo4jprovider/    how Neo4j is provided: Provider contract, selection, external
+  container/                         Neo4j in a docker / podman / nerdctl container (lifecycle, labels, cleanup)
 pkg/infrastructure/workspace/        project identity of a root (.depgraph.yml, git origin / worktree)
 pkg/infrastructure/resolver/         repository walk + exclude patterns
   treesitter/                        default: structural analysis (imports / declarations, gotreesitter)
@@ -290,7 +390,7 @@ pkg/infrastructure/resolver/         repository walk + exclude patterns
   lsp/                               refinement with language servers (callHierarchy / references)
 pkg/infrastructure/watch/            fsnotify + debounce
 pkg/infrastructure/claudemd/         CLAUDE.md managed section
-pkg/interfaces/cmd/                  CLI (cobra: parse / scan / check / watch / serve / hook / projects)
+pkg/interfaces/cmd/                  CLI (cobra: parse / scan / check / watch / serve / hook / projects / store)
 pkg/interfaces/handler/ui/           HTTP server + SSE + embedded UI (web/ build output)
 web/                                 browser UI source (Vite + TypeScript, Cytoscape + elkjs)
 pkg/interfaces/handler/hook/         Claude Code hook (summary / diff / state file)
@@ -306,6 +406,8 @@ The analysis backend is pluggable through `graph.Resolver`. Priority: treesitter
 - [x] Multiple projects in one database (`--project`, `.depgraph.yml` `project:`, `depgraph projects`)
 - [x] Rule configuration in `.depgraph.yml` (layers, forbidden imports, severities, ignore)
 - [ ] MCP server mode (query directly from Claude Code / Cursor)
+- [x] depgraph provides Neo4j itself in a container (docker / podman / nerdctl), ephemeral or persistent
+- [ ] `local` Neo4j provider: run a Neo4j installation (`NEO4J_HOME` or `neo4j` on `PATH`) as a child process, data in a per-run directory, loopback only
 
 ## Releasing
 
@@ -331,4 +433,5 @@ Issues write access, and the repository secrets `RELEASE_PLEASE_CLIENT_ID` (its 
 
 ## License
 
-Apache-2.0 (planned). Neo4j itself is not bundled; depgraph connects to your own Neo4j.
+Apache-2.0 (planned). Neo4j itself is not bundled: depgraph connects to your own Neo4j or runs
+the official Neo4j Community image (GPLv3) with your container runtime.

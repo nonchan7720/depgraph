@@ -45,17 +45,17 @@ func TestCommandFlags(t *testing.T) {
 	root := newRootCommand(&options{})
 	has := map[string][]string{
 		"parse": {"workers"},
-		"scan":  {"neo4j", "user", "pass", "db", "claude-md", "reset", "workers"},
-		"check": {"neo4j", "user", "pass", "db", "claude-md"},
-		"watch": {"neo4j", "user", "pass", "db", "claude-md", "reset", "debounce", "addr", "no-ui", "no-lsp", "workers"},
-		"serve": {"neo4j", "user", "pass", "db", "addr"},
-		"hook":  {"neo4j", "user", "pass", "db", "timeout", "debug"},
+		"scan":  {"neo4j", "user", "pass", "db", "neo4j-provider", "container-cli", "persist", "claude-md", "reset", "workers"},
+		"check": {"neo4j", "user", "pass", "db", "neo4j-provider", "container-cli", "persist", "claude-md"},
+		"watch": {"neo4j", "user", "pass", "db", "neo4j-provider", "container-cli", "persist", "claude-md", "reset", "debounce", "addr", "no-ui", "no-lsp", "workers"},
+		"serve": {"neo4j", "user", "pass", "db", "neo4j-provider", "container-cli", "persist", "addr"},
+		"hook":  {"neo4j", "user", "pass", "db", "neo4j-provider", "container-cli", "timeout", "debug"},
 	}
 	lacks := map[string][]string{
 		"serve": {"claude-md", "reset", "workers"}, // serve never writes CLAUDE.md
 		"parse": {"neo4j", "claude-md"},
-		"check": {"workers"},                       // check does not parse
-		"hook":  {"claude-md", "reset", "workers"}, // hook は読むだけ
+		"check": {"workers"},                                  // check does not parse
+		"hook":  {"claude-md", "reset", "workers", "persist"}, // hook は読むだけ（何も起動しない）
 	}
 	for _, name := range []string{"root", "exclude", "ignore-file", "project"} {
 		if root.PersistentFlags().Lookup(name) == nil {

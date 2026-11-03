@@ -128,6 +128,7 @@ func TestHookProjectData(t *testing.T) {
 // separates them; each project keeps its own data; projects rm removes one.
 func TestScanTwoProjects(t *testing.T) {
 	uri := env("NEO4J_URI", "bolt://localhost:7687")
+	t.Setenv("NEO4J_URI", uri) // the commands below use this external Neo4j, never a provided one
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	t.Cleanup(cancel)
 	st, err := graphrepo.New(ctx, uri, env("NEO4J_USER", "neo4j"), env("NEO4J_PASSWORD", "depgraph123"), env("NEO4J_DATABASE", "neo4j"))

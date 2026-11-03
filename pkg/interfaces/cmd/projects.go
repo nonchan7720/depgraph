@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/nonchan7720/depgraph/pkg/domain/project"
+	"github.com/nonchan7720/depgraph/pkg/infrastructure/neo4jprovider"
 	projectrepo "github.com/nonchan7720/depgraph/pkg/infrastructure/repository/project"
 	"github.com/nonchan7720/depgraph/pkg/infrastructure/workspace"
 )
@@ -24,11 +25,11 @@ func newProjectsCommand(o *options) *cobra.Command {
 
 	withRepo := func(cmd *cobra.Command, fn func(ctx context.Context, repo project.Repository) error) error {
 		ctx := cmd.Context()
-		st, err := connect(ctx, o)
+		st, _, release, err := openStore(ctx, o, neo4jprovider.StartIfPersistent, cmd.ErrOrStderr())
 		if err != nil {
 			return err
 		}
-		defer func() { _ = st.Close(context.WithoutCancel(ctx)) }()
+		defer release(ctx)
 		return fn(ctx, projectrepo.New(st))
 	}
 

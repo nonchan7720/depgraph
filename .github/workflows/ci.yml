@@ -40,4 +40,28 @@ jobs:
           install: true
           cache: true
       # vet + lint + go test + web test + build + no-CDN check + third-party notices check
+      # (go test includes the container provider's integration tests with docker)
       - run: mise run ci
+
+  # The container provider's integration tests with podman (rootless; the
+  # runner image ships podman). nerdctl is covered by inspect fixtures only.
+  podman:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+        with:
+          install: true
+          cache: true
+      - run: podman version
+      - name: integration tests with podman
+        env:
+          DEPGRAPH_CONTAINER_CLI: podman
+          DEPGRAPH_RECORD_FIXTURES: ${{ runner.temp }}
+        run: mise exec -- go test -count=1 -v -run 'Integration|ParseInspectFixtures' ./pkg/infrastructure/neo4jprovider/container/
+      - name: recorded podman inspect output (sanitized; source of testdata/podman_*)
+        if: always()
+        run: cat "$RUNNER_TEMP/podman_inspect.json" "$RUNNER_TEMP/podman_port.txt" || true

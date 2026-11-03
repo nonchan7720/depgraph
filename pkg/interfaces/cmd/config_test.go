@@ -34,6 +34,7 @@ func writeTree(t *testing.T, root string, files map[string]string) {
 // End to end on Neo4j: scan / check evaluate the layers, forbidden pairs and
 // severities of <root>/.depgraph.yml; an invalid file fails the command.
 func TestScanAppliesDepgraphYml(t *testing.T) {
+	t.Setenv("NEO4J_URI", env("NEO4J_URI", "bolt://localhost:7687")) // the commands below use this external Neo4j
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	t.Cleanup(cancel)
 	st, err := graphrepo.New(ctx, env("NEO4J_URI", "bolt://localhost:7687"), env("NEO4J_USER", "neo4j"), env("NEO4J_PASSWORD", "depgraph123"), env("NEO4J_DATABASE", "neo4j"))

@@ -1,0 +1,107 @@
+[
+    {
+        "Id": "5f0d6a1c9e1e4b8a2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293",
+        "Created": "2026-11-03T11:30:00.000000000Z",
+        "Path": "tini",
+        "Args": [
+            "-g",
+            "--",
+            "/startup/docker-entrypoint.sh",
+            "neo4j"
+        ],
+        "State": {
+            "Status": "running",
+            "Running": true,
+            "Paused": false,
+            "Restarting": false,
+            "Pid": 4321,
+            "ExitCode": 0,
+            "Error": "",
+            "StartedAt": "2026-11-03T11:30:00.500000000Z",
+            "FinishedAt": ""
+        },
+        "Image": "docker.io/library/neo4j:5.26.32@sha256:249a1ec6e3c52d82101a5ed33d6ed2b5ed5b0017b21a28c0bfebc335e87fb177",
+        "ResolvConfPath": "/var/lib/nerdctl/1935db59/containers/default/5f0d6a1c9e1e/resolv.conf",
+        "HostnamePath": "/var/lib/nerdctl/1935db59/containers/default/5f0d6a1c9e1e/hostname",
+        "HostsPath": "/var/lib/nerdctl/1935db59/etchosts/default/5f0d6a1c9e1e/hosts",
+        "LogPath": "/var/lib/nerdctl/1935db59/containers/default/5f0d6a1c9e1e/5f0d6a1c9e1e-json.log",
+        "Name": "depgraph-zz_test_integrationephemeral_6557c6c1-1036b289",
+        "RestartCount": 0,
+        "Driver": "overlayfs",
+        "Platform": "linux",
+        "AppArmorProfile": "nerdctl-default",
+        "HostConfig": {
+            "ContainerIDFile": "",
+            "NetworkMode": "bridge",
+            "PortBindings": {
+                "7687/tcp": [
+                    {
+                        "HostIp": "127.0.0.1",
+                        "HostPort": "32773"
+                    }
+                ]
+            },
+            "AutoRemove": true
+        },
+        "Mounts": null,
+        "Config": {
+            "Hostname": "5f0d6a1c9e1e",
+            "AttachStdin": false,
+            "ExposedPorts": {
+                "7473/tcp": {},
+                "7474/tcp": {},
+                "7687/tcp": {}
+            },
+            "Env": [
+                "PATH=/opt/java/openjdk/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "NEO4J_AUTH=neo4j/fixturepassword",
+                "NEO4J_server_memory_heap_initial__size=128m",
+                "NEO4J_server_memory_heap_max__size=512m",
+                "HOSTNAME=5f0d6a1c9e1e"
+            ],
+            "Image": "docker.io/library/neo4j:5.26.32@sha256:249a1ec6e3c52d82101a5ed33d6ed2b5ed5b0017b21a28c0bfebc335e87fb177",
+            "Labels": {
+                "depgraph.host": "hostid000000",
+                "depgraph.managed": "1",
+                "depgraph.owner-pid": "60318",
+                "depgraph.persist": "0",
+                "depgraph.project": "zz_test_integrationephemeral_6557c6c1",
+                "depgraph.root": "f683a430aa33895d",
+                "depgraph.root-path": "/work/app",
+                "io.containerd.image.config.stop-signal": "SIGTERM",
+                "nerdctl/auto-remove": "true",
+                "nerdctl/hostname": "5f0d6a1c9e1e",
+                "nerdctl/name": "depgraph-zz_test_integrationephemeral_6557c6c1-1036b289",
+                "nerdctl/namespace": "default",
+                "nerdctl/networks": "[\"bridge\"]",
+                "nerdctl/platform": "linux/arm64",
+                "nerdctl/ports": "[{\"HostPort\":32773,\"ContainerPort\":7687,\"Protocol\":\"tcp\",\"HostIP\":\"127.0.0.1\"}]",
+                "nerdctl/state-dir": "/var/lib/nerdctl/1935db59/containers/default/5f0d6a1c9e1e"
+            }
+        },
+        "NetworkSettings": {
+            "Ports": {
+                "7687/tcp": [
+                    {
+                        "HostIp": "127.0.0.1",
+                        "HostPort": "32773"
+                    }
+                ]
+            },
+            "GlobalIPv6Address": "",
+            "GlobalIPv6PrefixLen": 0,
+            "IPAddress": "10.4.0.12",
+            "IPPrefixLen": 24,
+            "MacAddress": "a2:b4:c6:d8:e0:f2",
+            "Networks": {
+                "unknown-eth0": {
+                    "IPAddress": "10.4.0.12",
+                    "IPPrefixLen": 24,
+                    "GlobalIPv6Address": "",
+                    "GlobalIPv6PrefixLen": 0,
+                    "MacAddress": "a2:b4:c6:d8:e0:f2"
+                }
+            }
+        }
+    }
+]

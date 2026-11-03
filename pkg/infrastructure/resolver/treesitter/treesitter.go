@@ -255,19 +255,27 @@ func (x *extractor) goDecl(n *gts.Node) {
 		name := x.fieldText(n, "name")
 		x.addSym(n, "method", name, goExported(name))
 	case "type_declaration":
-		x.forEachDescendant(n, "type_spec", func(ts *gts.Node) {
-			kind := "type"
-			if t := x.field(ts, "type"); t != nil {
-				switch x.typ(t) {
-				case "struct_type":
-					kind = "struct"
-				case "interface_type":
-					kind = "interface"
+		// type_spec (`type A B`) and type_alias (`type A = B`), in source order
+		for i := 0; i < n.NamedChildCount(); i++ {
+			ts := n.NamedChild(i)
+			switch x.typ(ts) {
+			case "type_spec":
+				kind := "type"
+				if t := x.field(ts, "type"); t != nil {
+					switch x.typ(t) {
+					case "struct_type":
+						kind = "struct"
+					case "interface_type":
+						kind = "interface"
+					}
 				}
+				name := x.fieldText(ts, "name")
+				x.addSym(ts, kind, name, goExported(name))
+			case "type_alias":
+				name := x.fieldText(ts, "name")
+				x.addSym(ts, "type", name, goExported(name))
 			}
-			name := x.fieldText(ts, "name")
-			x.addSym(ts, kind, name, goExported(name))
-		})
+		}
 	}
 }
 

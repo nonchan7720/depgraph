@@ -5,3 +5,23 @@ linters:
   # what gopls shows in the editor, so CI and the editor agree
   enable:
     - modernize
+    - forbidigo
+  settings:
+    forbidigo:
+      analyze-types: true
+      forbid:
+        # gopls reports a Scanner whose Err() is unchecked (scannererr), and a
+        # Scanner stops silently at a line over 64KB: a long line in a config
+        # or a generated file would cut the input short.
+        - pattern: ^bufio\.NewScanner$
+          msg: use bytes.Lines or bufio.Reader; Scanner stops at lines over 64KB
+  exclusions:
+    rules:
+      # tests read short subprocess output and check Err()
+      - path: _test\.go
+        linters:
+          - forbidigo
+
+formatters:
+  enable:
+    - goimports

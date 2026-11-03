@@ -184,11 +184,16 @@ func readPackageClause(p string) string {
 		return ""
 	}
 	defer func() { _ = f.Close() }()
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		if m := goPackageRe.FindStringSubmatch(sc.Text()); m != nil {
+	// bufio.Reader, not Scanner: a generated file can start with a comment
+	// line longer than Scanner's 64KB limit.
+	r := bufio.NewReader(f)
+	for {
+		line, err := r.ReadString('\n')
+		if m := goPackageRe.FindStringSubmatch(line); m != nil {
 			return m[1]
 		}
+		if err != nil {
+			return ""
+		}
 	}
-	return ""
 }

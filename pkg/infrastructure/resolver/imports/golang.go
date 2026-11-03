@@ -2,12 +2,13 @@ package imports
 
 import (
 	"context"
-	"github.com/nonchan7720/depgraph/pkg/internal/rootcache"
 	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
+
+	"github.com/nonchan7720/depgraph/pkg/internal/rootcache"
 
 	"golang.org/x/mod/modfile"
 )

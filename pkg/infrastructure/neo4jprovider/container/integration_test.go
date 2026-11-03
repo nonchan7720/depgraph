@@ -252,6 +252,9 @@ func startHelper(t *testing.T, p *Provider, root, key string, persist bool, end 
 				return
 			}
 		}
+		if err := s.Err(); err != nil {
+			t.Logf("reading helper output: %v", err)
+		}
 		ready <- false
 	}()
 	select {

@@ -2,9 +2,10 @@ package imports
 
 import (
 	"context"
-	"github.com/nonchan7720/depgraph/pkg/internal/rootcache"
 	"path/filepath"
 	"strings"
+
+	"github.com/nonchan7720/depgraph/pkg/internal/rootcache"
 
 	"github.com/evanw/esbuild/pkg/api"
 )

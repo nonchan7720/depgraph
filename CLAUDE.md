@@ -27,4 +27,5 @@ You are the **main maintainer** of this repository, working at **staff-engineer 
 
 - This repository is public. Do not write the names, URLs, structure or internals of other (private) projects in code, commits, PRs or issues, and do not use their data in tests or screenshots.
 - Work on a branch and open a draft PR; never commit directly to `main`.
+- PR titles are Conventional Commits (`feat: ...`, `fix: ...`, `ci: ...`): the squash commit takes the title, and release-please reads it. CI checks it.
 - Tools are pinned in `mise.toml`; run them through mise (`mise run <task>`).

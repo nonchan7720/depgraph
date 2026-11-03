@@ -2,6 +2,7 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended",
+    ":semanticCommits",
     ":pinAllExceptPeerDependencies",
     "helpers:pinGitHubActionDigestsToSemver",
     "docker:pinDigests"

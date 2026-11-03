@@ -39,6 +39,7 @@ type options struct {
 
 	hookTimeout time.Duration
 	hookDebug   bool
+	gateTimeout time.Duration
 
 	// how Neo4j is provided (see neo4j.go)
 	neo4jProvider string
@@ -98,6 +99,7 @@ a browser UI.`,
 		newWatchCommand(o),
 		newServeCommand(o),
 		newHookCommand(o),
+		newGateCommand(o),
 		newProjectsCommand(o),
 		newStoreCommand(o),
 		newContainerWatchdogCommand(),

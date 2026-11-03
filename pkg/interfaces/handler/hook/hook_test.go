@@ -184,7 +184,23 @@ func TestOutput(t *testing.T) {
 // fakeSessions is an in-memory SessionStore.
 type fakeSessions struct {
 	m    map[string][]rules.Finding
+	base map[string][]rules.Finding
 	puts int
+}
+
+func (s *fakeSessions) Baseline(_ context.Context, id string) ([]rules.Finding, bool, error) {
+	fs, ok := s.base[id]
+	return fs, ok, nil
+}
+
+func (s *fakeSessions) PutBaseline(_ context.Context, id string, fs []rules.Finding, _ time.Time) error {
+	if s.base == nil {
+		s.base = map[string][]rules.Finding{}
+	}
+	if _, ok := s.base[id]; !ok {
+		s.base[id] = fs
+	}
+	return nil
 }
 
 func (s *fakeSessions) Get(_ context.Context, id string) ([]rules.Finding, bool, error) {

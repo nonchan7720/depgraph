@@ -1,5 +1,5 @@
 // Package hooksession keeps the hook's per-session state on Neo4j:
-// (:HookSession {project, id, findings, updatedAt}) next to the project's
+// (:HookSession {project, id, findings, baseline, updatedAt}) next to the project's
 // graph, removed with it (projects rm, Clear) and pruned on every write, so
 // nothing is left in the repository and nothing piles up.
 package hooksession
@@ -36,9 +36,33 @@ func New(st Store, project string) *Sessions { return &Sessions{st: st, project:
 
 // Get returns the findings last stored for session.
 func (s *Sessions) Get(ctx context.Context, session string) ([]rules.Finding, bool, error) {
+	return s.read(ctx, session, "findings")
+}
+
+// Put replaces session's findings (without Data, which the diff does not
+// need) and prunes old sessions of the project.
+func (s *Sessions) Put(ctx context.Context, session string, findings []rules.Finding, now time.Time) error {
+	return s.write(ctx, `SET h.findings = $findings, h.updatedAt = $now`, session, findings, now)
+}
+
+// Baseline returns the findings the session started with.
+func (s *Sessions) Baseline(ctx context.Context, session string) ([]rules.Finding, bool, error) {
+	return s.read(ctx, session, "baseline")
+}
+
+// PutBaseline records session's baseline unless it has one, and prunes old
+// sessions of the project.
+func (s *Sessions) PutBaseline(ctx context.Context, session string, findings []rules.Finding, now time.Time) error {
+	return s.write(ctx, `SET h.baseline = coalesce(h.baseline, $findings), h.updatedAt = $now`, session, findings, now)
+}
+
+// read returns the findings in property prop of the session; ok is false
+// when the session or the property does not exist.
+func (s *Sessions) read(ctx context.Context, session, prop string) ([]rules.Finding, bool, error) {
 	rows, err := s.st.Query(ctx, `
-		MATCH (h:HookSession {project: $project, id: $id}) RETURN h.findings AS findings
-	`, map[string]any{"project": s.project, "id": session})
+		MATCH (h:HookSession {project: $project, id: $id}) WHERE h[$prop] IS NOT NULL
+		RETURN h[$prop] AS findings
+	`, map[string]any{"project": s.project, "id": session, "prop": prop})
 	if err != nil || len(rows) == 0 {
 		return nil, false, err
 	}
@@ -51,9 +75,9 @@ func (s *Sessions) Get(ctx context.Context, session string) ([]rules.Finding, bo
 	return fs, true, nil
 }
 
-// Put replaces session's findings (without Data, which the diff does not
-// need) and prunes old sessions of the project.
-func (s *Sessions) Put(ctx context.Context, session string, findings []rules.Finding, now time.Time) error {
+// write merges the session node, applies set ($findings without Data, $now)
+// and prunes old sessions of the project.
+func (s *Sessions) write(ctx context.Context, set, session string, findings []rules.Finding, now time.Time) error {
 	fs := make([]rules.Finding, 0, len(findings))
 	for _, f := range findings {
 		f.Data = nil
@@ -63,10 +87,8 @@ func (s *Sessions) Put(ctx context.Context, session string, findings []rules.Fin
 	if err != nil {
 		return err
 	}
-	if err := s.st.Exec(ctx, `
-		MERGE (h:HookSession {project: $project, id: $id})
-		SET h.findings = $findings, h.updatedAt = $now
-	`, map[string]any{"project": s.project, "id": session, "findings": string(b), "now": now.UTC()}); err != nil {
+	if err := s.st.Exec(ctx, `MERGE (h:HookSession {project: $project, id: $id}) `+set,
+		map[string]any{"project": s.project, "id": session, "findings": string(b), "now": now.UTC()}); err != nil {
 		return err
 	}
 	return s.st.Exec(ctx, `

@@ -18,6 +18,14 @@ rules:
       - { name: web-typecheck, cmd: "cd web && mise exec -- pnpm typecheck", files: false }
       - { name: web-test, cmd: "cd web && mise exec -- pnpm test", files: false }
 
+  # depgraph on itself: debt this session added (README "Quality gate"). Passes
+  # without a running store / scanned project, or with a bin/depgraph older than
+  # the gate command.
+  - match: ["main.go", "pkg/**/*.go", "web/src/**/*.ts"]
+    timeout: 60
+    run:
+      - { name: depgraph, cmd: "bin/depgraph gate --help >/dev/null 2>&1 || exit 0; bin/depgraph gate" }
+
   # module / toolchain changes
   - match: ["go.mod", "go.sum", "mise.toml"]
     run: [{ name: mod, cmd: "go mod tidy -diff", files: false, timeout: 60 }]

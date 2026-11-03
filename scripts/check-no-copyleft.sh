@@ -32,10 +32,16 @@ if [ -z "$(markers "$tmp/untagged")" ]; then
 fi
 
 [ -f "$bin" ] || { echo "check-no-copyleft: $bin not found" >&2; exit 1; }
-if ! go version -m "$bin" | grep -q -- '-tags=.*gotreesitter_no_copyleft'; then
-  echo "check-no-copyleft: $bin was not built with -tags gotreesitter_no_copyleft" >&2
-  exit 1
-fi
+# Both tags are required: the lex-state tables are left out only by
+# grammar_subset. Release binaries are stripped (-s -w), so the symbol search
+# below finds nothing in them; the build info kept in the binary does not lie.
+tags=$(go version -m "$bin" | sed -n 's/.*-tags=\([^[:space:]]*\).*/\1/p' | tr ',' '\n')
+for tag in gotreesitter_no_copyleft grammar_subset; do
+  if ! grep -qx "$tag" <<<"$tags"; then
+    echo "check-no-copyleft: $bin was not built with -tags $tag (see GOFLAGS in mise.toml)" >&2
+    exit 1
+  fi
+done
 found=$(markers "$bin" | sort -u)
 if [ -n "$found" ]; then
   echo "check-no-copyleft: $bin contains copyleft grammar material:" >&2

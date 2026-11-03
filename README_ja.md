@@ -7,8 +7,31 @@ AIが書いたコードの依存関係を Neo4j に入れて可視化・ルー�
 
 対応言語（tree-sitter）: Go / TypeScript / JavaScript / Python
 
+## インストール
+
+**GitHub Releases（推奨・唯一の配布形態）。** [Releases](https://github.com/nonchan7720/depgraph/releases) から
+OS / CPU に合うアーカイブ `depgraph_<os>_<arch>.tar.gz`（Windows は `.zip`。linux / darwin / windows × amd64 / arm64）を
+ダウンロードし、`checksums.txt` で検証してから `depgraph` を `PATH` に置きます。各アーカイブには
+`LICENSE`、`NOTICE`、`THIRD_PARTY_NOTICES.md` も入っています。
+
+```bash
+sha256sum --ignore-missing -c checksums.txt   # macOS: shasum -a 256 --ignore-missing -c checksums.txt
+tar xzf depgraph_linux_amd64.tar.gz && install depgraph ~/.local/bin/
+depgraph --version
+```
+
+`v<version>-dev.<commit>` という名前のリリースは、`main` への push ごとに作られるプレリリースです。
+
+**ソースから。** リポジトリを clone し、`mise.toml` で固定したツールチェーン（Go / node / pnpm）でビルドします
+（`web/` のブラウザ UI もビルドしてバイナリに埋め込みます）。
+
+```bash
+git clone https://github.com/nonchan7720/depgraph.git && cd depgraph
+mise install && mise run build   # bin/depgraph ができる
+```
+
 構文解析には pure Go の tree-sitter 実装 [gotreesitter](https://github.com/odvcencio/gotreesitter) を使うため、C コンパイラは不要です。`CGO_ENABLED=0` でビルドでき、`go build` だけで任意の `GOOS`/`GOARCH` にクロスビルドできます。
-ビルドには `mise.toml` の `GOFLAGS` のタグ（`gotreesitter_no_copyleft` と `grammar_subset_<言語>`）を使い、gotreesitter が同梱する GPL/MPL の文法をバイナリに含めません。`mise run check:no-copyleft` で検査します。リリースビルドも同じタグを使ってください。
+ビルドには `mise.toml` の `GOFLAGS` のタグ（`gotreesitter_no_copyleft` と `grammar_subset_<言語>`）を使い、gotreesitter が同梱する GPL/MPL の文法をバイナリに含めません。`mise run check:no-copyleft` で検査します。リリースビルド（goreleaser）も同じ `GOFLAGS` を使い、各バイナリに同じ検査をかけます。
 
 ## Quick start
 
@@ -67,6 +90,7 @@ depgraph projects prune [--dry-run]  # root が存在しなくなったプロジ
 | `parse --root DIR [files...]` | Neo4j なしで tree-sitter の解析結果を JSON（1 行 1 ファイル）で出力（デバッグ用） |
 | `hook <session-start\|prompt>` | Claude Code の hook。Findings を追加文脈として出力（読むだけ、常に exit 0） |
 | `projects list` / `projects rm <key>` / `projects prune [--dry-run]` | DB 内のプロジェクトの一覧・削除 |
+| `version` / `--version` | バージョンを表示（`version` はコミット・ビルド日時・Go ツールチェーンも表示） |
 
 フラグ（`depgraph <command> --help` で一覧）:
 
@@ -206,6 +230,27 @@ pkg/interfaces/handler/hook/         Claude Code hook（要約・差分・状態
 - [x] 1 DB で複数プロジェクト（`--project`、`.depgraph.yml` の `project:`、`depgraph projects`）
 - [ ] `.depgraph.yml` でのルール設定（今は `project:` のみ読む）
 - [ ] MCP サーバーモード（Claude Code / Cursor から直接問い合わせ）
+
+## リリース手順
+
+リリースは [release-please](https://github.com/googleapis/release-please) と
+[GoReleaser](https://goreleaser.com) で自動化しています（`.github/workflows/release.yml`）。
+
+1. [Conventional Commits](https://www.conventionalcommits.org/ja/) 形式のタイトルで PR を `main` にマージする
+   （1.0 未満の間は `feat:` / `fix:` / `perf:` → patch、`feat!:` / `BREAKING CHANGE:` → minor）。
+   squash マージなので PR タイトルがコミットメッセージになります。
+2. release-please が `release-please/manifest.json`、`pkg/version/version.go`、`CHANGELOG.md` を
+   更新するリリース PR を開いたまま保ちます。初回リリースは `v0.1.0` です。
+3. リリース PR をマージする。release-please が `vX.Y.Z` のタグと GitHub Release を作り、
+   GoReleaser が 6 種のアーカイブと `checksums.txt` をビルドして添付します。
+
+それ以外の `main`（および保守ブランチ `release/vN`）への push では、プレリリース
+`v<現在のバージョン>-dev.<短い SHA>` を公開します。リリースビルドを手元で試すには
+`mise run release:snapshot`（`dist/` に出力、公開はしない）。`mise run ci` は `goreleaser check` を実行します。
+
+ワークフローには、このリポジトリにインストールした GitHub App（Contents / Pull requests / Issues の write）と、
+リポジトリ secrets `RELEASE_PLEASE_CLIENT_ID`（App の Client ID）・`RELEASE_PLEASE_APP_PRIVATE_PEM`（秘密鍵）が必要です。
+リリース PR で CI が走るよう、`GITHUB_TOKEN` ではなく App のトークンを使います。
 
 ## License
 

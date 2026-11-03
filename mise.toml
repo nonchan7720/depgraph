@@ -6,6 +6,8 @@ go = "1.27.3"
 golangci-lint = "2.15.0"
 node = "26.13.0"
 pnpm = "12.14.0"
+# release builds (.goreleaser.yaml); the release workflow uses this same pin
+"aqua:goreleaser/goreleaser" = "2.19.0"
 "go:golang.org/x/tools/gopls" = "0.24.0"
 "npm:typescript-language-server" = "6.0.2"
 "npm:typescript" = "7.0.2"
@@ -113,9 +115,20 @@ description = "Fail if bin/depgraph carries material from gotreesitter's GPL/MPL
 depends = ["build"]
 run = "scripts/check-no-copyleft.sh bin/depgraph"
 
+[tasks."release:check"]
+description = "Validate .goreleaser.yaml and .goreleaser.prerelease.yaml"
+run = [
+  "goreleaser check --config .goreleaser.yaml",
+  "goreleaser check --config .goreleaser.prerelease.yaml",
+]
+
+[tasks."release:snapshot"]
+description = "Build the release archives locally into dist/ without publishing (goreleaser --snapshot)"
+run = "goreleaser release --snapshot --clean --skip=publish"
+
 [tasks.ci]
-description = "vet + lint + test + web:test + build + web:check-no-cdn + licenses:check + check:no-copyleft"
-depends = ["vet", "lint", "test", "web:test", "build", "web:check-no-cdn", "licenses:check", "check:no-copyleft"]
+description = "vet + lint + test + web:test + build + web:check-no-cdn + licenses:check + check:no-copyleft + release:check"
+depends = ["vet", "lint", "test", "web:test", "build", "web:check-no-cdn", "licenses:check", "check:no-copyleft", "release:check"]
 
 [tasks.clean]
 description = "Remove build output"

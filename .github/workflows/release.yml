@@ -1,0 +1,80 @@
+name: release
+
+# release-please keeps a release PR open from Conventional Commits; merging it
+# tags vX.Y.Z and creates the GitHub release, and goreleaser then attaches the
+# binaries. Every other push builds a prerelease v<manifest>-dev.<short sha>.
+on:
+  push:
+    branches: [main, "release/v[0-9]*"]
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false # never interrupt a half-published release
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions: {} # everything goes through the GitHub App token
+    outputs:
+      releases_created: ${{ steps.release.outputs.releases_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      # an App token (not GITHUB_TOKEN) so the release PR triggers ci
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: app-token
+        with:
+          client-id: ${{ secrets.RELEASE_PLEASE_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_PEM }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write # release branch, tag, GitHub release
+          permission-pull-requests: write # release PR
+          permission-issues: write # release PR labels
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        id: release
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          config-file: release-please/config.json
+          manifest-file: release-please/manifest.json
+          target-branch: ${{ github.ref_name }}
+
+  goreleaser:
+    needs: release-please
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read # checkout; the release is written with the App token
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # goreleaser reads tags
+          ref: ${{ needs.release-please.outputs.releases_created == 'true' && needs.release-please.outputs.tag_name || github.sha }}
+          persist-credentials: false
+      # Go / node / pnpm / goreleaser pinned in mise.toml (web:build runs as a goreleaser hook)
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+        with:
+          install: true
+          install_args: go node pnpm aqua:goreleaser/goreleaser
+          cache: false # build release binaries from a clean toolchain
+      - name: Tag dev build
+        if: needs.release-please.outputs.releases_created != 'true'
+        run: |
+          BASE=$(jq -r '."."' release-please/manifest.json)
+          SHORT_SHA=$(git rev-parse --short=7 HEAD)
+          git tag "v${BASE}-dev.${SHORT_SHA}"
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: app-token
+        with:
+          client-id: ${{ secrets.RELEASE_PLEASE_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_PEM }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write # GitHub release and its assets
+      - name: goreleaser
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          CONFIG: ${{ needs.release-please.outputs.releases_created == 'true' && '.goreleaser.yaml' || '.goreleaser.prerelease.yaml' }}
+        run: goreleaser release --clean --config "$CONFIG"

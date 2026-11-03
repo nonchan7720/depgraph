@@ -7,8 +7,32 @@ During vibe coding it updates the graph every time a file is rewritten and immed
 
 Supported languages (tree-sitter): Go / TypeScript / JavaScript / Python
 
+## Install
+
+**GitHub Releases (recommended; the only distributed binaries).** Download the archive for your OS / CPU from
+[Releases](https://github.com/nonchan7720/depgraph/releases): `depgraph_<os>_<arch>.tar.gz`
+(`.zip` on Windows) for linux / darwin / windows × amd64 / arm64. Verify it with `checksums.txt`,
+then put `depgraph` on your `PATH`. Every archive also contains `LICENSE`, `NOTICE` and
+`THIRD_PARTY_NOTICES.md`.
+
+```bash
+sha256sum --ignore-missing -c checksums.txt   # macOS: shasum -a 256 --ignore-missing -c checksums.txt
+tar xzf depgraph_linux_amd64.tar.gz && install depgraph ~/.local/bin/
+depgraph --version
+```
+
+Releases named `v<version>-dev.<commit>` are prereleases built from every push to `main`.
+
+**From source.** Clone the repository and build with the toolchain pinned in `mise.toml`
+(Go, node and pnpm; the browser UI in `web/` is built and embedded into the binary):
+
+```bash
+git clone https://github.com/nonchan7720/depgraph.git && cd depgraph
+mise install && mise run build   # writes bin/depgraph
+```
+
 Parsing uses [gotreesitter](https://github.com/odvcencio/gotreesitter), a pure-Go tree-sitter runtime, so depgraph needs no C toolchain: it builds with `CGO_ENABLED=0` and cross-compiles to any `GOOS`/`GOARCH` with plain `go build`.
-Builds use the tags in `GOFLAGS` of `mise.toml` (`gotreesitter_no_copyleft` and `grammar_subset_<language>`), which keep the GPL/MPL grammars that gotreesitter also vendors out of the binary; `mise run check:no-copyleft` verifies it. Release builds should use the same tags.
+Builds use the tags in `GOFLAGS` of `mise.toml` (`gotreesitter_no_copyleft` and `grammar_subset_<language>`), which keep the GPL/MPL grammars that gotreesitter also vendors out of the binary; `mise run check:no-copyleft` verifies it. Release builds (goreleaser) take the same `GOFLAGS` and run the same check on every binary.
 
 ## Quick start
 
@@ -71,6 +95,7 @@ depgraph projects prune [--dry-run]  # delete projects whose root no longer exis
 | `parse --root DIR [files...]` | print the tree-sitter result as JSON, one file per line, without Neo4j (debugging) |
 | `hook <session-start\|prompt>` | Claude Code hook: print findings as additional context (read-only, always exits 0) |
 | `projects list` / `projects rm <key>` / `projects prune [--dry-run]` | list / delete the projects in the database |
+| `version` / `--version` | print the version (`version` adds the commit, build date and Go toolchain) |
 
 Flags (see `depgraph <command> --help`):
 
@@ -213,6 +238,28 @@ The analysis backend is pluggable through `graph.Resolver`. Priority: treesitter
 - [x] Multiple projects in one database (`--project`, `.depgraph.yml` `project:`, `depgraph projects`)
 - [ ] Rule configuration in `.depgraph.yml` (only `project:` is read today)
 - [ ] MCP server mode (query directly from Claude Code / Cursor)
+
+## Releasing
+
+Releases are automated with [release-please](https://github.com/googleapis/release-please) and
+[GoReleaser](https://goreleaser.com) (`.github/workflows/release.yml`).
+
+1. Merge PRs into `main` with [Conventional Commits](https://www.conventionalcommits.org/) titles
+   (while < 1.0: `feat:` / `fix:` / `perf:` → patch, `feat!:` / `BREAKING CHANGE:` → minor).
+   PRs are squash-merged, so the PR title is the commit message.
+2. release-please keeps a release PR open that bumps `release-please/manifest.json`,
+   `pkg/version/version.go` and `CHANGELOG.md`. The first release is `v0.1.0`.
+3. Merge the release PR. release-please tags `vX.Y.Z` and creates the GitHub release, and
+   GoReleaser builds the six archives and `checksums.txt` and attaches them.
+
+Other pushes to `main` (and to `release/vN` maintenance branches) publish a prerelease
+`v<current version>-dev.<short sha>`. To try the release build locally (writes `dist/`,
+publishes nothing): `mise run release:snapshot`. `mise run ci` runs `goreleaser check`.
+
+The workflow needs a GitHub App installed on the repository with Contents, Pull requests and
+Issues write access, and the repository secrets `RELEASE_PLEASE_CLIENT_ID` (its client ID) and
+`RELEASE_PLEASE_APP_PRIVATE_PEM` (its private key). An App token is used instead of
+`GITHUB_TOKEN` so that the release PR runs CI.
 
 ## License
 

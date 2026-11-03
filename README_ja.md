@@ -183,6 +183,7 @@ depgraph projects prune [--dry-run]  # root が存在しなくなったプロジ
 | `gate [files...] [--fail-on warn]` | 品質ゲートのチェック（[claude-hook-gate](#品質ゲートclaude-hook-gate)）。変更ファイルを反映し、セッションで増えた Findings があれば exit 1 |
 | `projects list` / `projects rm <key>` / `projects prune [--dry-run]` | DB 内のプロジェクトの一覧・削除 |
 | `store ls` / `store down` / `store rm [<key>...] [--all]` | depgraph が管理する Neo4j コンテナとデータボリュームの一覧・停止・削除（container プロバイダー） |
+| `schema` | `.depgraph.yml` の JSON Schema を出力（[設定](#設定depgraphyml) 参照） |
 | `version` / `--version` | バージョンを表示（`version` はコミット・ビルド日時・Go ツールチェーンも表示） |
 
 フラグ（`depgraph <command> --help` で一覧）:
@@ -368,6 +369,17 @@ depgraph から見えない方法で読み込まれるファイル（名前で�
 スキャンする root に `.depgraph.yml` を置いてアーキテクチャを宣言します。キーはすべて省略可能です。
 `scan`・`check`・`watch`・`serve`・`hook` が読み、`watch` は変更されると読み直します
 （`project` の変更は再起動が必要）。
+
+エディタは JSON Schema [`schema/depgraph.schema.json`](schema/depgraph.schema.json)（`depgraph schema` でも出力）で
+補完と検査ができます。yaml-language-server（VS Code の YAML 拡張、Neovim、Zed など）では先頭に次の行を書きます。
+使っている depgraph に合わせるなら `main` の代わりにリリースのタグを指定します:
+
+```yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/nonchan7720/depgraph/main/schema/depgraph.schema.json
+```
+
+スキーマはルールの定義とデコーダから生成しています（`mise run schema`。古いままだとテストが失敗）。
+depgraph が受け付けるものとスキーマが受け付けるものは一致します。
 
 ```yaml
 project: my-repo            # プロジェクト key（Projects 参照）

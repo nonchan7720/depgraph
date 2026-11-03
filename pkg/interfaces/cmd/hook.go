@@ -11,6 +11,7 @@ import (
 
 	"github.com/nonchan7720/depgraph/pkg/domain/rules"
 	graphrepo "github.com/nonchan7720/depgraph/pkg/infrastructure/repository/graph"
+	"github.com/nonchan7720/depgraph/pkg/infrastructure/repository/hooksession"
 	projectrepo "github.com/nonchan7720/depgraph/pkg/infrastructure/repository/project"
 	rulesrepo "github.com/nonchan7720/depgraph/pkg/infrastructure/repository/rules"
 	"github.com/nonchan7720/depgraph/pkg/interfaces/handler/hook"
@@ -23,7 +24,8 @@ func newHookCommand(o *options) *cobra.Command {
 		Long: `Reads the Claude Code hook input from stdin and prints the findings already in
 Neo4j as hookSpecificOutput.additionalContext. session-start prints a compact
 summary, prompt prints only what changed since the last injection in the same
-session (state: <root>/.claude/.depgraph-hook-state.json). Nothing is printed
+session (the state is kept in Neo4j with the project, pruned after 7 days and
+removed with it). Nothing is printed
 when Neo4j is unreachable, the root's project (same key rules as scan:
 --project, .depgraph.yml, directory name, @worktree) is not scanned or its key
 belongs to another root, or --timeout expires.
@@ -92,6 +94,9 @@ func runHook(parent context.Context, o *options, ev hook.Event, stdin io.Reader,
 				return graphrepo.ForProject(st, key), rulesrepo.New(st, key)
 			},
 			config: loadRules,
+			sessions: func(key string) hook.SessionStore {
+				return hooksession.New(st, key)
+			},
 		}
 		text, err := hook.Run(ctx, ev, in, root, src, time.Now())
 		if err != nil {

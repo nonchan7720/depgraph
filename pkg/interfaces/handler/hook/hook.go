@@ -14,6 +14,8 @@ import (
 type Snapshot struct {
 	Stats    graph.Stats
 	Findings []rules.Finding
+	// Sessions is the session state of the same project.
+	Sessions SessionStore
 }
 
 // ProjectData は「root のデータが DB にあるか」を判定し、あれば解析結果を返す。
@@ -34,25 +36,29 @@ func Run(ctx context.Context, ev Event, in Input, root string, src ProjectData, 
 	if root == "" || (ev == Prompt && in.SessionID == "") {
 		return "", nil
 	}
+	removeLegacyState(root)
 	snap, ok, err := src.Load(ctx, root)
 	if err != nil || !ok {
 		return "", err
 	}
 	lim := DefaultLimits()
-	path := StatePath(root)
-	st := LoadState(path)
-	prev, seen := st.Sessions[in.SessionID]
+	var prev []rules.Finding
+	seen := false
+	if in.SessionID != "" && snap.Sessions != nil {
+		if prev, seen, err = snap.Sessions.Get(ctx, in.SessionID); err != nil {
+			seen = false // unknown state: summarise instead of diffing
+		}
+	}
 
 	var out string
 	if ev == Prompt && seen {
-		added, removed := rules.Diff(prev.Findings, snap.Findings)
+		added, removed := rules.Diff(prev, snap.Findings)
 		out = RenderDiff(added, removed, snap.Findings, lim)
 	} else {
 		out = Summarize(snap.Stats, snap.Findings, lim)
 	}
-	if in.SessionID != "" && (out != "" || !seen) {
-		st.Put(in.SessionID, snap.Findings, now)
-		if err := SaveState(path, st); err != nil {
+	if in.SessionID != "" && snap.Sessions != nil && (out != "" || !seen) {
+		if err := snap.Sessions.Put(ctx, in.SessionID, snap.Findings, now); err != nil {
 			// 状態が保存できなくても注入はする（次回も同じ差分が出るだけ）。
 			return out, err
 		}

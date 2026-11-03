@@ -77,6 +77,7 @@ func (s *Store) EnsureSchema(ctx context.Context) error {
 		`CREATE CONSTRAINT project_key IF NOT EXISTS FOR (p:Project) REQUIRE p.key IS UNIQUE`,
 		`CREATE CONSTRAINT package_project_key IF NOT EXISTS FOR (p:Package) REQUIRE (p.project, p.key) IS UNIQUE`,
 		`CREATE CONSTRAINT file_project_path IF NOT EXISTS FOR (f:File) REQUIRE (f.project, f.path) IS UNIQUE`,
+		`CREATE CONSTRAINT hook_session_project_id IF NOT EXISTS FOR (h:HookSession) REQUIRE (h.project, h.id) IS UNIQUE`,
 		`CREATE INDEX package_project IF NOT EXISTS FOR (p:Package) ON (p.project)`,
 		`CREATE INDEX file_project IF NOT EXISTS FOR (f:File) ON (f.project)`,
 		`CREATE INDEX symbol_project IF NOT EXISTS FOR (s:Symbol) ON (s.project)`,
@@ -131,7 +132,7 @@ func (r *Graph) query(ctx context.Context, cypher string, p map[string]any) ([]m
 // Clear deletes the project's graph data (the Project node is kept).
 func (r *Graph) Clear(ctx context.Context) error {
 	return r.run(ctx, `
-		MATCH (n) WHERE (n:Package OR n:File OR n:Symbol) AND n.project = $project
+		MATCH (n) WHERE (n:Package OR n:File OR n:Symbol OR n:HookSession) AND n.project = $project
 		DETACH DELETE n
 	`, nil)
 }

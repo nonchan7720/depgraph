@@ -5,8 +5,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/nonchan7720/depgraph/pkg/domain/graph"
 	"github.com/nonchan7720/depgraph/pkg/domain/rules"
+	"github.com/nonchan7720/depgraph/pkg/domain/view"
 )
 
 // ViewOptions controls how the package graph is folded for display.
@@ -141,8 +141,8 @@ func stringList(v any) []string {
 // mergeDuplicates collapses packages that share a key (counts are summed).
 // A key can appear twice when the store holds stale data; left as is, the
 // folding below would recurse forever on the identical bucket.
-func mergeDuplicates(pkgs []graph.PackageNode) []graph.PackageNode {
-	out := make([]graph.PackageNode, 0, len(pkgs))
+func mergeDuplicates(pkgs []view.PackageNode) []view.PackageNode {
+	out := make([]view.PackageNode, 0, len(pkgs))
 	idx := map[string]int{}
 	for _, p := range pkgs {
 		if i, ok := idx[p.Key]; ok {
@@ -159,9 +159,9 @@ func mergeDuplicates(pkgs []graph.PackageNode) []graph.PackageNode {
 }
 
 // BuildView folds the package graph by directory for display.
-func BuildView(ov *graph.Overview, findings []rules.Finding, opt ViewOptions) View {
+func BuildView(ov *view.Overview, findings []rules.Finding, opt ViewOptions) View {
 	q := strings.ToLower(strings.TrimSpace(opt.Query))
-	var internal, external []graph.PackageNode
+	var internal, external []view.PackageNode
 	for _, p := range mergeDuplicates(ov.Packages) {
 		if q != "" && !strings.Contains(strings.ToLower(p.Key), q) {
 			continue
@@ -200,7 +200,7 @@ func BuildView(ov *graph.Overview, findings []rules.Finding, opt ViewOptions) Vi
 		}
 		return strings.TrimPrefix(key, parentKey+"/")
 	}
-	pkgNode := func(p graph.PackageNode, parentID, parentKey string) ViewNode {
+	pkgNode := func(p view.PackageNode, parentID, parentKey string) ViewNode {
 		return ViewNode{
 			ID: p.Key, Key: p.Key, Label: relLabel(p.Key, parentKey), Parent: parentID,
 			Members: 1, Files: p.Files, Symbols: p.Symbols,
@@ -208,9 +208,9 @@ func BuildView(ov *graph.Overview, findings []rules.Finding, opt ViewOptions) Vi
 		}
 	}
 
-	var fold func(members []graph.PackageNode, d int, parentID, parentKey string, context bool)
-	fold = func(members []graph.PackageNode, d int, parentID, parentKey string, context bool) {
-		buckets := map[string][]graph.PackageNode{}
+	var fold func(members []view.PackageNode, d int, parentID, parentKey string, context bool)
+	fold = func(members []view.PackageNode, d int, parentID, parentKey string, context bool) {
+		buckets := map[string][]view.PackageNode{}
 		for _, p := range members {
 			b := bucket(p.Key, d)
 			buckets[b] = append(buckets[b], p)
@@ -248,7 +248,7 @@ func BuildView(ov *graph.Overview, findings []rules.Finding, opt ViewOptions) Vi
 		fold(internal, depth, "", "", false)
 	} else {
 		inFocus := func(k string) bool { return k == v.Focus || strings.HasPrefix(k, v.Focus+"/") }
-		var inside, outside []graph.PackageNode
+		var inside, outside []view.PackageNode
 		for _, p := range internal {
 			if inFocus(p.Key) {
 				inside = append(inside, p)
@@ -263,13 +263,13 @@ func BuildView(ov *graph.Overview, findings []rules.Finding, opt ViewOptions) Vi
 				connected[e.From], connected[e.To] = true, true
 			}
 		}
-		var ctx []graph.PackageNode
+		var ctx []view.PackageNode
 		for _, p := range outside {
 			if connected[p.Key] {
 				ctx = append(ctx, p)
 			}
 		}
-		var ext []graph.PackageNode
+		var ext []view.PackageNode
 		for _, p := range external {
 			if connected[p.Key] {
 				ext = append(ext, p)

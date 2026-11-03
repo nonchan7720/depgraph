@@ -320,7 +320,7 @@ external, so it never shows up as a dependency. `watch` rescans when one of thes
 | `import-cycle` | error | import cycle between packages: for every import on a cycle of at most 8 packages, the shortest cycle through it (up to 50) |
 | `layer-violation` | error | a package imports a layer it must not import (`handler → repository`, ... or your own layers) |
 | `duplicate-code` | warn | the same logic in several places, whatever the names: identical, or a copy changed a little (see below) |
-| `god-package` | warn | imported by 10 or more packages |
+| `god-package` | warn | a hub: imported by 10 or more packages and importing 3 or more in-repo packages. A package many depend on that depends on nothing in the repository (a domain model) is stable, not a god package (Stable Dependencies Principle) |
 | `duplicate-symbol` | warn | an exported function/class with the same name exists in several files |
 | `unused-export` | warn | an exported declaration nothing in the project uses, not even its own file (Go: exported functions and types of non-main packages, not methods; TS/JS: `export`ed declarations, followed through re-exports and barrels; Python: public module-level functions and classes) |
 | `unreachable-file` | warn | a TS/JS/Python file no entry point reaches through imports; one finding per file nothing imports, listing the files only it leads to |
@@ -392,7 +392,7 @@ forbidden:                  # layer -> layers it must not import
 rules:                      # per rule: enabled, severity (error | warn | info), options
   import-cycle: {severity: error}
   layer-violation: {severity: error}
-  god-package: {severity: warn, fanIn: 10}
+  god-package: {severity: warn, fanIn: 10, fanOut: 3}
   duplicate-symbol: {enabled: false}
   duplicate-code: {minTokens: 50, similarity: 0.8}   # body size and fingerprint similarity
   # duplicate-symbol: {ignore: [main, init, New]}   # names not checked (replaces the defaults)

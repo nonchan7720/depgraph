@@ -299,7 +299,7 @@ import は各エコシステム自身の解決方法で、プロジェクトの�
 | `import-cycle` | error | パッケージ間の循環 import。8 パッケージ以下の循環に乗る import ごとに、それを通る最短の循環（最大 50 件） |
 | `layer-violation` | error | import してはいけないレイヤーを import している（`handler → repository` など、または独自レイヤー） |
 | `duplicate-code` | warn | 名前に関係なく、同じロジックが複数箇所にある（完全に同じ、または少し手を加えた複製。下記） |
-| `god-package` | warn | 10 パッケージ以上から import されている |
+| `god-package` | warn | ハブ：10 パッケージ以上から import され、かつリポジトリ内の 3 パッケージ以上を import している。多くから依存されてもリポジトリ内の何にも依存しないパッケージ（ドメインモデルなど）は安定しており、god package ではない（安定依存の原則） |
 | `duplicate-symbol` | warn | 同名の exported function/class が複数ファイルに存在 |
 | `unused-export` | warn | プロジェクト内の誰も（自ファイルでさえ）使っていない export（Go: main 以外のパッケージの exported な関数と型。メソッドは対象外 / TS・JS: `export` された宣言。re-export・barrel を辿る / Python: モジュール直下の public な関数とクラス） |
 | `unreachable-file` | warn | どのエントリポイントからも import で辿れない TS/JS/Python ファイル。誰も import していないファイルごとに 1 件で、そのファイル経由でしか辿れないファイルを併記 |
@@ -343,7 +343,7 @@ forbidden:                  # レイヤー -> import してはいけないレイ
 rules:                      # ルールごと: enabled、severity（error | warn | info）、オプション
   import-cycle: {severity: error}
   layer-violation: {severity: error}
-  god-package: {severity: warn, fanIn: 10}
+  god-package: {severity: warn, fanIn: 10, fanOut: 3}
   duplicate-symbol: {enabled: false}
   duplicate-code: {minTokens: 50, similarity: 0.8}   # 本体の大きさと指紋の類似度
   # duplicate-symbol: {ignore: [main, init, New]}   # 対象外の名前（デフォルトを置き換える）

@@ -120,15 +120,22 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 		}
 	}
 
-	// 3. God packages (high fan-in; ignored importers do not count).
+	// 3. God packages: hubs, imported by many packages and importing many
+	// in-repo packages (ignored packages do not count either way). A stable
+	// package many depend on and that depends on nothing (a domain model) is
+	// healthy, not a god package.
 	if cfg.Enabled(rules.RuleGodPackage) {
 		rows, err := r.query(ctx, `
 			MATCH (p:Package {project: $project})<-[:IMPORTS]-(q:Package)
 			WHERE p.external = false AND NOT any(rx IN $ignore WHERE p.key =~ rx OR q.key =~ rx)
 			WITH p, count(DISTINCT q) AS fanIn
-			WHERE fanIn >= $threshold
-			RETURN p.key AS pkg, fanIn ORDER BY fanIn DESC LIMIT 20
-		`, ignore, map[string]any{"threshold": cfg.GodPackageFanIn})
+			WHERE fanIn >= $fanIn
+			OPTIONAL MATCH (p)-[:IMPORTS]->(d:Package)
+			WHERE d.external = false AND d <> p AND NOT any(rx IN $ignore WHERE d.key =~ rx)
+			WITH p, fanIn, count(DISTINCT d) AS fanOut
+			WHERE fanOut >= $fanOut
+			RETURN p.key AS pkg, fanIn, fanOut ORDER BY fanIn DESC, pkg LIMIT 20
+		`, ignore, map[string]any{"fanIn": cfg.GodPackageFanIn, "fanOut": max(cfg.GodPackageFanOut, 1)})
 		if err != nil {
 			return nil, fmt.Errorf("god packages: %w", err)
 		}
@@ -136,7 +143,7 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 			out = append(out, rules.Finding{
 				Rule: rules.RuleGodPackage, Severity: sev(rules.RuleGodPackage),
 				ID:      fmt.Sprint(row["pkg"]),
-				Message: fmt.Sprintf("%s is imported by %d packages", row["pkg"], row["fanIn"]),
+				Message: fmt.Sprintf("%s is imported by %d packages and imports %d", row["pkg"], row["fanIn"], row["fanOut"]),
 				Data:    row,
 			})
 		}

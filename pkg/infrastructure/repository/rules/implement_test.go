@@ -64,7 +64,7 @@ func TestEvaluateIsScopedByProject(t *testing.T) {
 		}
 	}
 	cfg := rules.DefaultConfig()
-	cfg.GodPackageFanIn = 1
+	cfg.GodPackageFanIn, cfg.GodPackageFanOut = 1, 1
 	count := func(key string) map[string]int {
 		fs, err := New(st, key).Evaluate(ctx, cfg)
 		if err != nil {
@@ -118,7 +118,8 @@ func TestEvaluateWithConfig(t *testing.T) {
 	key := fmt.Sprintf("zz_test_%d_config", time.Now().UnixNano())
 	seed(ctx, t, st, key, map[string][]string{
 		"pkg/domain/a":          {"pkg/infrastructure/db", "pkg/domain/b"},
-		"pkg/domain/b":          nil,
+		"pkg/domain/b":          {"pkg/domain/c"}, // a hub once fanOut is 1
+		"pkg/domain/c":          nil,
 		"pkg/infrastructure/db": {"pkg/domain/b"},
 		"pkg/app":               {"pkg/domain/b", "pkg/infrastructure/db"},
 		// ignored: neither a violation nor counted in fan-in nor a cycle
@@ -132,6 +133,7 @@ func TestEvaluateWithConfig(t *testing.T) {
 		},
 		ForbiddenLayers:      [][2]string{{"domain", "infrastructure"}},
 		GodPackageFanIn:      3,
+		GodPackageFanOut:     1,
 		Ignore:               []string{"**/testdata/**"},
 		IgnoreDuplicateNames: nil,
 	}
@@ -312,5 +314,48 @@ func TestEvaluateDuplicateCode(t *testing.T) {
 	cfg.Settings = map[string]rules.RuleSetting{rules.RuleDuplicateCode: {Disabled: true}}
 	if got := eval(cfg); len(got) != 0 {
 		t.Errorf("disabled: %+v", got)
+	}
+}
+
+// A god package is a hub: many packages import it AND it imports many in-repo
+// packages. A stable package many depend on (a domain model importing
+// nothing in the repository) is healthy (Stable Dependencies Principle) and
+// is not reported.
+func TestGodPackageIsAHub(t *testing.T) {
+	ctx, st := connect(t)
+	key := fmt.Sprintf("zz_test_%d_god", time.Now().UnixNano())
+	pkgs := map[string][]string{
+		"model": nil,                       // stable: imports nothing
+		"hub":   {"model", "dep1", "dep2"}, // imports 3 in-repo packages
+		"dep1":  nil, "dep2": nil,
+	}
+	for i := range 10 {
+		pkgs[fmt.Sprintf("user%d", i)] = []string{"model", "hub"}
+	}
+	seed(ctx, t, st, key, pkgs)
+	fs, err := New(st, key).Evaluate(ctx, rules.DefaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, f := range fs {
+		if f.Rule == rules.RuleGodPackage {
+			got = append(got, f.Message)
+		}
+	}
+	want := []string{"hub is imported by 10 packages and imports 3"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("god packages = %q, want %q", got, want)
+	}
+	// the fan-out threshold is configurable
+	cfg := rules.DefaultConfig()
+	cfg.GodPackageFanOut = 4
+	if fs, err = New(st, key).Evaluate(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range fs {
+		if f.Rule == rules.RuleGodPackage {
+			t.Errorf("fanOut 4: %s", f.Message)
+		}
 	}
 }

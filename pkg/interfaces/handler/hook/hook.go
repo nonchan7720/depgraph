@@ -6,13 +6,13 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/nonchan7720/depgraph/pkg/domain/graph"
 	"github.com/nonchan7720/depgraph/pkg/domain/rules"
+	"github.com/nonchan7720/depgraph/pkg/domain/view"
 )
 
 // Snapshot は 1 プロジェクト分の解析結果。
 type Snapshot struct {
-	Stats    graph.Stats
+	Stats    view.Stats
 	Findings []rules.Finding
 	// Sessions is the session state of the same project.
 	Sessions SessionStore

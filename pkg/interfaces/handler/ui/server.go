@@ -16,8 +16,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nonchan7720/depgraph/pkg/domain/graph"
 	"github.com/nonchan7720/depgraph/pkg/domain/rules"
+	"github.com/nonchan7720/depgraph/pkg/domain/view"
 )
 
 // Server is the UI HTTP server.
@@ -27,7 +27,7 @@ type Server struct {
 
 	mu       sync.RWMutex
 	findings []rules.Finding
-	stats    graph.Stats
+	stats    view.Stats
 	updated  time.Time
 
 	cmu     sync.Mutex
@@ -36,10 +36,10 @@ type Server struct {
 	web fs.FS // built web UI (dist/), served at /
 }
 
-// Reader is the part of graph.Repository the UI reads from.
+// Reader is the part of view.Reader the UI reads from.
 type Reader interface {
-	Overview(ctx context.Context) (*graph.Overview, error)
-	PackageDetail(ctx context.Context, key string) (*graph.PackageDetail, error)
+	Overview(ctx context.Context) (*view.Overview, error)
+	PackageDetail(ctx context.Context, key string) (*view.PackageDetail, error)
 }
 
 // New creates a server reading from st.
@@ -48,7 +48,7 @@ func New(st Reader, root string) *Server {
 }
 
 // SetFindings records the latest rule results and notifies browsers.
-func (s *Server) SetFindings(stats graph.Stats, findings []rules.Finding) {
+func (s *Server) SetFindings(stats view.Stats, findings []rules.Finding) {
 	s.mu.Lock()
 	s.stats, s.findings, s.updated = stats, findings, time.Now()
 	s.mu.Unlock()
@@ -94,7 +94,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 type graphResponse struct {
 	Root     string          `json:"root"`
 	Updated  time.Time       `json:"updated"`
-	Stats    graph.Stats     `json:"stats"`
+	Stats    view.Stats      `json:"stats"`
 	View     View            `json:"view"`
 	Findings []rules.Finding `json:"findings"`
 }

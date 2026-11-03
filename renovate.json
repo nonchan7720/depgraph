@@ -9,39 +9,74 @@
   "timezone": "Asia/Tokyo",
   "minimumReleaseAge": "7 days",
   "internalChecksFilter": "strict",
-  "postUpdateOptions": ["gomodTidy"],
-  "lockFileMaintenance": { "enabled": true, "schedule": ["before 9am on monday"] },
+  "postUpdateOptions": [
+    "gomodTidy"
+  ],
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": [
+      "before 9am on monday"
+    ]
+  },
   "packageRules": [
     {
       "description": "Go modules: one PR per week for non-major updates",
-      "matchManagers": ["gomod"],
-      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "matchManagers": [
+        "gomod"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "digest"
+      ],
       "groupName": "go modules (non-major)",
-      "schedule": ["before 9am on monday"]
+      "schedule": [
+        "before 9am on monday"
+      ]
     },
     {
       "description": "web/ npm dependencies: one PR per week for non-major updates",
-      "matchManagers": ["npm"],
-      "matchUpdateTypes": ["minor", "patch"],
+      "matchManagers": [
+        "npm"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
       "groupName": "web dependencies (non-major)",
-      "schedule": ["before 9am on monday"]
+      "schedule": [
+        "before 9am on monday"
+      ]
     },
     {
       "description": "Toolchain pinned in mise.toml",
-      "matchManagers": ["mise"],
+      "matchManagers": [
+        "mise"
+      ],
       "groupName": "mise tools",
-      "schedule": ["before 9am on monday"]
+      "schedule": [
+        "before 9am on monday"
+      ]
     },
     {
       "description": "GitHub Actions (SHA pinned with a full semver comment)",
-      "matchManagers": ["github-actions"],
+      "matchManagers": [
+        "github-actions"
+      ],
       "groupName": "github actions",
-      "schedule": ["before 9am on monday"]
+      "schedule": [
+        "before 9am on monday"
+      ]
     },
     {
       "description": "Neo4j stays on the 5.x line (docker-compose and the CI service container)",
-      "matchPackageNames": ["neo4j"],
+      "matchPackageNames": [
+        "neo4j"
+      ],
       "allowedVersions": "<6"
     }
+  ],
+  "gitIgnoredAuthors": [
+    "41898282+github-actions[bot]@users.noreply.github.com"
   ]
 }

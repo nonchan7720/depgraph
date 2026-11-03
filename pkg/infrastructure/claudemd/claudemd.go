@@ -7,6 +7,7 @@ package claudemd
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -32,27 +33,43 @@ func Render(stats graph.Stats, findings []rules.Finding) string {
 	}
 
 	b.WriteString("### Rules for the AI assistant\n\n")
-	b.WriteString("- Before adding an import, check it does not create a cycle or cross a forbidden layer listed below.\n")
+	b.WriteString("- Before adding an import, check it does not create a cycle or cross a forbidden layer listed below, and that the path or package actually exists.\n")
 	b.WriteString("- Before writing a new function/class, search for an existing one with the same name listed under duplicates and reuse or consolidate it.\n")
 	b.WriteString("- Prefer fixing the violations below over adding new code that depends on them.\n\n")
 
 	byRule := map[string][]rules.Finding{}
-	order := []string{"import-cycle", "layer-violation", "god-package", "duplicate-symbol"}
+	order := []string{"import-cycle", "layer-violation", "unresolved-import", "god-package", "duplicate-symbol"}
+	known := map[string]bool{}
+	for _, r := range order {
+		known[r] = true
+	}
+	var extra []string
 	for _, f := range findings {
+		if !known[f.Rule] && byRule[f.Rule] == nil {
+			extra = append(extra, f.Rule)
+		}
 		byRule[f.Rule] = append(byRule[f.Rule], f)
 	}
+	// rules without a fixed title (configured or new ones) follow, by name
+	sort.Strings(extra)
+	order = append(order, extra...)
 	titles := map[string]string{
-		"import-cycle":     "Import cycles (must fix)",
-		"layer-violation":  "Layer violations (must fix)",
-		"god-package":      "God packages (high fan-in; avoid adding more dependents)",
-		"duplicate-symbol": "Duplicate symbols (consolidate before adding more)",
+		"import-cycle":      "Import cycles (must fix)",
+		"layer-violation":   "Layer violations (must fix)",
+		"unresolved-import": "Unresolved imports (fix the path, or configure the alias / module)",
+		"god-package":       "God packages (high fan-in; avoid adding more dependents)",
+		"duplicate-symbol":  "Duplicate symbols (consolidate before adding more)",
 	}
 	for _, rule := range order {
 		fs := byRule[rule]
 		if len(fs) == 0 {
 			continue
 		}
-		fmt.Fprintf(&b, "### %s\n\n", titles[rule])
+		title := titles[rule]
+		if title == "" {
+			title = rule
+		}
+		fmt.Fprintf(&b, "### %s\n\n", title)
 		for _, f := range fs {
 			fmt.Fprintf(&b, "- %s\n", f.Message)
 		}

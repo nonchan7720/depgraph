@@ -52,6 +52,13 @@ type Import struct {
 	Reason     string `json:"reason,omitempty"` // why it is Unresolved
 }
 
+// UnresolvedImport is an import of a file that resolves to nothing.
+type UnresolvedImport struct {
+	File   string `json:"file"`
+	Spec   string `json:"spec"`
+	Reason string `json:"reason"`
+}
+
 // Reference is a resolved edge between two symbols (filled by LSP/SCIP).
 type Reference struct {
 	Kind     string `json:"kind"` // CALLS | REFERENCES | IMPLEMENTS | EXTENDS

@@ -148,7 +148,14 @@ func (r *Graph) UpsertFile(ctx context.Context, fg *graph.FileGraph) error {
 		})
 	}
 	imports := make([]map[string]any, 0, len(fg.Imports))
+	// unresolved imports have no target: kept on the file, never an edge
+	unresolvedSpecs, unresolvedReasons := []string{}, []string{}
 	for _, im := range fg.Imports {
+		if im.Unresolved || im.Target == "" {
+			unresolvedSpecs = append(unresolvedSpecs, im.Spec)
+			unresolvedReasons = append(unresolvedReasons, im.Reason)
+			continue
+		}
 		imports = append(imports, map[string]any{
 			"spec": im.Spec, "target": im.Target, "external": im.External,
 		})
@@ -164,7 +171,8 @@ func (r *Graph) UpsertFile(ctx context.Context, fg *graph.FileGraph) error {
 			  ON CREATE SET p.name = $pkgName, p.external = false
 			  SET p.external = false
 			MERGE (f:File {project: $project, path: $path})
-			  SET f.language = $lang, f.lines = $lines, f.updatedAt = datetime()
+			  SET f.language = $lang, f.lines = $lines, f.updatedAt = datetime(),
+			      f.unresolvedSpecs = $unresolvedSpecs, f.unresolvedReasons = $unresolvedReasons
 			MERGE (p)-[:CONTAINS]->(f)
 			WITH f
 			OPTIONAL MATCH (f)-[:DECLARES]->(old:Symbol)
@@ -175,6 +183,7 @@ func (r *Graph) UpsertFile(ctx context.Context, fg *graph.FileGraph) error {
 		`, r.params(map[string]any{
 			"pkg": fg.Package, "pkgName": path.Base(fg.Package),
 			"path": fg.Path, "lang": string(fg.Language), "lines": fg.Lines,
+			"unresolvedSpecs": unresolvedSpecs, "unresolvedReasons": unresolvedReasons,
 		})); err != nil {
 			return nil, err
 		}
@@ -210,6 +219,27 @@ func (r *Graph) UpsertFile(ctx context.Context, fg *graph.FileGraph) error {
 		return nil, nil
 	})
 	return err
+}
+
+// UnresolvedImports lists the imports of the project's files that resolve
+// to nothing, by file and position in the file.
+func (r *Graph) UnresolvedImports(ctx context.Context) ([]graph.UnresolvedImport, error) {
+	rows, err := r.st.Query(ctx, `
+		MATCH (f:File {project: $project})
+		WHERE size(coalesce(f.unresolvedSpecs, [])) > 0
+		UNWIND range(0, size(f.unresolvedSpecs) - 1) AS i
+		RETURN f.path AS file, f.unresolvedSpecs[i] AS spec, f.unresolvedReasons[i] AS reason
+		ORDER BY file, i
+	`, r.params(nil))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]graph.UnresolvedImport, 0, len(rows))
+	for _, row := range rows {
+		reason, _ := row["reason"].(string)
+		out = append(out, graph.UnresolvedImport{File: row["file"].(string), Spec: row["spec"].(string), Reason: reason})
+	}
+	return out, nil
 }
 
 // UpsertRefs stores symbol-level edges (CALLS / REFERENCES) found by a precise

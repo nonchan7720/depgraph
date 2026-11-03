@@ -125,6 +125,31 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 		})
 	}
 
+	// 5. Imports that resolve to nothing: a path or alias that does not exist,
+	// typically written from memory. Kept on the file by UpsertFile.
+	rows, err = r.query(ctx, `
+		MATCH (f:File {project: $project})
+		WHERE size(coalesce(f.unresolvedSpecs, [])) > 0
+		UNWIND range(0, size(f.unresolvedSpecs) - 1) AS i
+		RETURN f.path AS file, f.unresolvedSpecs[i] AS spec, f.unresolvedReasons[i] AS reason
+		ORDER BY file, i LIMIT 100
+	`, nil)
+	if err != nil {
+		return nil, fmt.Errorf("unresolved imports: %w", err)
+	}
+	for _, row := range rows {
+		msg := fmt.Sprintf("%s imports %q, which does not resolve", row["file"], row["spec"])
+		if reason, _ := row["reason"].(string); reason != "" {
+			msg += " (" + reason + ")"
+		}
+		out = append(out, rules.Finding{
+			Rule: "unresolved-import", Severity: "warn",
+			ID:      fmt.Sprintf("%s|%s", row["file"], row["spec"]),
+			Message: msg,
+			Data:    row,
+		})
+	}
+
 	sort.Slice(out, func(i, j int) bool { return out[i].Key() < out[j].Key() })
 	return out, nil
 }

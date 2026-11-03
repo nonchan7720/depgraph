@@ -61,3 +61,21 @@ func TestWriter(t *testing.T) {
 		t.Errorf("managed section not written: %s", b)
 	}
 }
+
+// Every finding reaches CLAUDE.md: rules without a fixed title (new or
+// configured ones) are listed after the known ones, not dropped.
+func TestRenderListsEveryRule(t *testing.T) {
+	out := Render(graph.Stats{}, []rules.Finding{
+		{Rule: "zz-custom", Severity: "warn", Message: "custom finding"},
+		{Rule: "unresolved-import", Severity: "warn", Message: `src/a.ts imports "@/x", which does not resolve`},
+		{Rule: "import-cycle", Severity: "error", Message: "a -> b -> a"},
+	})
+	for _, want := range []string{"### Unresolved imports", `src/a.ts imports "@/x"`, "### zz-custom", "custom finding", "a -> b -> a"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in\n%s", want, out)
+		}
+	}
+	if i, j := strings.Index(out, "Import cycles"), strings.Index(out, "### zz-custom"); i < 0 || j < i {
+		t.Errorf("known rules come first:\n%s", out)
+	}
+}

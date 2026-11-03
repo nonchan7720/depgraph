@@ -2,7 +2,11 @@
 // and the diff between two evaluations.
 package rules
 
-import "sort"
+import (
+	"fmt"
+	"sort"
+	"strings"
+)
 
 // Finding is one rule violation.
 type Finding struct {
@@ -68,4 +72,40 @@ func Diff(prev, cur []Finding) (added, removed []Finding) {
 	}
 	sort.Slice(removed, func(i, j int) bool { return removed[i].Key() < removed[j].Key() })
 	return added, removed
+}
+
+// ImportCycle is the finding for a cycle of package keys (first == last).
+// The cycle is rotated to start at its smallest key, so the same cycle found
+// from any of its packages is the same finding.
+func ImportCycle(keys []string) Finding {
+	if n := len(keys); n > 2 && keys[0] == keys[n-1] {
+		ring, start := keys[:n-1], 0
+		for i, k := range ring {
+			if k < ring[start] {
+				start = i
+			}
+		}
+		rot := append(append([]string{}, ring[start:]...), ring[:start]...)
+		keys = append(rot, rot[0])
+	}
+	return Finding{
+		Rule: "import-cycle", Severity: "error",
+		Message: strings.Join(keys, " -> "),
+		Data:    map[string]any{"packages": keys},
+	}
+}
+
+// UnresolvedImport is the finding for an import of file that resolves to
+// nothing; reason (optional) is the resolver's explanation.
+func UnresolvedImport(file, spec, reason string) Finding {
+	msg := fmt.Sprintf("%s imports %q, which does not resolve", file, spec)
+	if reason != "" {
+		msg += " (" + reason + ")"
+	}
+	return Finding{
+		Rule: "unresolved-import", Severity: "warn",
+		ID:      file + "|" + spec,
+		Message: msg,
+		Data:    map[string]any{"file": file, "spec": spec, "reason": reason},
+	}
 }

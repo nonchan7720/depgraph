@@ -30,3 +30,24 @@ func TestDefaultConfig(t *testing.T) {
 		t.Errorf("DefaultConfig = %+v", c)
 	}
 }
+
+// Rule evaluation and the post-edit hook build these findings the same way,
+// so the same problem has the same identity everywhere.
+func TestFindingConstructors(t *testing.T) {
+	u := UnresolvedImport("src/a.ts", "@/x", `Could not resolve "@/x"`)
+	if u.Rule != "unresolved-import" || u.Severity != "warn" || u.Key() != "unresolved-import|src/a.ts|@/x" ||
+		u.Message != `src/a.ts imports "@/x", which does not resolve (Could not resolve "@/x")` {
+		t.Errorf("UnresolvedImport = %+v", u)
+	}
+	if m := UnresolvedImport("a.py", "x", "").Message; m != `a.py imports "x", which does not resolve` {
+		t.Errorf("no reason: %q", m)
+	}
+	c := ImportCycle([]string{"a", "b", "a"})
+	if c.Rule != "import-cycle" || c.Severity != "error" || c.Message != "a -> b -> a" {
+		t.Errorf("ImportCycle = %+v", c)
+	}
+	// the same cycle found from another package is the same finding
+	if r := ImportCycle([]string{"c", "a", "b", "c"}); r.Message != "a -> b -> c -> a" || r.Key() != ImportCycle([]string{"b", "c", "a", "b"}).Key() {
+		t.Errorf("rotation: %+v", r)
+	}
+}

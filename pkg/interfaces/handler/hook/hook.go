@@ -61,18 +61,24 @@ func Run(ctx context.Context, ev Event, in Input, root string, src ProjectData, 
 }
 
 // Output は Claude Code の hook 出力 JSON を返す。context が空なら nil（何も出力しない）。
+// PostEdit では decision "block" も付ける: Claude Code が編集直後に reason を
+// Claude に見せる（編集そのものは取り消されない）。
 func Output(ev Event, context string) []byte {
 	if context == "" {
 		return nil
 	}
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false) // "a -> b" を \u003e にしない
-	_ = enc.Encode(map[string]any{
+	out := map[string]any{
 		"hookSpecificOutput": map[string]any{
 			"hookEventName":     string(ev),
 			"additionalContext": context,
 		},
-	})
+	}
+	if ev == PostEdit {
+		out["decision"], out["reason"] = "block", context
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false) // "a -> b" を \u003e にしない
+	_ = enc.Encode(out)
 	return buf.Bytes()
 }

@@ -88,7 +88,7 @@ depgraph projects prune [--dry-run]  # root が存在しなくなったプロジ
 | `check --root DIR` | 投入済みグラフに対してルール評価だけ実行（CLAUDE.md 更新） |
 | `serve --root DIR [--addr 127.0.0.1:7777]` | 投入済みグラフをブラウザ UI で表示（監視なし、CLAUDE.md は更新しない） |
 | `parse --root DIR [files...]` | Neo4j なしで tree-sitter の解析結果を JSON（1 行 1 ファイル）で出力（デバッグ用） |
-| `hook <session-start\|prompt>` | Claude Code の hook。Findings を追加文脈として出力（読むだけ、常に exit 0） |
+| `hook <session-start\|prompt\|post-edit>` | Claude Code の hook。Findings、または今編集したファイルへの指摘を追加文脈として出力（読むだけ、常に exit 0） |
 | `projects list` / `projects rm <key>` / `projects prune [--dry-run]` | DB 内のプロジェクトの一覧・削除 |
 | `version` / `--version` | バージョンを表示（`version` はコミット・ビルド日時・Go ツールチェーンも表示） |
 
@@ -111,14 +111,19 @@ depgraph projects prune [--dry-run]  # root が存在しなくなったプロジ
 
 ## Claude Code hooks
 
-`depgraph hook <session-start|prompt>` は Neo4j に入っている解析結果を Claude Code の
+`depgraph hook <session-start|prompt|post-edit>` は解析結果を Claude Code の
 文脈へ戻す（読むだけ。スキャンも CLAUDE.md の更新もしない）。
 
 - `session-start`：統計と Findings の要約（severity 順、error を先に）。件数の多いルールは
   件数と代表例数件に圧縮し、全体を約 4,000 文字に収める（`duplicate-symbol` が 50 件あっても溢れない）
 - `prompt`：同じセッションで前回注入してから新規・解消した Findings だけ。変化が無ければ何も出さない。
   前回状態は `session_id` ごとに `<root>/.claude/.depgraph-hook-state.json` に保存（`.gitignore` に追加すること）
+- `post-edit`（`Edit|Write|MultiEdit|NotebookEdit` の PostToolUse）：Claude が今編集したファイルをディスク上の内容で解析し、
+  **どこにも解決できない import** と、Neo4j のパッケージグラフに対して **循環を閉じる import** を報告する。
+  あれば `block` を返すので、Claude は編集直後にそれを見て、先へ進む前に直す（編集自体は取り消されない）。
+  問題が無ければ何も出さない。Neo4j が無い・未スキャンのときは未解決 import だけを検査する。1 ファイル 0.1 秒未満
 - root は `--root`、無ければ `$CLAUDE_PROJECT_DIR`、無ければ hook 入力の `cwd`
+  （post-edit は、編集したファイルが `$CLAUDE_PROJECT_DIR` の外（git worktree など）にあれば `cwd` も使う）
 - プロジェクトは `scan` と同じ規則（`--project`・`.depgraph.yml`・ディレクトリ名・`@<worktree>`）で決め、
   そのプロジェクトの Findings だけを注入する
 - プロンプトは絶対に止めない：Neo4j に繋がらない、root のプロジェクトが未スキャン（または key が別の root のもの）、
@@ -138,6 +143,11 @@ depgraph projects prune [--dry-run]  # root が存在しなくなったプロジ
     "UserPromptSubmit": [
       { "hooks": [ { "type": "command", "timeout": 10,
         "command": "command -v depgraph >/dev/null && depgraph hook prompt; exit 0" } ] }
+    ],
+    "PostToolUse": [
+      { "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [ { "type": "command", "timeout": 10,
+        "command": "command -v depgraph >/dev/null && depgraph hook post-edit; exit 0" } ] }
     ]
   }
 }

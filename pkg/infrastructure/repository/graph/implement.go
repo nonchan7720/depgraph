@@ -221,6 +221,30 @@ func (r *Graph) UpsertFile(ctx context.Context, fg *graph.FileGraph) error {
 	return err
 }
 
+// ImportPath returns the shortest chain of in-repo package imports from one
+// package key to another (both included, at most 8 steps), or nil when
+// there is none or from == to.
+func (r *Graph) ImportPath(ctx context.Context, from, to string) ([]string, error) {
+	if from == to {
+		return nil, nil
+	}
+	rows, err := r.st.Query(ctx, `
+		MATCH (a:Package {project: $project, key: $from}), (b:Package {project: $project, key: $to})
+		MATCH p = shortestPath((a)-[:IMPORTS*1..8]->(b))
+		WHERE all(n IN nodes(p) WHERE n.external = false)
+		RETURN [n IN nodes(p) | n.key] AS keys
+	`, r.params(map[string]any{"from": from, "to": to}))
+	if err != nil || len(rows) == 0 {
+		return nil, err
+	}
+	keys, _ := rows[0]["keys"].([]any)
+	out := make([]string, len(keys))
+	for i, k := range keys {
+		out[i], _ = k.(string)
+	}
+	return out, nil
+}
+
 // UnresolvedImports lists the imports of the project's files that resolve
 // to nothing, by file and position in the file.
 func (r *Graph) UnresolvedImports(ctx context.Context) ([]graph.UnresolvedImport, error) {

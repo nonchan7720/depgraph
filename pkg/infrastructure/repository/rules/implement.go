@@ -52,12 +52,7 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 		return nil, fmt.Errorf("cycles: %w", err)
 	}
 	for _, row := range rows {
-		keys := toStrings(row["cyc"])
-		out = append(out, rules.Finding{
-			Rule: "import-cycle", Severity: "error",
-			Message: strings.Join(keys, " -> "),
-			Data:    map[string]any{"packages": keys},
-		})
+		out = append(out, rules.ImportCycle(toStrings(row["cyc"])))
 	}
 
 	// 2. Layer violations.
@@ -138,16 +133,8 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 		return nil, fmt.Errorf("unresolved imports: %w", err)
 	}
 	for _, row := range rows {
-		msg := fmt.Sprintf("%s imports %q, which does not resolve", row["file"], row["spec"])
-		if reason, _ := row["reason"].(string); reason != "" {
-			msg += " (" + reason + ")"
-		}
-		out = append(out, rules.Finding{
-			Rule: "unresolved-import", Severity: "warn",
-			ID:      fmt.Sprintf("%s|%s", row["file"], row["spec"]),
-			Message: msg,
-			Data:    row,
-		})
+		reason, _ := row["reason"].(string)
+		out = append(out, rules.UnresolvedImport(fmt.Sprint(row["file"]), fmt.Sprint(row["spec"]), reason))
 	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].Key() < out[j].Key() })

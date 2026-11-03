@@ -258,3 +258,35 @@ func TestUpsertFileUnresolvedImports(t *testing.T) {
 		t.Errorf("after fix: %v, %v", got, err)
 	}
 }
+
+// ImportPath is the shortest chain of package imports from one package to
+// another (nil when there is none); the post-edit hook uses it to tell that a
+// new import closes a cycle.
+func TestImportPath(t *testing.T) {
+	st, ctx := testStore(t)
+	g, _ := testRepo(t, st)
+	chain := map[string]string{"a": "b", "b": "c", "c": "d"}
+	for from, to := range chain {
+		fg := testFile(from, "x.go")
+		fg.Imports = []graph.Import{{Spec: to, Target: to}}
+		if err := g.UpsertFile(ctx, fg); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := g.UpsertFile(ctx, testFile("d", "x.go")); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.RebuildAllPackageImports(ctx); err != nil {
+		t.Fatal(err)
+	}
+	got, err := g.ImportPath(ctx, "b", "d")
+	if err != nil || fmt.Sprint(got) != "[b c d]" {
+		t.Errorf("b->d = %v, %v", got, err)
+	}
+	if got, err := g.ImportPath(ctx, "d", "a"); err != nil || got != nil {
+		t.Errorf("d->a = %v, %v; want none", got, err)
+	}
+	if got, err := g.ImportPath(ctx, "a", "a"); err != nil || got != nil {
+		t.Errorf("a->a = %v, %v; want none", got, err)
+	}
+}

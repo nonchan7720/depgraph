@@ -93,7 +93,7 @@ depgraph projects prune [--dry-run]  # delete projects whose root no longer exis
 | `check --root DIR` | evaluate rules against the graph already in Neo4j (updates CLAUDE.md) |
 | `serve --root DIR [--addr 127.0.0.1:7777]` | browser UI over the graph already in Neo4j (no watching, CLAUDE.md untouched) |
 | `parse --root DIR [files...]` | print the tree-sitter result as JSON, one file per line, without Neo4j (debugging) |
-| `hook <session-start\|prompt>` | Claude Code hook: print findings as additional context (read-only, always exits 0) |
+| `hook <session-start\|prompt\|post-edit>` | Claude Code hook: print findings as additional context, or feedback on the file just edited (read-only, always exits 0) |
 | `projects list` / `projects rm <key>` / `projects prune [--dry-run]` | list / delete the projects in the database |
 | `version` / `--version` | print the version (`version` adds the commit, build date and Go toolchain) |
 
@@ -116,7 +116,7 @@ Flags (see `depgraph <command> --help`):
 
 ## Claude Code hooks
 
-`depgraph hook <session-start|prompt>` feeds the findings already in Neo4j back into
+`depgraph hook <session-start|prompt|post-edit>` feeds the findings back into
 Claude Code (read-only: it never scans and never writes CLAUDE.md).
 
 - `session-start`: a compact summary — stats, then findings by severity (errors first);
@@ -125,7 +125,14 @@ Claude Code (read-only: it never scans and never writes CLAUDE.md).
 - `prompt`: only the findings that appeared or were resolved since the last injection in the
   same session; nothing when nothing changed. State is kept per `session_id` in
   `<root>/.claude/.depgraph-hook-state.json` (add it to `.gitignore`)
-- Root: `--root`, else `$CLAUDE_PROJECT_DIR`, else `cwd` of the hook input
+- `post-edit` (PostToolUse on `Edit|Write|MultiEdit|NotebookEdit`): parses the file Claude just
+  edited, as it is on disk, and reports its imports that **resolve to nothing** and the imports that
+  **close a cycle** with the package graph in Neo4j. When there are any it answers with a `block`
+  decision, so Claude sees them right after the edit and fixes them before going on (the edit is
+  not undone); a clean file gets nothing. Without Neo4j, or before the first scan, only unresolved
+  imports are checked. It takes well under 0.1s per file
+- Root: `--root`, else `$CLAUDE_PROJECT_DIR`, else `cwd` of the hook input (post-edit also uses
+  `cwd` when the edited file is outside `$CLAUDE_PROJECT_DIR`, e.g. in a git worktree)
 - The project is resolved like `scan` does (`--project`, `.depgraph.yml`, directory name,
   `@<worktree>`); only that project's findings are injected
 - It never blocks a prompt: when Neo4j is unreachable, the root's project has not been scanned
@@ -145,6 +152,11 @@ that repository's `.claude/settings.json` (this repository uses `bin/depgraph` t
     "UserPromptSubmit": [
       { "hooks": [ { "type": "command", "timeout": 10,
         "command": "command -v depgraph >/dev/null && depgraph hook prompt; exit 0" } ] }
+    ],
+    "PostToolUse": [
+      { "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [ { "type": "command", "timeout": 10,
+        "command": "command -v depgraph >/dev/null && depgraph hook post-edit; exit 0" } ] }
     ]
   }
 }

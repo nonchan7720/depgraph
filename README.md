@@ -321,7 +321,7 @@ external, so it never shows up as a dependency. `watch` rescans when one of thes
 | `layer-violation` | error | a package imports a layer it must not import (`handler → repository`, ... or your own layers) |
 | `duplicate-code` | warn | the same logic in several places, whatever the names: identical, or a copy changed a little (see below) |
 | `god-package` | warn | a hub: imported by 10 or more packages and importing 3 or more in-repo packages. A package many depend on that depends on nothing in the repository (a domain model) is stable, not a god package (Stable Dependencies Principle) |
-| `duplicate-symbol` | warn | an exported function/class with the same name exists in several files |
+| `duplicate-symbol` | warn | an exported function/class with the same name exists in several files (the files of one Go package count once: they can only share a name through build constraints) |
 | `unused-export` | warn | an exported declaration nothing in the project uses, not even its own file (Go: exported functions and types of non-main packages, not methods; TS/JS: `export`ed declarations, followed through re-exports and barrels; Python: public module-level functions and classes) |
 | `unreachable-file` | warn | a TS/JS/Python file no entry point reaches through imports; one finding per file nothing imports, listing the files only it leads to |
 | `unreachable-package` | warn | a Go package no `main` package, test or public package of a library module imports |

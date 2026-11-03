@@ -7,6 +7,9 @@ During vibe coding it updates the graph every time a file is rewritten and immed
 
 Supported languages (tree-sitter): Go / TypeScript / JavaScript / Python
 
+Parsing uses [gotreesitter](https://github.com/odvcencio/gotreesitter), a pure-Go tree-sitter runtime, so depgraph needs no C toolchain: it builds with `CGO_ENABLED=0` and cross-compiles to any `GOOS`/`GOARCH` with plain `go build`.
+Builds use the tags in `GOFLAGS` of `mise.toml` (`gotreesitter_no_copyleft` and `grammar_subset_<language>`), which keep the GPL/MPL grammars that gotreesitter also vendors out of the binary; `mise run check:no-copyleft` verifies it. Release builds should use the same tags.
+
 ## Quick start
 
 ```bash
@@ -14,7 +17,7 @@ Supported languages (tree-sitter): Go / TypeScript / JavaScript / Python
 docker compose up -d
 
 # 2. Build
-mise run build   # or: go build -o bin/depgraph .
+mise run build   # or: mise exec -- go build -o bin/depgraph .  (applies the env of mise.toml)
 
 # 3. Watch the target repository
 ./bin/depgraph watch --root /path/to/your/repo
@@ -80,6 +83,7 @@ Flags (see `depgraph <command> --help`):
 | `--neo4j` / `--user` / `--pass` / `--db` | scan / check / watch / serve / hook / projects | `$NEO4J_URI` / `$NEO4J_USER` / `$NEO4J_PASSWORD` / `$NEO4J_DATABASE` (fallback `bolt://localhost:7687` / `neo4j` / `depgraph123` / `neo4j`) |
 | `--claude-md` | scan / check / watch | `$DEPGRAPH_CLAUDE_MD` or `CLAUDE.md` (relative to `--root`, empty to disable) |
 | `--reset` | scan / watch | false (clear this project's data before scanning; other projects are kept) |
+| `--workers` | parse / scan / watch | `0` (files parsed in parallel during a full scan; 0 = GOMAXPROCS. Output order does not depend on it) |
 | `--addr` | watch / serve | `$DEPGRAPH_ADDR` or `127.0.0.1:7777` |
 | `--debounce` | watch | `400ms` |
 | `--no-ui` / `--no-lsp` | watch | false |
@@ -189,7 +193,7 @@ pkg/infrastructure/repository/rules/ rule evaluation in Cypher
 pkg/infrastructure/repository/project/ Project nodes
 pkg/infrastructure/workspace/        .depgraph.yml and git (origin, worktree) of a root
 pkg/infrastructure/resolver/         repository walk + exclude patterns
-  treesitter/                        default: structural analysis (imports / declarations)
+  treesitter/                        default: structural analysis (imports / declarations, gotreesitter)
   lsp/                               refinement with language servers (callHierarchy / references)
 pkg/infrastructure/watch/            fsnotify + debounce
 pkg/infrastructure/claudemd/         CLAUDE.md managed section

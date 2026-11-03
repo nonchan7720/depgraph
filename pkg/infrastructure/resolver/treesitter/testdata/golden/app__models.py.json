@@ -1,0 +1,27 @@
+{
+  "path": "app/models.py",
+  "package": "app",
+  "language": "python",
+  "lines": 7,
+  "symbols": [
+    {
+      "name": "User",
+      "kind": "class",
+      "exported": true,
+      "line": 1,
+      "endLine": 2,
+      "nameLine": 1,
+      "col": 6
+    },
+    {
+      "name": "Base",
+      "kind": "class",
+      "exported": true,
+      "line": 5,
+      "endLine": 6,
+      "nameLine": 5,
+      "col": 6
+    }
+  ],
+  "imports": null
+}

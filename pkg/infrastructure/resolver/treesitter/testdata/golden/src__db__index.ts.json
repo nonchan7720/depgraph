@@ -1,0 +1,18 @@
+{
+  "path": "src/db/index.ts",
+  "package": "src/db",
+  "language": "typescript",
+  "lines": 4,
+  "symbols": [
+    {
+      "name": "query",
+      "kind": "function",
+      "exported": true,
+      "line": 1,
+      "endLine": 3,
+      "nameLine": 1,
+      "col": 16
+    }
+  ],
+  "imports": null
+}

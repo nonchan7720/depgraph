@@ -29,6 +29,7 @@ background (disable with --no-lsp).`,
 	addNeo4jFlags(fs, o)
 	addClaudeMDFlag(fs, o)
 	addResetFlag(fs, o)
+	addWorkersFlag(fs, o)
 	addAddrFlag(fs, o)
 	fs.DurationVar(&o.debounce, "debounce", 400*time.Millisecond, "coalesce changes within this window")
 	fs.BoolVar(&o.noUI, "no-ui", false, "do not start the browser UI")

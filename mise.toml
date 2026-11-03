@@ -12,7 +12,16 @@ pnpm = "12.14.0"
 "npm:pyright" = "1.1.414"
 
 [env]
-CGO_ENABLED = "1"
+# pure Go (gotreesitter): build and test without cgo so cross builds stay plain `go build`
+CGO_ENABLED = "0"
+# Every go command (build, test, vet, lint, licenses) uses the same tags:
+#   gotreesitter_no_copyleft: leave out the GPL/MPL grammars' scanner code and metadata
+#   grammar_subset[_<lang>]:  compile only these grammars into gotreesitter's shared
+#                             runtime (also drops the copyleft grammars' lex tables).
+#                             A new language needs its grammar_subset_<lang> tag here;
+#                             without it the build fails with "build constraints exclude".
+# Checked by `mise run check:no-copyleft`.
+GOFLAGS = "-tags=gotreesitter_no_copyleft,grammar_subset,grammar_subset_go,grammar_subset_javascript,grammar_subset_typescript,grammar_subset_tsx,grammar_subset_python,grammar_subset_ruby,grammar_subset_rust,grammar_subset_kotlin"
 NEO4J_URI = "bolt://localhost:7687"
 NEO4J_USER = "neo4j"
 NEO4J_PASSWORD = "depgraph123"
@@ -41,7 +50,8 @@ run = "go mod tidy"
 [tasks.build]
 description = "Build ./bin/depgraph"
 depends = ["web:build"]
-sources = ["main.go", "pkg/**/*.go", "pkg/interfaces/handler/ui/dist/**", "go.mod", "go.sum"]
+# mise.toml: GOFLAGS carries the build tags
+sources = ["main.go", "pkg/**/*.go", "pkg/interfaces/handler/ui/dist/**", "go.mod", "go.sum", "mise.toml"]
 outputs = ["bin/depgraph"]
 run = "go build -o bin/depgraph ."
 
@@ -98,9 +108,14 @@ description = "Fail if THIRD_PARTY_NOTICES.md is out of date"
 depends = ["web:test"] # needs web/node_modules
 run = "scripts/third-party-notices.sh --check"
 
+[tasks."check:no-copyleft"]
+description = "Fail if bin/depgraph carries material from gotreesitter's GPL/MPL grammars (see GOFLAGS)"
+depends = ["build"]
+run = "scripts/check-no-copyleft.sh bin/depgraph"
+
 [tasks.ci]
-description = "vet + lint + test + web:test + build + web:check-no-cdn + licenses:check"
-depends = ["vet", "lint", "test", "web:test", "build", "web:check-no-cdn", "licenses:check"]
+description = "vet + lint + test + web:test + build + web:check-no-cdn + licenses:check + check:no-copyleft"
+depends = ["vet", "lint", "test", "web:test", "build", "web:check-no-cdn", "licenses:check", "check:no-copyleft"]
 
 [tasks.clean]
 description = "Remove build output"

@@ -8,3 +8,6 @@ worktrees
 .worktrees
 .claude
 pkg/infrastructure/ent
+
+# test fixtures (golden corpus, including files with syntax errors on purpose)
+testdata

@@ -1,0 +1,59 @@
+// Package handler covers every Go declaration kind and import form.
+package handler
+
+import "fmt"
+
+import (
+	"context"
+	_ "embed"
+	. "math"
+	stdstrings "strings"
+
+	"example.com/corpus"
+	"example.com/corpus/go/repository"
+	repo2 "example.com/corpus/go/repository"
+	"github.com/acme/ext/v2"
+)
+
+// UserHandler is a struct with a pointer-receiver and a value-receiver method.
+type UserHandler struct {
+	repo *repository.Repo
+}
+
+type (
+	// Store is an interface inside a grouped type declaration.
+	Store interface {
+		Get(ctx context.Context, id int) (string, error)
+	}
+	ID      int
+	Alias   = string
+	List[T any] []T
+	private struct{}
+)
+
+func NewUserHandler() *UserHandler { return &UserHandler{} }
+
+func (h *UserHandler) Get(ctx context.Context) error {
+	inner := func() {}
+	inner()
+	return nil
+}
+
+func (h UserHandler) name() string { return stdstrings.ToUpper(fmt.Sprint(Pi)) }
+
+func Map[T, U any](xs []T, f func(T) U) []U { return nil }
+
+func init() {}
+
+const Version = "1"
+
+var Default = NewUserHandler()
+
+var (
+	_ = repo2.Find
+	_ = corpus.X
+	_ = ext.Y
+)
+
+// multi-byte text before a declaration on the same line (UTF-16 column)
+var _ = "日本語😀"; func Late() {}

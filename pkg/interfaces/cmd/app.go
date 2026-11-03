@@ -72,7 +72,7 @@ func buildApp(ctx context.Context, st *graphrepo.Store, o *options, report analy
 		Repo:     g,
 		Rules:    rulesrepo.New(st, p.Key),
 		Resolver: r,
-		Scan:     resolver.ScanRepo,
+		Scan:     resolver.ScanRepoWorkers(o.workers),
 		Report:   report,
 		Out:      out,
 	}, analysis.Options{Root: o.root, Reset: o.reset})

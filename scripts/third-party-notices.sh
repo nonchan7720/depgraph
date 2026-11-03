@@ -18,6 +18,41 @@ license_file() {
   return 1
 }
 
+# gotreesitter embeds tree-sitter grammar tables from upstream grammar
+# repositories. List the ones linked into the binary (the per-language
+# grammars/<name> packages depgraph imports) with their license, from the
+# module's own audit (licenses/grammars.json + licenses/texts/<SPDX>.txt).
+gotreesitter_grammars() {
+  local dir=$1 names
+  names=$(go list -deps -f '{{.ImportPath}}' . \
+            | sed -n 's#^github.com/odvcencio/gotreesitter/grammars/\([^/]*\)$#\1#p' \
+            | grep -v -x -e grammar_blobs -e runtime | sort -u)
+  [ -n "$names" ] || return 0
+  echo "#### Embedded tree-sitter grammars"
+  echo
+  echo "gotreesitter embeds grammar tables generated from the following upstream"
+  echo "tree-sitter grammar repositories (license audit: licenses/grammars.json in the module)."
+  echo
+  node - "$dir" $names <<'EOF'
+const fs = require("fs"), path = require("path");
+const [dir, ...names] = process.argv.slice(2);
+const audit = JSON.parse(fs.readFileSync(path.join(dir, "licenses/grammars.json"), "utf8"));
+for (const name of names) {
+  const e = audit.entries.find((x) => x.name === name);
+  if (!e) { console.error(`no license audit entry for grammar ${name}`); process.exit(1); }
+  const text = path.join(dir, "licenses/texts", `${e.spdx}.txt`);
+  if (!fs.existsSync(text)) { console.error(`no license text for ${e.spdx} (grammar ${name})`); process.exit(1); }
+  console.log(`##### ${name} (${e.spdx})\n`);
+  console.log(`${e.repo} at ${e.ref}\n`);
+  console.log("```");
+  for (const c of e.copyright_holders || []) console.log(c);
+  if ((e.copyright_holders || []).length) console.log();
+  process.stdout.write(fs.readFileSync(text, "utf8").replace(/\n*$/, "\n"));
+  console.log("```\n");
+}
+EOF
+}
+
 {
   echo "# Third-party notices"
   echo
@@ -36,6 +71,9 @@ license_file() {
     cat "$f"
     echo '```'
     echo
+    if [ "$path" = "github.com/odvcencio/gotreesitter" ]; then
+      gotreesitter_grammars "$dir"
+    fi
   done < <(go list -deps -f '{{if .Module}}{{.Module.Path}} {{.Module.Version}} {{.Module.Dir}}{{end}}' . \
              | grep -v '^github.com/nonchan7720/depgraph ' | sort -u)
 

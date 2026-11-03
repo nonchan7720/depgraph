@@ -14,7 +14,9 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/nonchan7720/depgraph/pkg/domain/graph"
 )
@@ -180,9 +182,115 @@ func ShouldSkipPath(rel string) bool {
 	return false
 }
 
-// ScanRepo walks root and calls fn for every supported file.
-// Errors from fn abort the walk.
+// ScanRepo walks root and calls fn for every supported file, parsing with
+// GOMAXPROCS workers. See ScanRepoWorkers.
 func ScanRepo(ctx context.Context, r Resolver, root string, fn func(fg *graph.FileGraph) error) error {
+	return scanRepo(ctx, r, root, 0, fn)
+}
+
+// ScanRepoWorkers returns ScanRepo with n parse workers (n <= 0: GOMAXPROCS).
+//
+// Files are parsed concurrently, but fn is called from the calling goroutine
+// only, one file at a time, in walk (lexical path) order, so the output does
+// not depend on the number of workers. The first error in that order (from
+// the resolver or from fn) aborts the scan and is returned; a cancelled ctx
+// stops it with ctx.Err(). No parse is running when it returns.
+func ScanRepoWorkers(n int) func(ctx context.Context, r Resolver, root string, fn func(fg *graph.FileGraph) error) error {
+	return func(ctx context.Context, r Resolver, root string, fn func(fg *graph.FileGraph) error) error {
+		return scanRepo(ctx, r, root, n, fn)
+	}
+}
+
+type scanResult struct {
+	fg  *graph.FileGraph
+	err error
+}
+
+func scanRepo(ctx context.Context, r Resolver, root string, workers int, fn func(fg *graph.FileGraph) error) error {
+	if workers <= 0 {
+		workers = runtime.GOMAXPROCS(0)
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	type job struct {
+		rel string
+		out chan scanResult // buffered (1): a worker never blocks on it
+	}
+	jobs := make(chan job)
+	// one result channel per file, in walk order; the buffer bounds how far
+	// parsing may run ahead of fn
+	order := make(chan chan scanResult, 2*workers)
+
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Go(func() {
+			for j := range jobs {
+				fg, err := r.ResolveFile(ctx, root, j.rel)
+				j.out <- scanResult{fg, err}
+			}
+		})
+	}
+
+	walkErr := make(chan error, 1)
+	go func() {
+		defer close(order)
+		defer close(jobs)
+		walkErr <- walkRepo(ctx, r, root, func(rel string) error {
+			out := make(chan scanResult, 1)
+			select {
+			case order <- out:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+			select {
+			case jobs <- job{rel, out}:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		})
+	}()
+
+	err := deliver(ctx, order, fn)
+	cancel()
+	for range order { // let the walker finish
+	}
+	wg.Wait()
+	if err == nil {
+		err = <-walkErr
+	}
+	return err
+}
+
+// deliver calls fn for each result in order until the results run out, an
+// error occurs or ctx is cancelled.
+func deliver(ctx context.Context, order <-chan chan scanResult, fn func(*graph.FileGraph) error) error {
+	for out := range order {
+		var res scanResult
+		select {
+		case res = <-out:
+		case <-ctx.Done():
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if res.err != nil {
+			if errors.Is(res.err, ErrUnsupported) {
+				continue
+			}
+			return res.err
+		}
+		if err := fn(res.fg); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// walkRepo calls emit with the repo-relative path of every supported,
+// non-ignored file under root, in lexical order.
+func walkRepo(ctx context.Context, r Resolver, root string, emit func(rel string) error) error {
 	return filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil // unreadable entries are skipped, not fatal
@@ -204,13 +312,6 @@ func ScanRepo(ctx context.Context, r Resolver, root string, fn func(fg *graph.Fi
 		if ShouldSkipPath(rel) || !r.Supports(rel) {
 			return nil
 		}
-		fg, err := r.ResolveFile(ctx, root, rel)
-		if err != nil {
-			if errors.Is(err, ErrUnsupported) {
-				return nil
-			}
-			return err
-		}
-		return fn(fg)
+		return emit(rel)
 	})
 }

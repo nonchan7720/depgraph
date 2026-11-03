@@ -1,0 +1,5 @@
+// Package corpus is the module root of the golden corpus.
+package corpus
+
+// X is imported by go/handler as the module root package.
+var X = 1

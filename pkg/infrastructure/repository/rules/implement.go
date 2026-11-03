@@ -156,15 +156,20 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 			WHERE s.exported AND s.kind IN ['function', 'class', 'struct']
 			  AND NOT s.name IN $names
 			  AND NOT any(rx IN $ignore WHERE p.key =~ rx)
-			WITH s.name AS name, s.kind AS kind, collect(DISTINCT f.path) AS files
-			WHERE size(files) > 1
-			RETURN name, kind, files ORDER BY size(files) DESC, name LIMIT 50
+			WITH s.name AS name, s.kind AS kind,
+			     collect(DISTINCT f.path) AS files,
+			     collect(DISTINCT CASE WHEN f.language = 'go' THEN p.key ELSE f.path END) AS places
+			WHERE size(places) > 1
+			RETURN name, kind, files ORDER BY size(places) DESC, name LIMIT 50
 		`, ignore, map[string]any{"names": nonNil(cfg.IgnoreDuplicateNames)})
+		// A Go name declared in several files of ONE package compiles only
+		// because build constraints separate the files (x_unix.go /
+		// x_windows.go): one declaration per build, so a Go package counts
+		// as one place. Other languages have no such variants.
 		if err != nil {
 			return nil, fmt.Errorf("duplicates: %w", err)
 		}
 		for _, row := range rows {
-			// collect() has no order: sort, so the message is the same on every run
 			files := toStrings(row["files"])
 			sort.Strings(files) // collect() has no order: keep the message stable
 			row["files"] = files

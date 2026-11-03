@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"testing"
 	"time"
 
@@ -357,5 +358,55 @@ func TestGodPackageIsAHub(t *testing.T) {
 		if f.Rule == rules.RuleGodPackage {
 			t.Errorf("fanOut 4: %s", f.Message)
 		}
+	}
+}
+
+// In Go a name declared twice in one package does not compile unless build
+// constraints separate the files (x_unix.go / x_windows.go): those are one
+// declaration per build, not a duplicate. Other packages declaring the name
+// still are.
+func TestDuplicateSymbolBuildVariants(t *testing.T) {
+	ctx, st := connect(t)
+	key := fmt.Sprintf("zz_test_%d_dupvariant", time.Now().UnixNano())
+	r := graphrepo.ForProject(st, key)
+	t.Cleanup(func() { _ = r.Clear(context.Background()) })
+	file := func(path, pkg string, lang graph.Language, names ...string) *graph.FileGraph {
+		fg := &graph.FileGraph{Path: path, Package: pkg, Language: lang}
+		for _, n := range names {
+			fg.Symbols = append(fg.Symbols, graph.Symbol{Name: n, Kind: "function", Exported: true})
+		}
+		return fg
+	}
+	for _, fg := range []*graph.FileGraph{
+		file("a/sig_unix.go", "a", graph.Go, "IgnoreSignals", "Both"),
+		file("a/sig_windows.go", "a", graph.Go, "IgnoreSignals", "Both"),
+		file("b/b.go", "b", graph.Go, "Both"),
+		// TypeScript has no build variants: two files of one directory do clash
+		file("web/x.ts", "web", graph.TypeScript, "render"),
+		file("web/y.ts", "web", graph.TypeScript, "render"),
+	} {
+		if err := r.UpsertFile(ctx, fg); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := rules.DefaultConfig()
+	cfg.IgnoreDuplicateNames = nil
+	fs, err := New(st, key).Evaluate(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, f := range fs {
+		if f.Rule == rules.RuleDuplicateSymbol {
+			got = append(got, f.Message)
+		}
+	}
+	sort.Strings(got)
+	want := []string{
+		`function "Both" declared in 3 files: a/sig_unix.go, a/sig_windows.go, b/b.go`,
+		`function "render" declared in 2 files: web/x.ts, web/y.ts`,
+	}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("duplicates =\n%q\nwant\n%q", got, want)
 	}
 }

@@ -300,7 +300,7 @@ import は各エコシステム自身の解決方法で、プロジェクトの�
 | `layer-violation` | error | import してはいけないレイヤーを import している（`handler → repository` など、または独自レイヤー） |
 | `duplicate-code` | warn | 名前に関係なく、同じロジックが複数箇所にある（完全に同じ、または少し手を加えた複製。下記） |
 | `god-package` | warn | ハブ：10 パッケージ以上から import され、かつリポジトリ内の 3 パッケージ以上を import している。多くから依存されてもリポジトリ内の何にも依存しないパッケージ（ドメインモデルなど）は安定しており、god package ではない（安定依存の原則） |
-| `duplicate-symbol` | warn | 同名の exported function/class が複数ファイルに存在 |
+| `duplicate-symbol` | warn | 同名の exported function/class が複数ファイルに存在（1 つの Go パッケージのファイルは 1 か所と数える。同名が両立するのは build constraint で分けたときだけのため） |
 | `unused-export` | warn | プロジェクト内の誰も（自ファイルでさえ）使っていない export（Go: main 以外のパッケージの exported な関数と型。メソッドは対象外 / TS・JS: `export` された宣言。re-export・barrel を辿る / Python: モジュール直下の public な関数とクラス） |
 | `unreachable-file` | warn | どのエントリポイントからも import で辿れない TS/JS/Python ファイル。誰も import していないファイルごとに 1 件で、そのファイル経由でしか辿れないファイルを併記 |
 | `unreachable-package` | warn | `main` パッケージ・テスト・ライブラリモジュールの公開パッケージのどれからも import されない Go パッケージ |

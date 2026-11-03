@@ -163,7 +163,7 @@ API: `GET /api/graph`（パッケージ・辺・findings・stats）、`GET /api/
 ```
 (Project {key, name, root, origin, base, worktree, lastScanAt})
 (Package {project, key, name, external})
-(File    {project, path, language, lines, updatedAt})
+(File    {project, path, language, lines, updatedAt, unresolvedSpecs, unresolvedReasons})
 (Symbol  {project, name, kind, exported, line, endLine, language, file})
 
 (Package)-[:CONTAINS]->(File)-[:DECLARES]->(Symbol)
@@ -174,7 +174,20 @@ API: `GET /api/graph`（パッケージ・辺・findings・stats）、`GET /api/
 
 `project` はプロジェクト key。Package は `(project, key)`、File は `(project, path)` で一意です。
 `Package.key` はリポジトリルートからのディレクトリパス（ルートは `.`）。
-リポジトリ外への import は `ext:<spec>` という key の `external=true` な Package になります（これもプロジェクトごと）。
+リポジトリ外への import は `ext:<パッケージ>` という key の `external=true` な Package になります（これもプロジェクトごと。`elkjs/lib/elk-api` はパッケージ `ext:elkjs`）。
+どこにも解決できない import は Package も辺も作らず、File の `unresolvedSpecs` に残して `unresolved-import` で報告します。
+
+## Import resolution
+
+import は各エコシステム自身の解決方法で、プロジェクトの設定を読んで解決します。
+
+| 言語 | 方法 |
+|---|---|
+| TypeScript / JavaScript | esbuild の resolver: `tsconfig.json` / `jsconfig.json`（`paths`・`baseUrl`・`extends`）、`package.json`（`exports`・`imports`・workspaces）、`node_modules`、`x.ts` を指す ESM の `./x.js` |
+| Go | `go.mod` / `go.work`（入れ子モジュール・`use`・`replace`） |
+| Python | リポジトリのパッケージルート（ルート・`src/`・`pyproject.toml` / `setup.cfg` のパッケージディレクトリ）上の import システム。`__init__.py` の無いディレクトリは名前空間パッケージで、標準ライブラリを隠しません |
+
+相対パス・エイリアス・プロジェクト内モジュールが何も指していない import は、外部ではなく**未解決**です。`watch` はこれらの設定ファイルが変わると再スキャンします。
 
 ## Rules
 
@@ -182,6 +195,7 @@ API: `GET /api/graph`（パッケージ・辺・findings・stats）、`GET /api/
 |---|---|---|
 | `import-cycle` | error | パッケージ間の循環 import |
 | `layer-violation` | error | `handler → repository` などの禁止ペア（`rules.DefaultConfig` で変更） |
+| `unresolved-import` | warn | 何にも解決できない import（ファイルが無い、プロジェクトが設定していないエイリアス / モジュール） |
 | `god-package` | warn | 10 パッケージ以上から import されている |
 | `duplicate-symbol` | warn | 同名の exported function/class が複数ファイルに存在 |
 
@@ -211,6 +225,7 @@ pkg/infrastructure/repository/project/ Project ノード
 pkg/infrastructure/workspace/        root の .depgraph.yml と git（origin・worktree）
 pkg/infrastructure/resolver/         リポジトリ走査 + 除外パターン
   treesitter/                        デフォルト: 構造解析（import / 宣言、gotreesitter）
+  imports/                           エコシステムごとの import 解決（esbuild、go.mod / go.work、Python の import システム）
   lsp/                               言語サーバー（callHierarchy / references）による精密化
 pkg/infrastructure/watch/            fsnotify + デバウンス
 pkg/infrastructure/claudemd/         CLAUDE.md の管理区間更新

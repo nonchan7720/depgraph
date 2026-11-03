@@ -170,7 +170,7 @@ API: `GET /api/graph` (packages, edges, findings, stats), `GET /api/package?key=
 ```
 (Project {key, name, root, origin, base, worktree, lastScanAt})
 (Package {project, key, name, external})
-(File    {project, path, language, lines, updatedAt})
+(File    {project, path, language, lines, updatedAt, unresolvedSpecs, unresolvedReasons})
 (Symbol  {project, name, kind, exported, line, endLine, language, file})
 
 (Package)-[:CONTAINS]->(File)-[:DECLARES]->(Symbol)
@@ -181,8 +181,23 @@ API: `GET /api/graph` (packages, edges, findings, stats), `GET /api/package?key=
 
 `project` is the project key; Package is unique by `(project, key)` and File by
 `(project, path)`. `Package.key` is the directory path from the repository root (the root is `.`).
-Imports outside the repository become a Package with key `ext:<spec>` and `external=true`
-(also per project).
+Imports outside the repository become a Package with key `ext:<package>` and `external=true`
+(also per project; `elkjs/lib/elk-api` is the package `ext:elkjs`). An import that resolves to
+nothing gets no Package and no edge; it is kept on the File (`unresolvedSpecs`) and reported by
+`unresolved-import`.
+
+## Import resolution
+
+Imports are resolved the way each ecosystem resolves them, from the project's own configuration:
+
+| language | how |
+|---|---|
+| TypeScript / JavaScript | esbuild's resolver: `tsconfig.json` / `jsconfig.json` (`paths`, `baseUrl`, `extends`), `package.json` (`exports`, `imports`, workspaces), `node_modules`, ESM `./x.js` written for `x.ts` |
+| Go | `go.mod` / `go.work` (nested modules, `use`, `replace`) |
+| Python | the import system over the repository's package roots (the repo root, `src/`, `pyproject.toml` / `setup.cfg` package dirs); a directory without `__init__.py` is a namespace package and does not shadow the standard library |
+
+A relative path, an alias or a module of the project that points at nothing is **unresolved**, not
+external. `watch` rescans when one of these configuration files changes.
 
 ## Rules
 
@@ -190,6 +205,7 @@ Imports outside the repository become a Package with key `ext:<spec>` and `exter
 |---|---|---|
 | `import-cycle` | error | import cycle between packages |
 | `layer-violation` | error | forbidden pairs such as `handler → repository` (change in `rules.DefaultConfig`) |
+| `unresolved-import` | warn | an import that resolves to nothing: a missing file, or an alias / module the project does not configure |
 | `god-package` | warn | imported by 10 or more packages |
 | `duplicate-symbol` | warn | an exported function/class with the same name exists in several files |
 
@@ -219,6 +235,7 @@ pkg/infrastructure/repository/project/ Project nodes
 pkg/infrastructure/workspace/        .depgraph.yml and git (origin, worktree) of a root
 pkg/infrastructure/resolver/         repository walk + exclude patterns
   treesitter/                        default: structural analysis (imports / declarations, gotreesitter)
+  imports/                           import resolution per ecosystem (esbuild, go.mod / go.work, Python import system)
   lsp/                               refinement with language servers (callHierarchy / references)
 pkg/infrastructure/watch/            fsnotify + debounce
 pkg/infrastructure/claudemd/         CLAUDE.md managed section

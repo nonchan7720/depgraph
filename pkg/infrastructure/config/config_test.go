@@ -81,6 +81,36 @@ ignore: ["**/testdata/**"]
 	}
 }
 
+// The unused-code rules share their entry points and ignored paths: each of
+// them accepts entries / ignore, and the lists add up (in rule name order).
+func TestParseUnusedRules(t *testing.T) {
+	f, err := Parse([]byte(`
+rules:
+  unused-export: {ignore: ["pkg/api/**"], entries: ["plugins/**"]}
+  unreachable-file: {severity: info, ignore: ["web/legacy/**"]}
+  unreachable-package: {enabled: false}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := f.Rules
+	if !reflect.DeepEqual(c.UnusedIgnore, []string{"web/legacy/**", "pkg/api/**"}) || !reflect.DeepEqual(c.UnusedEntries, []string{"plugins/**"}) {
+		t.Errorf("ignore=%v entries=%v", c.UnusedIgnore, c.UnusedEntries)
+	}
+	if c.Severity(rules.RuleUnreachableFile) != rules.SeverityInfo || c.Severity(rules.RuleUnusedExport) != rules.SeverityWarn || c.Enabled(rules.RuleUnreachablePackage) {
+		t.Errorf("settings = %+v", c.Settings)
+	}
+	if !reflect.DeepEqual(c.IgnoreDuplicateNames, rules.DefaultConfig().IgnoreDuplicateNames) {
+		t.Errorf("unused-export ignore changed duplicate-symbol: %v", c.IgnoreDuplicateNames)
+	}
+	if _, err := Parse([]byte("rules:\n  unused-export: {ignore: [\"a/**b\"]}\n")); err == nil {
+		t.Error("bad unused glob accepted")
+	}
+	if _, err := Parse([]byte("rules:\n  god-package: {entries: [x]}\n")); err == nil {
+		t.Error("entries accepted on god-package")
+	}
+}
+
 func TestParseDisable(t *testing.T) {
 	f, err := Parse([]byte("rules:\n  duplicate-symbol: {enabled: false}\n"))
 	if err != nil || f.Rules.Enabled(rules.RuleDuplicateSymbol) || !f.Rules.Enabled(rules.RuleGodPackage) {

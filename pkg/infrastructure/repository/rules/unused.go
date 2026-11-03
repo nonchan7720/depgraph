@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"path"
-	"regexp"
 	"sort"
 	"strings"
 
@@ -44,7 +43,7 @@ func (r *Repository) evaluateUnused(ctx context.Context, cfg rules.Config) ([]ru
 		RETURN f.path AS path, f.language AS lang, f.scope AS scope, f.entry AS entry,
 		       f.generated AS generated, f.uses AS uses, f.exports AS exports, f.keep AS keep,
 		       f.mentions AS mentions, syms
-	`, nil)
+	`, nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("unused: %w", err)
 	}
@@ -141,8 +140,24 @@ func evalUnused(files []unusedFile, cfg rules.Config) []rules.Finding {
 	}
 	sort.Strings(ix.paths)
 
-	entries := ix.entries(cfg)
-	ignore := globsToRegexps(cfg.UnusedIgnore)
+	extra, unusedIgnore, err := cfg.UnusedGlobs()
+	if err != nil {
+		return nil // Validate reports it
+	}
+	pkgIgnore, err := cfg.IgnoreGlobs()
+	if err != nil {
+		return nil
+	}
+	// ignored: a path (file or Go package dir) the rules leave out: the
+	// unused-code ignore globs, or a package of the top-level ignore
+	ignored := func(p string, dir bool) bool {
+		d := p
+		if !dir {
+			d = path.Dir(p)
+		}
+		return rules.MatchAny(unusedIgnore, p) || rules.MatchAny(unusedIgnore, d) || rules.MatchAny(pkgIgnore, d)
+	}
+	entries := ix.entries(extra)
 
 	// 1. resolve every use, and the files named in strings
 	byBase := map[string][]string{}
@@ -170,17 +185,23 @@ func evalUnused(files []unusedFile, cfg rules.Config) []rules.Finding {
 	// 3. reachability
 	reached := ix.reach(entries)
 	var out []rules.Finding
-	dead := map[string]bool{} // files reported as unreachable
-	out = append(out, ix.unreachableFiles(entries, reached, ignore, dead)...)
-	out = append(out, ix.unreachablePackages(entries, reached, ignore, dead)...)
+	// files reported as unreachable (their exports are not reported again);
+	// a disabled rule reports nothing, so it hides nothing either
+	dead := map[string]bool{}
+	if cfg.Enabled(rules.RuleUnreachableFile) {
+		out = append(out, ix.unreachableFiles(entries, reached, ignored, dead)...)
+	}
+	if cfg.Enabled(rules.RuleUnreachablePackage) {
+		out = append(out, ix.unreachablePackages(entries, reached, ignored, dead)...)
+	}
 
 	// 4. unused exports (not in files already reported as unreachable)
 	for _, p := range ix.paths {
-		f := ix.files[p]
-		if entries[p] != "" || f.Generated || dead[p] || matchAny(ignore, p) || ix.usedAll[p] {
-			continue
+		if !cfg.Enabled(rules.RuleUnusedExport) {
+			break
 		}
-		if f.Lang == "go" && matchAny(ignore, path.Dir(p)) {
+		f := ix.files[p]
+		if entries[p] != "" || f.Generated || dead[p] || ignored(p, false) || ix.usedAll[p] {
 			continue
 		}
 		kinds := reportedKinds[f.Lang]
@@ -207,12 +228,15 @@ func evalUnused(files []unusedFile, cfg rules.Config) []rules.Finding {
 			}
 		}
 	}
+	for i := range out {
+		out[i].Severity = string(cfg.Severity(out[i].Rule))
+	}
 	return out
 }
 
-// entries maps every entry file to why it is one.
-func (ix *unusedIndex) entries(cfg rules.Config) map[string]string {
-	extra := globsToRegexps(cfg.UnusedEntries)
+// entries maps every entry file to why it is one; extra are the configured
+// entry globs (files or Go package dirs).
+func (ix *unusedIndex) entries(extra []rules.Glob) map[string]string {
 	out := map[string]string{}
 	// a Go module without a main package is a library: its non-internal
 	// packages are its public API
@@ -227,7 +251,7 @@ func (ix *unusedIndex) entries(cfg rules.Config) map[string]string {
 		switch {
 		case f.Entry != "":
 			out[p] = f.Entry
-		case matchAny(extra, p) || (f.Lang == "go" && matchAny(extra, path.Dir(p))):
+		case rules.MatchAny(extra, p) || (f.Lang == "go" && rules.MatchAny(extra, path.Dir(p))):
 			out[p] = "configured entry"
 		case f.Lang == "go" && !goMain[f.Scope] && !hasSegment(path.Dir(p), "internal"):
 			out[p] = "library package"
@@ -542,7 +566,7 @@ func langFamily(l string) string {
 // unreachableFiles reports the TS/JS/Python files no entry reaches, one
 // finding per file nothing imports (with the files only it leads to).
 // Scopes without any entry point are skipped: their entry points are unknown.
-func (ix *unusedIndex) unreachableFiles(entries map[string]string, reached map[string]bool, ignore []*regexp.Regexp, dead map[string]bool) []rules.Finding {
+func (ix *unusedIndex) unreachableFiles(entries map[string]string, reached map[string]bool, ignored func(string, bool) bool, dead map[string]bool) []rules.Finding {
 	hasEntry := map[string]bool{}
 	for p := range entries {
 		f := ix.files[p]
@@ -551,7 +575,7 @@ func (ix *unusedIndex) unreachableFiles(entries map[string]string, reached map[s
 	cand := map[string]bool{}
 	for _, p := range ix.paths {
 		f := ix.files[p]
-		if f.Lang == "go" || reached[p] || f.Generated || path.Base(p) == "__init__.py" || matchAny(ignore, p) {
+		if f.Lang == "go" || reached[p] || f.Generated || path.Base(p) == "__init__.py" || ignored(p, false) {
 			continue
 		}
 		if !hasEntry[langFamily(f.Lang)+"|"+f.Scope] {
@@ -578,7 +602,7 @@ func (ix *unusedIndex) unreachableFiles(entries map[string]string, reached map[s
 }
 
 // unreachablePackages reports the Go packages no entry reaches.
-func (ix *unusedIndex) unreachablePackages(entries map[string]string, reached map[string]bool, ignore []*regexp.Regexp, dead map[string]bool) []rules.Finding {
+func (ix *unusedIndex) unreachablePackages(entries map[string]string, reached map[string]bool, ignored func(string, bool) bool, dead map[string]bool) []rules.Finding {
 	pkgs := map[string][]string{} // dir -> non-test files
 	for _, p := range ix.paths {
 		if f := ix.files[p]; f.Lang == "go" && !strings.HasSuffix(p, "_test.go") {
@@ -588,9 +612,9 @@ func (ix *unusedIndex) unreachablePackages(entries map[string]string, reached ma
 	cand := map[string]bool{}
 	for d, fs := range pkgs {
 		// a package that declares nothing (doc.go only) is documentation
-		ok := !matchAny(ignore, d) && ix.declaresAnything(fs)
+		ok := !ignored(d, true) && ix.declaresAnything(fs)
 		for _, p := range fs {
-			if reached[p] || entries[p] != "" || ix.files[p].Generated || matchAny(ignore, p) {
+			if reached[p] || entries[p] != "" || ix.files[p].Generated || ignored(p, false) {
 				ok = false
 			}
 		}
@@ -689,54 +713,4 @@ func (ix *unusedIndex) group(cand map[string]bool, next func(string) []string, i
 		}
 	}
 	return out
-}
-
-// globsToRegexps compiles path globs: "*" within a segment, "**" any number
-// of segments; a pattern without "/" matches a file or directory name at
-// any depth; a pattern also matches everything under a matched directory.
-func globsToRegexps(globs []string) []*regexp.Regexp {
-	var out []*regexp.Regexp
-	for _, g := range globs {
-		g = strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(g), "./"), "/")
-		if g == "" {
-			continue
-		}
-		var b strings.Builder
-		if !strings.Contains(g, "/") {
-			b.WriteString(`^(.*/)?`)
-		} else {
-			b.WriteString(`^`)
-		}
-		for i := 0; i < len(g); i++ {
-			switch c := g[i]; {
-			case c == '*' && i+1 < len(g) && g[i+1] == '*':
-				b.WriteString(`.*`)
-				i++
-				if i+1 < len(g) && g[i+1] == '/' {
-					b.WriteString(`/?`)
-					i++
-				}
-			case c == '*':
-				b.WriteString(`[^/]*`)
-			case c == '?':
-				b.WriteString(`[^/]`)
-			default:
-				b.WriteString(regexp.QuoteMeta(string(c)))
-			}
-		}
-		b.WriteString(`(/.*)?$`)
-		if rx, err := regexp.Compile(b.String()); err == nil {
-			out = append(out, rx)
-		}
-	}
-	return out
-}
-
-func matchAny(rxs []*regexp.Regexp, p string) bool {
-	for _, rx := range rxs {
-		if rx.MatchString(p) {
-			return true
-		}
-	}
-	return false
 }

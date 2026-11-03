@@ -271,6 +271,33 @@ func TestUnusedUnknownImportTarget(t *testing.T) {
 	wantFindings(t, got, "unused-export|docs/assets/js/helpers/helpers.js#unusedHelper", "unreachable-file|docs/assets/js/old.js")
 }
 
+// .depgraph.yml settings: a disabled rule reports nothing, a severity
+// override applies, and the packages of the top-level ignore are left out.
+func TestUnusedRuleSettings(t *testing.T) {
+	root := writeRepo(t, map[string]string{
+		"package.json":      `{"name": "a", "main": "src/main.ts"}`,
+		"src/main.ts":       "import { a } from './lib';\na();\n",
+		"src/lib.ts":        "export function a() {}\nexport function b() {}\n",
+		"src/old.ts":        "export function c() {}\n",
+		"src/gen/x.ts":      "export function d() {}\n",
+		"src/gen/y.test.ts": "import { d } from './x';\n",
+	})
+	files := toUnusedFiles(parseRepo(t, root))
+	cfg := rules.DefaultConfig()
+	cfg.Settings = map[string]rules.RuleSetting{
+		rules.RuleUnreachableFile: {Disabled: true},
+		rules.RuleUnusedExport:    {Severity: rules.SeverityInfo},
+	}
+	cfg.Ignore = []string{"src/gen/**"}
+	got := evalUnused(files, cfg)
+	wantFindings(t, got, "unused-export|src/lib.ts#b", "unused-export|src/old.ts#c")
+	for _, f := range got {
+		if f.Severity != "info" {
+			t.Errorf("%s: severity %s", f.Key(), f.Severity)
+		}
+	}
+}
+
 // Without usage data for every file (a graph stored by an older depgraph,
 // not rescanned yet) nothing is reported: a missing use is a false positive.
 func TestUnusedNeedsUsageOfEveryFile(t *testing.T) {

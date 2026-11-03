@@ -19,6 +19,27 @@ func TestUnusedExportFinding(t *testing.T) {
 	}
 }
 
+// The unused-code rules are registered (configurable in .depgraph.yml) and
+// their path globs are validated.
+func TestUnusedRulesRegistered(t *testing.T) {
+	for _, name := range []string{RuleUnusedExport, RuleUnreachableFile, RuleUnreachablePackage} {
+		r, ok := Lookup(name)
+		if !ok || r.Severity != SeverityWarn || strings.Join(r.Options, ",") != "entries,ignore" {
+			t.Errorf("%s: %+v %v", name, r, ok)
+		}
+	}
+	c := DefaultConfig()
+	c.UnusedIgnore = []string{"a/**b"}
+	if c.Validate() == nil {
+		t.Error("bad unused ignore glob accepted")
+	}
+	c = DefaultConfig()
+	c.UnusedEntries = []string{""}
+	if c.Validate() == nil {
+		t.Error("empty entries glob accepted")
+	}
+}
+
 func TestUnreachableFindings(t *testing.T) {
 	f := UnreachableFile("src/old.ts", []string{"src/b.ts", "src/c.ts"}, false)
 	if f.Rule != RuleUnreachableFile || f.Severity != "warn" || f.ID != "src/old.ts" {

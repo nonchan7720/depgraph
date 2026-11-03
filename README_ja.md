@@ -216,7 +216,7 @@ import は各エコシステム自身の解決方法で、プロジェクトの�
 - 共通: Dockerfile・Procfile・Makefile・compose・CI ワークフロー・`mise.toml`・シェルスクリプトが実行するファイルやモジュール（`node dist/server.js`・`python -m pkg.tool`・`uvicorn app.main:app`）、文字列中のパスやドット区切りモジュール名（`new URL('./worker.ts', ...)`・`"app.tasks.send"`・`importlib.import_module(f"app.plugins.{name}")`・`` import(`./locales/${l}`) ``）、あらゆる言語の文字列中のソースファイル名（JS をバンドルする Go プログラムの `"render.js"`）。
 - ヘッダで生成コードと宣言しているファイルは報告しません。
 
-depgraph から見えない方法で読み込まれるファイル（名前で読み込むプラグイン、外部ツールが実行するファイル）には `depgraph:entry` コメント（`// depgraph:entry`・`# depgraph:entry`）を書いてください。自リポジトリでは使わないライブラリの公開 API は `rules.Config` の `UnusedEntries` / `UnusedIgnore`（パスの glob）で除外できます。自ファイル内でだけ使われている export は報告しません（export は不要ですが、同じファイルで登録する Go のハンドラなど、スタイルの範囲のため）。
+depgraph から見えない方法で読み込まれるファイル（名前で読み込むプラグイン、外部ツールが実行するファイル）には `depgraph:entry` コメント（`// depgraph:entry`・`# depgraph:entry`）を書いてください。自リポジトリでは使わないライブラリの公開 API は `.depgraph.yml` の `ignore` で除外でき、エントリポイントは `entries` で追加できます（ファイルと Go パッケージディレクトリに対するパスの glob。3 つのルールで共通。後述）。自ファイル内でだけ使われている export は報告しません（export は不要ですが、同じファイルで登録する Go のハンドラなど、スタイルの範囲のため）。
 
 レイヤー・禁止 import・severity・閾値は `.depgraph.yml` で設定します（次節）。
 
@@ -246,6 +246,9 @@ rules:                      # ルールごと: enabled、severity（error | warn
   god-package: {severity: warn, fanIn: 10}
   duplicate-symbol: {enabled: false}
   # duplicate-symbol: {ignore: [main, init, New]}   # 対象外の名前（デフォルトを置き換える）
+  unused-export: {ignore: ["pkg/api/**"]}            # 報告しないパス（ライブラリの公開 API など）
+  unreachable-file: {entries: ["plugins/**"]}       # depgraph から見えないエントリポイント
+  # entries / ignore は unused-export・unreachable-file・unreachable-package で共通
 
 ignore: ["**/testdata/**"]  # すべてのルールから除外するパッケージ
 ```

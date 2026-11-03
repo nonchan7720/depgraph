@@ -76,3 +76,34 @@ func unreachableMessage(what, noun string, only []string, cycle bool) string {
 	}
 	return b.String()
 }
+
+// The unused-code rules share their options: entries (UnusedEntries) and
+// ignore (UnusedIgnore), path globs (see Glob) over files and Go package
+// directories.
+func init() {
+	opts := []string{"entries", "ignore"}
+	builtin = append(builtin,
+		Rule{Name: RuleUnusedExport, Severity: SeverityWarn, Description: "an exported declaration nothing in the project uses", Options: opts},
+		Rule{Name: RuleUnreachableFile, Severity: SeverityWarn, Description: "a TS/JS/Python file no entry point reaches", Options: opts},
+		Rule{Name: RuleUnreachablePackage, Severity: SeverityWarn, Description: "a Go package no entry point reaches", Options: opts},
+	)
+}
+
+// IsUnusedRule reports whether rule is one of the unused-code rules.
+func IsUnusedRule(rule string) bool {
+	return rule == RuleUnusedExport || rule == RuleUnreachableFile || rule == RuleUnreachablePackage
+}
+
+// UnusedGlobs compiles UnusedEntries and UnusedIgnore.
+func (c Config) UnusedGlobs() (entries, ignore []Glob, err error) {
+	if entries, err = compileGlobs(c.UnusedEntries); err != nil {
+		return nil, nil, fmt.Errorf("unused entries: %w", err)
+	}
+	if ignore, err = compileGlobs(c.UnusedIgnore); err != nil {
+		return nil, nil, fmt.Errorf("unused ignore: %w", err)
+	}
+	return entries, ignore, nil
+}
+
+// MatchAny reports whether any of gs matches key.
+func MatchAny(gs []Glob, key string) bool { return matchAny(gs, key) }

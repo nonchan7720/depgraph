@@ -253,8 +253,9 @@ something outside the import graph loads it:
 
 When a file is loaded in a way depgraph cannot see (a plugin loaded by name, a file run by an
 external tool), put a `depgraph:entry` comment in it (`// depgraph:entry`, `# depgraph:entry`). A
-library's public API that its own repository does not use can be excluded with the `UnusedEntries` /
-`UnusedIgnore` path globs of `rules.Config`. An export only its own file uses is not reported (the
+library's public API that its own repository does not use is left out with `ignore`, and entry points
+are added with `entries`, in `.depgraph.yml` (path globs over files and Go package directories, shared
+by the three rules; see below). An export only its own file uses is not reported (the
 export is unneeded, but that is style: Go handlers registered in the same file, for example).
 
 Layers, forbidden imports, severities and thresholds are set in `.depgraph.yml` (next section).
@@ -285,6 +286,9 @@ rules:                      # per rule: enabled, severity (error | warn | info),
   god-package: {severity: warn, fanIn: 10}
   duplicate-symbol: {enabled: false}
   # duplicate-symbol: {ignore: [main, init, New]}   # names not checked (replaces the defaults)
+  unused-export: {ignore: ["pkg/api/**"]}            # paths not reported (a library's public API)
+  unreachable-file: {entries: ["plugins/**"]}       # entry points depgraph cannot see
+  # entries / ignore are shared by unused-export, unreachable-file and unreachable-package
 
 ignore: ["**/testdata/**"]  # packages left out of every rule
 ```

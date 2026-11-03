@@ -266,6 +266,9 @@ func (c Config) Validate() error {
 	if _, err := c.IgnoreGlobs(); err != nil {
 		return err
 	}
+	if _, _, err := c.UnusedGlobs(); err != nil {
+		return err
+	}
 	if c.GodPackageFanIn < 1 {
 		return fmt.Errorf("rule %s: fanIn must be at least 1, got %d", RuleGodPackage, c.GodPackageFanIn)
 	}

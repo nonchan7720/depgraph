@@ -1,5 +1,5 @@
 // UI state remembered per repository root (localStorage).
-import { graphQuery } from './api';
+import type { GraphQuery } from './api';
 
 export interface UIState {
   depth: number; // 0 = auto
@@ -31,8 +31,8 @@ export function parseState(raw: string | null): UIState {
   };
 }
 
-export function toQuery(s: UIState, q: string): string {
-  return graphQuery({ depth: s.depth, expand: s.expanded, ext: s.showExt, q: q.trim(), focus: s.focus });
+export function toGraphQuery(s: UIState, q: string): GraphQuery {
+  return { depth: s.depth, expand: s.expanded, ext: s.showExt, q: q.trim(), focus: s.focus };
 }
 
 export function collapseUnder(expanded: string[], prefix: string): string[] {

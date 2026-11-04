@@ -91,7 +91,8 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	return nil
 }
 
-type graphResponse struct {
+// GraphResponse is what GET /api/graph (and the MCP App's graph_view tool) answers.
+type GraphResponse struct {
 	Root     string          `json:"root"`
 	Updated  time.Time       `json:"updated"`
 	Stats    view.Stats      `json:"stats"`
@@ -111,19 +112,33 @@ func parseViewOptions(q url.Values) ViewOptions {
 	return o
 }
 
-func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
-	ov, err := s.st.Overview(r.Context())
+// Graph folds the current package graph and the latest findings with o.
+func (s *Server) Graph(ctx context.Context, o ViewOptions) (*GraphResponse, error) {
+	ov, err := s.st.Overview(ctx)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return nil, err
 	}
 	s.mu.RLock()
-	resp := graphResponse{Root: s.root, Updated: s.updated, Stats: s.stats, Findings: s.findings}
+	resp := GraphResponse{Root: s.root, Updated: s.updated, Stats: s.stats, Findings: s.findings}
 	s.mu.RUnlock()
 	if resp.Findings == nil {
 		resp.Findings = []rules.Finding{}
 	}
-	resp.View = BuildView(ov, resp.Findings, parseViewOptions(r.URL.Query()))
+	resp.View = BuildView(ov, resp.Findings, o)
+	return &resp, nil
+}
+
+// Package returns the files, symbols and import neighbours of one package.
+func (s *Server) Package(ctx context.Context, key string) (*view.PackageDetail, error) {
+	return s.st.PackageDetail(ctx, key)
+}
+
+func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
+	resp, err := s.Graph(r.Context(), parseViewOptions(r.URL.Query()))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	writeJSON(w, resp)
 }
 
@@ -133,7 +148,7 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "key required", http.StatusBadRequest)
 		return
 	}
-	d, err := s.st.PackageDetail(r.Context(), key)
+	d, err := s.Package(r.Context(), key)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

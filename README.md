@@ -192,6 +192,7 @@ depgraph projects prune [--dry-run]  # delete projects whose root no longer exis
 | `watch --root DIR [--no-lsp] [--no-ui]` | scan, then watch with fsnotify and update incrementally (tree-sitter, then LSP adds CALLS/REFERENCES) |
 | `check --root DIR` | evaluate rules against the graph already in Neo4j (updates CLAUDE.md) |
 | `serve --root DIR [--addr 127.0.0.1:7777]` | browser UI over the graph already in Neo4j (no watching, CLAUDE.md untouched) |
+| `mcp --root DIR` | stdio MCP server that shows the browser UI as an [MCP App](#mcp-app) (reads the graph already in Neo4j, CLAUDE.md untouched) |
 | `parse --root DIR [files...]` | print the tree-sitter result as JSON, one file per line, without Neo4j (debugging) |
 | `hook <session-start\|prompt>` | Claude Code hook: print findings as additional context (read-only, always exits 0) |
 | `gate [files...] [--fail-on warn]` | quality-gate check ([claude-hook-gate](#quality-gate-claude-hook-gate)): apply the changed files, exit 1 on findings the session added |
@@ -208,10 +209,10 @@ Flags (see `depgraph <command> --help`):
 | `--project` | all | `project` in `<root>/.depgraph.yml`, else the directory name of `--root` (`@<worktree>` added in a linked git worktree) |
 | `--exclude` | all | none (comma-separated exclude patterns) |
 | `--ignore-file` | all | `.depgraphignore` (relative to `--root`, empty to disable) |
-| `--neo4j` / `--user` / `--pass` / `--db` | scan / check / watch / serve / hook / gate / projects | external Neo4j: `$NEO4J_URI` / `$NEO4J_USER` / `$NEO4J_PASSWORD` / `$NEO4J_DATABASE` (no URI: depgraph provides Neo4j; fallback user / password / database `neo4j` / `depgraph123` / `neo4j`) |
-| `--neo4j-provider` | scan / check / watch / serve / hook / gate / projects | `$DEPGRAPH_NEO4J_PROVIDER`, else `store.provider`, else external when a URI is set, else container |
-| `--container-cli` | scan / check / watch / serve / hook / gate / projects / store | `$DEPGRAPH_CONTAINER_CLI`, else `store.containerCli`, else the first of docker / podman / nerdctl that answers |
-| `--persist` | scan / check / watch / serve | `store.persist`, else false (ephemeral) |
+| `--neo4j` / `--user` / `--pass` / `--db` | scan / check / watch / serve / mcp / hook / gate / projects | external Neo4j: `$NEO4J_URI` / `$NEO4J_USER` / `$NEO4J_PASSWORD` / `$NEO4J_DATABASE` (no URI: depgraph provides Neo4j; fallback user / password / database `neo4j` / `depgraph123` / `neo4j`) |
+| `--neo4j-provider` | scan / check / watch / serve / mcp / hook / gate / projects | `$DEPGRAPH_NEO4J_PROVIDER`, else `store.provider`, else external when a URI is set, else container |
+| `--container-cli` | scan / check / watch / serve / mcp / hook / gate / projects / store | `$DEPGRAPH_CONTAINER_CLI`, else `store.containerCli`, else the first of docker / podman / nerdctl that answers |
+| `--persist` | scan / check / watch / serve / mcp | `store.persist`, else false (ephemeral) |
 | `--claude-md` | scan / check / watch | `$DEPGRAPH_CLAUDE_MD` or `CLAUDE.md` (relative to `--root`, empty to disable) |
 | `--reset` | scan / watch | false (clear this project's data before scanning; other projects are kept) |
 | `--workers` | parse / scan / watch | `0` (files parsed in parallel during a full scan; 0 = GOMAXPROCS. Output order does not depend on it) |
@@ -316,6 +317,36 @@ rules:
 - Built from `web/` (Vite + TypeScript, Cytoscape + elkjs) into `pkg/interfaces/handler/ui/dist/` and embedded in the binary (`mise run build` runs `web:build` first). No CDN or web fonts: every dependency is pinned in `web/pnpm-lock.yaml`, and `mise run web:check-no-cdn` verifies the build loads nothing from a URL
 
 API: `GET /api/graph` (packages, edges, findings, stats), `GET /api/package?key=...`, `GET /events` (SSE)
+
+## MCP App
+
+`depgraph mcp` is an MCP server (stdio) that shows the same browser UI inside the conversation of a host
+that supports [MCP Apps](https://modelcontextprotocol.io/extensions/apps) (Claude, Claude Desktop, ...). Like
+`serve` it reads the graph already in Neo4j: run `scan` or `watch` for the repository first.
+
+```json
+{
+  "mcpServers": {
+    "depgraph": { "command": "depgraph", "args": ["mcp", "--root", "/path/to/repo"] }
+  }
+}
+```
+
+(Claude Code: `claude mcp add depgraph -- depgraph mcp --root /path/to/repo`)
+
+| tool | visible to | what it does |
+|---|---|---|
+| `show_dependency_graph` | model, app | re-runs the rules, answers a summary of the findings and opens the graph view (`ui://depgraph/graph.html`) |
+| `graph_view` | app | the folded graph, same JSON as `GET /api/graph` |
+| `package_detail` | app | one package, same JSON as `GET /api/package` |
+
+- The view runs in the host's sandbox with no network access, so it is built as one self-contained HTML
+  (`vite build --mode mcp-app` into `pkg/interfaces/handler/mcpapp/dist/`, embedded like the browser UI) and
+  reads the graph through the app-only tools, which the host proxies to the server. ELK runs in the page
+  instead of a Web Worker (the sandbox allows no worker script)
+- There is no event stream: `refresh` in the header re-runs the rules and reloads, and so does the model
+  calling `show_dependency_graph` again. `fullscreen` appears when the host offers it
+- Logs go to stderr; stdout carries the protocol
 
 ## Graph schema
 
@@ -528,8 +559,9 @@ pkg/infrastructure/resolver/         repository walk + exclude patterns
   lsp/                               refinement with language servers (callHierarchy / references)
 pkg/infrastructure/watch/            fsnotify + debounce
 pkg/infrastructure/claudemd/         CLAUDE.md managed section
-pkg/interfaces/cmd/                  CLI (cobra: parse / scan / check / watch / serve / hook / gate / projects / store)
+pkg/interfaces/cmd/                  CLI (cobra: parse / scan / check / watch / serve / mcp / hook / gate / projects / store)
 pkg/interfaces/handler/ui/           HTTP server + SSE + embedded UI (web/ build output)
+pkg/interfaces/handler/mcpapp/       MCP server: the UI as an MCP App (single-file web/ build, app-only tools)
 web/                                 browser UI source (Vite + TypeScript, Cytoscape + elkjs)
 pkg/interfaces/handler/hook/         Claude Code hook and quality gate (summary / diff / findings added in a session)
 ```
@@ -543,7 +575,8 @@ The analysis backend is pluggable through `graph.Resolver`. Priority: treesitter
 - [ ] SCIP index import (batch precise analysis for CI)
 - [x] Multiple projects in one database (`--project`, `.depgraph.yml` `project:`, `depgraph projects`)
 - [x] Rule configuration in `.depgraph.yml` (layers, forbidden imports, severities, ignore)
-- [ ] MCP server mode (query directly from Claude Code / Cursor)
+- [x] MCP server showing the browser UI as an MCP App (`depgraph mcp`)
+- [ ] MCP tools to query the graph directly (dependents, unused code, duplicates) from Claude Code / Cursor
 - [x] depgraph provides Neo4j itself in a container (docker / podman / nerdctl), ephemeral or persistent
 - [ ] `local` Neo4j provider: run a Neo4j installation (`NEO4J_HOME` or `neo4j` on `PATH`) as a child process, data in a per-run directory, loopback only
 

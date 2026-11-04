@@ -78,3 +78,5 @@ details.rule-group .sev { width: 8px; height: 8px; border-radius: 50%; }
   #app { grid-template-columns: 1fr; grid-template-rows: 48px 55vh 1fr; }
   aside { border-left: 0; border-top: 1px solid var(--border); }
 }
+/* MCP App (src/host/mcp.ts): the host's iframe is narrower than a browser window */
+.mcp-app #app { grid-template-columns: 1fr 300px; }

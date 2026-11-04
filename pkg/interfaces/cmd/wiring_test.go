@@ -50,9 +50,11 @@ func TestCommandFlags(t *testing.T) {
 		"watch": {"neo4j", "user", "pass", "db", "neo4j-provider", "container-cli", "persist", "claude-md", "reset", "debounce", "addr", "no-ui", "no-lsp", "workers"},
 		"serve": {"neo4j", "user", "pass", "db", "neo4j-provider", "container-cli", "persist", "addr"},
 		"hook":  {"neo4j", "user", "pass", "db", "neo4j-provider", "container-cli", "timeout", "debug"},
+		"mcp":   {"neo4j", "user", "pass", "db", "neo4j-provider", "container-cli", "persist"},
 	}
 	lacks := map[string][]string{
-		"serve": {"claude-md", "reset", "workers"}, // serve never writes CLAUDE.md
+		"serve": {"claude-md", "reset", "workers"},         // serve never writes CLAUDE.md
+		"mcp":   {"claude-md", "reset", "workers", "addr"}, // stdio only, never writes CLAUDE.md
 		"parse": {"neo4j", "claude-md"},
 		"check": {"workers"},                                  // check does not parse
 		"hook":  {"claude-md", "reset", "workers", "persist"}, // hook は読むだけ（何も起動しない）

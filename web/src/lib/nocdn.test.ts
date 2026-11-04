@@ -26,6 +26,15 @@ describe('externalRefs', () => {
     expect(externalRefs('a.js', 'const ns = "http://www.w3.org/2001/XMLSchema#int"; throw Error("see https://example.org/doc")')).toEqual([]);
   });
 
+  it('checks inline scripts of an HTML file as bundled JS (the single-file MCP App)', () => {
+    const page = (js: string, rest = '') => `<html>${rest}<script type="module">${js}</script></html>`;
+    expect(externalRefs('index.html', page('const ns = "http://www.eclipse.org/elk/ElkGraph"'))).toEqual([]);
+    expect(externalRefs('index.html', page('fetch("https://cdn.example/d")'))).toHaveLength(1);
+    // the markup around the scripts stays strict
+    expect(externalRefs('index.html', page('', '<link href="https://fonts.example/css">'))).toHaveLength(1);
+    expect(externalRefs('index.html', page('') + '<script src="https://cdn.example/x.js"></script>')).toHaveLength(1);
+  });
+
   it('is strict for our own sources: any URL counts', () => {
     expect(externalRefs('src/main.ts', 'const x = "https://example.org"', { strict: true })).toHaveLength(1);
   });

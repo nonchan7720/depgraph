@@ -9,3 +9,7 @@ forbidden:
   domain: [infrastructure, services, interfaces]
   services: [interfaces]
   infrastructure: [interfaces, services]
+rules:
+  # `vite build --mode mcp-app` starts the MCP App from this file instead of
+  # src/main.ts (web/vite.config.ts), which index.html cannot show
+  unreachable-file: {entries: ["web/src/mcp-app.ts"]}

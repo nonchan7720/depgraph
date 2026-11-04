@@ -53,14 +53,14 @@ run = "go mod tidy"
 description = "Build ./bin/depgraph"
 depends = ["web:build"]
 # mise.toml: GOFLAGS carries the build tags
-sources = ["main.go", "pkg/**/*.go", "pkg/interfaces/handler/ui/dist/**", "go.mod", "go.sum", "mise.toml"]
+sources = ["main.go", "pkg/**/*.go", "pkg/interfaces/handler/ui/dist/**", "pkg/interfaces/handler/mcpapp/dist/**", "go.mod", "go.sum", "mise.toml"]
 outputs = ["bin/depgraph"]
 run = "go build -o bin/depgraph ."
 
 [tasks."web:build"]
-description = "Build the browser UI (web/: Cytoscape + ELK) into pkg/interfaces/handler/ui/dist (embedded, served at /)"
+description = "Build the browser UI (web/: Cytoscape + ELK) into pkg/interfaces/handler/ui/dist (embedded, served at /) and its single-file MCP App into pkg/interfaces/handler/mcpapp/dist"
 sources = ["web/src/**", "web/public/**", "web/index.html", "web/package.json", "web/pnpm-lock.yaml", "web/.npmrc", "web/tsconfig.json", "web/vite.config.ts"]
-outputs = ["pkg/interfaces/handler/ui/dist/index.html"]
+outputs = ["pkg/interfaces/handler/ui/dist/index.html", "pkg/interfaces/handler/mcpapp/dist/index.html"]
 run = "cd web && pnpm install --frozen-lockfile && pnpm build"
 
 [tasks."web:test"]

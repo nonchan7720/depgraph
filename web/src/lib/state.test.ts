@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { collapseUnder, defaultState, parseState, toQuery } from './state';
+import { graphQuery } from './api';
+import { collapseUnder, defaultState, parseState, toGraphQuery } from './state';
 
 describe('parseState', () => {
   it('falls back to defaults on bad input', () => {
@@ -13,9 +14,9 @@ describe('parseState', () => {
   });
 });
 
-describe('toQuery', () => {
+describe('toGraphQuery', () => {
   it('builds the /api/graph query from the state', () => {
-    expect(toQuery({ ...defaultState(), depth: 2, expanded: ['x'], focus: 'f' }, 'q')).toBe('depth=2&expand=x&q=q&focus=f');
+    expect(graphQuery(toGraphQuery({ ...defaultState(), depth: 2, expanded: ['x'], focus: 'f' }, ' q '))).toBe('depth=2&expand=x&q=q&focus=f');
   });
 });
 

@@ -5,6 +5,8 @@ bin/
 web/node_modules/
 pkg/interfaces/handler/ui/dist/*
 !pkg/interfaces/handler/ui/dist/.gitkeep
+pkg/interfaces/handler/mcpapp/dist/*
+!pkg/interfaces/handler/mcpapp/dist/.gitkeep
 HANDOFF.md
 bin/
 .DS_Store

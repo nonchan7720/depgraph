@@ -6,11 +6,11 @@
   "packageManager": "pnpm@12.14.0",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vite build && vite build --mode mcp-app",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "check:no-cdn": "node scripts/check-no-cdn.ts ../pkg/interfaces/handler/ui/dist"
+    "check:no-cdn": "node scripts/check-no-cdn.ts ../pkg/interfaces/handler/ui/dist ../pkg/interfaces/handler/mcpapp/dist"
   },
   "dependencies": {
     "cytoscape": "3.34.4",

@@ -178,6 +178,7 @@ depgraph projects prune [--dry-run]  # root が存在しなくなったプロジ
 | `watch --root DIR [--no-lsp] [--no-ui]` | scan 後、fsnotify で監視して差分更新（tree-sitter → LSP で CALLS/REFERENCES を追加） |
 | `check --root DIR` | 投入済みグラフに対してルール評価だけ実行（CLAUDE.md 更新） |
 | `serve --root DIR [--addr 127.0.0.1:7777]` | 投入済みグラフをブラウザ UI で表示（監視なし、CLAUDE.md は更新しない） |
+| `mcp --root DIR` | ブラウザ UI を [MCP App](#mcp-app) として表示する stdio の MCP サーバー（投入済みグラフを読む、CLAUDE.md は更新しない） |
 | `parse --root DIR [files...]` | Neo4j なしで tree-sitter の解析結果を JSON（1 行 1 ファイル）で出力（デバッグ用） |
 | `hook <session-start\|prompt>` | Claude Code の hook。Findings を追加文脈として出力（読むだけ、常に exit 0） |
 | `gate [files...] [--fail-on warn]` | 品質ゲートのチェック（[claude-hook-gate](#品質ゲートclaude-hook-gate)）。変更ファイルを反映し、セッションで増えた Findings があれば exit 1 |
@@ -194,10 +195,10 @@ depgraph projects prune [--dry-run]  # root が存在しなくなったプロジ
 | `--project` | 全コマンド | `<root>/.depgraph.yml` の `project`、無ければ `--root` のディレクトリ名（linked worktree では `@<worktree 名>` を付加） |
 | `--exclude` | 全コマンド | なし（カンマ区切りの除外パターン） |
 | `--ignore-file` | 全コマンド | `.depgraphignore`（`--root` 基準、空で無効） |
-| `--neo4j` / `--user` / `--pass` / `--db` | scan / check / watch / serve / hook / gate / projects | 外部 Neo4j: `$NEO4J_URI` / `$NEO4J_USER` / `$NEO4J_PASSWORD` / `$NEO4J_DATABASE`（URI 未設定時は depgraph が Neo4j を用意。ユーザー / パスワード / DB の未設定時 `neo4j` / `depgraph123` / `neo4j`） |
-| `--neo4j-provider` | scan / check / watch / serve / hook / gate / projects | `$DEPGRAPH_NEO4J_PROVIDER`、なければ `store.provider`、なければ URI があれば external、なければ container |
-| `--container-cli` | scan / check / watch / serve / hook / gate / projects / store | `$DEPGRAPH_CONTAINER_CLI`、なければ `store.containerCli`、なければ docker / podman / nerdctl で最初に応答したもの |
-| `--persist` | scan / check / watch / serve | `store.persist`、なければ false（エフェメラル） |
+| `--neo4j` / `--user` / `--pass` / `--db` | scan / check / watch / serve / mcp / hook / gate / projects | 外部 Neo4j: `$NEO4J_URI` / `$NEO4J_USER` / `$NEO4J_PASSWORD` / `$NEO4J_DATABASE`（URI 未設定時は depgraph が Neo4j を用意。ユーザー / パスワード / DB の未設定時 `neo4j` / `depgraph123` / `neo4j`） |
+| `--neo4j-provider` | scan / check / watch / serve / mcp / hook / gate / projects | `$DEPGRAPH_NEO4J_PROVIDER`、なければ `store.provider`、なければ URI があれば external、なければ container |
+| `--container-cli` | scan / check / watch / serve / mcp / hook / gate / projects / store | `$DEPGRAPH_CONTAINER_CLI`、なければ `store.containerCli`、なければ docker / podman / nerdctl で最初に応答したもの |
+| `--persist` | scan / check / watch / serve / mcp | `store.persist`、なければ false（エフェメラル） |
 | `--claude-md` | scan / check / watch | `$DEPGRAPH_CLAUDE_MD` または `CLAUDE.md`（`--root` 基準、空で無効） |
 | `--reset` | scan / watch | false（スキャン前にこのプロジェクトのデータを消去。他のプロジェクトは残る） |
 | `--workers` | parse / scan / watch | `0`（フルスキャンで並列に解析するファイル数。0 は GOMAXPROCS。出力順はこの値に依存しない） |
@@ -300,6 +301,35 @@ rules:
 - `web/`（Vite + TypeScript、Cytoscape + elkjs）を `pkg/interfaces/handler/ui/dist/` にビルドしてバイナリに埋め込み（`mise run build` が先に `web:build` を実行）。CDN・Web フォントは使わず、依存はすべて `web/pnpm-lock.yaml` で固定。`mise run web:check-no-cdn` でビルド成果物が URL から何も読み込まないことを検査
 
 API: `GET /api/graph`（パッケージ・辺・findings・stats）、`GET /api/package?key=...`、`GET /events`（SSE）
+
+## MCP App
+
+`depgraph mcp` は MCP サーバー（stdio）で、[MCP Apps](https://modelcontextprotocol.io/extensions/apps) に対応したホスト（Claude、Claude Desktop など）の
+会話内に、ブラウザ UI と同じ画面を表示します。`serve` と同じく Neo4j に投入済みのグラフを読むので、先にそのリポジトリを
+`scan` か `watch` してください。
+
+```json
+{
+  "mcpServers": {
+    "depgraph": { "command": "depgraph", "args": ["mcp", "--root", "/path/to/repo"] }
+  }
+}
+```
+
+（Claude Code: `claude mcp add depgraph -- depgraph mcp --root /path/to/repo`）
+
+| tool | 見えるもの | 内容 |
+|---|---|---|
+| `show_dependency_graph` | モデル・アプリ | ルールを再評価し、Findings の要約を返してグラフ画面（`ui://depgraph/graph.html`）を開く |
+| `graph_view` | アプリ | 折りたたんだグラフ。`GET /api/graph` と同じ JSON |
+| `package_detail` | アプリ | 1 パッケージの詳細。`GET /api/package` と同じ JSON |
+
+- 画面はネットワークに出られないホストのサンドボックスで動くため、1 ファイルに自己完結した HTML としてビルドし
+  （`vite build --mode mcp-app` で `pkg/interfaces/handler/mcpapp/dist/` に出力、ブラウザ UI と同じくバイナリに埋め込み）、
+  グラフはホストがサーバーへ中継するアプリ専用ツールで読みます。サンドボックスは Worker スクリプトを許さないので、ELK はページ内で実行
+- イベントストリームは無く、ヘッダーの `refresh` でルールを再評価して再読込（モデルが `show_dependency_graph` を再度呼んだときも同様）。
+  ホストが対応していれば `fullscreen` ボタンを表示
+- ログは stderr、stdout はプロトコル専用
 
 ## Graph schema
 
@@ -475,8 +505,9 @@ pkg/infrastructure/resolver/         リポジトリ走査 + 除外パターン
   lsp/                               言語サーバー（callHierarchy / references）による精密化
 pkg/infrastructure/watch/            fsnotify + デバウンス
 pkg/infrastructure/claudemd/         CLAUDE.md の管理区間更新
-pkg/interfaces/cmd/                  CLI（cobra: parse / scan / check / watch / serve / hook / gate / projects / store）
+pkg/interfaces/cmd/                  CLI（cobra: parse / scan / check / watch / serve / mcp / hook / gate / projects / store）
 pkg/interfaces/handler/ui/           HTTP サーバー + SSE + 埋め込み UI（web/ のビルド成果物）
+pkg/interfaces/handler/mcpapp/       MCP サーバー: UI を MCP App として提供（web/ の 1 ファイルビルド、アプリ専用ツール）
 web/                                 ブラウザ UI のソース（Vite + TypeScript、Cytoscape + elkjs）
 pkg/interfaces/handler/hook/         Claude Code hook・品質ゲート（要約・差分・セッションで増えた Findings）
 ```
@@ -490,7 +521,8 @@ pkg/interfaces/handler/hook/         Claude Code hook・品質ゲート（要約
 - [ ] SCIP インデックス取り込み（CI 向けバッチ精密解析）
 - [x] 1 DB で複数プロジェクト（`--project`、`.depgraph.yml` の `project:`、`depgraph projects`）
 - [x] `.depgraph.yml` でのルール設定（レイヤー・禁止 import・severity・ignore）
-- [ ] MCP サーバーモード（Claude Code / Cursor から直接問い合わせ）
+- [x] ブラウザ UI を MCP App として表示する MCP サーバー（`depgraph mcp`）
+- [ ] グラフを直接問い合わせる MCP ツール（依存元・未使用コード・重複）を Claude Code / Cursor から
 - [x] depgraph 自身がコンテナ（docker / podman / nerdctl）で Neo4j を用意（エフェメラル / 永続）
 - [ ] `local` Neo4j プロバイダー: インストール済みの Neo4j（`NEO4J_HOME` か `PATH` の `neo4j`）を子プロセスで起動。データは実行ごとのディレクトリ、ループバックのみ
 

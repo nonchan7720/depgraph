@@ -25,9 +25,14 @@ const loads = (js: string) => LOAD_RES.flatMap((re) => js.match(re) ?? []);
 export function externalRefs(path: string, content: string, opts: { strict?: boolean } = {}): string[] {
   if (opts.strict || /\.css$/i.test(path)) return content.match(URL_RE) ?? [];
   if (/\.html?$/i.test(path)) {
-    const scripts: string[] = [];
-    const markup = content.replace(INLINE_SCRIPT, (_, js: string) => (scripts.push(js), ''));
-    return [...(markup.match(URL_RE) ?? []), ...scripts.flatMap(loads)];
+    // split, not strip: every byte is checked, either as markup or as script
+    const refs: string[] = [];
+    let at = 0;
+    for (const m of content.matchAll(INLINE_SCRIPT)) {
+      refs.push(...(content.slice(at, m.index).match(URL_RE) ?? []), ...loads(m[1]));
+      at = m.index + m[0].length;
+    }
+    return [...refs, ...(content.slice(at).match(URL_RE) ?? [])];
   }
   if (!/\.m?js$/i.test(path)) return [];
   return loads(content);

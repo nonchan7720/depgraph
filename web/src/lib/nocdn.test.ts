@@ -33,6 +33,8 @@ describe('externalRefs', () => {
     // the markup around the scripts stays strict
     expect(externalRefs('index.html', page('', '<link href="https://fonts.example/css">'))).toHaveLength(1);
     expect(externalRefs('index.html', page('') + '<script src="https://cdn.example/x.js"></script>')).toHaveLength(1);
+    // a tag split around an inline script still shows its URL
+    expect(externalRefs('index.html', '<scr<script>1</script>ipt src="https://cdn.example/x.js"></script>')).toHaveLength(1);
   });
 
   it('is strict for our own sources: any URL counts', () => {

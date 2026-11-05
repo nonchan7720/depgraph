@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.4](https://github.com/nonchan7720/depgraph/compare/v0.1.3...v0.1.4) (2026-11-05)
+
+
+### Features
+
+* **plugin:** Claude Code plugin with depgraph's hooks and setup / fix skills ([#36](https://github.com/nonchan7720/depgraph/issues/36)) ([3ac8afc](https://github.com/nonchan7720/depgraph/commit/3ac8afc9dd3b819c3f44325d8f063faf6c0b4e6d))
+* **rules:** prefix and glob patterns in duplicate-symbol's ignore ([#34](https://github.com/nonchan7720/depgraph/issues/34)) ([c6794e4](https://github.com/nonchan7720/depgraph/commit/c6794e4d28f5afcb7d05198864bc30d84e9b7470))
+
+
+### Bug Fixes
+
+* **gate:** check the agent's git worktree, not the main tree ([#33](https://github.com/nonchan7720/depgraph/issues/33)) ([032dc54](https://github.com/nonchan7720/depgraph/commit/032dc540c2243d983bec395b5666a364bc493824))
+
 ## [0.1.3](https://github.com/nonchan7720/depgraph/compare/v0.1.2...v0.1.3) (2026-11-04)
 
 

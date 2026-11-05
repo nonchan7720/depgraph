@@ -625,16 +625,20 @@ func (p *Provider) volumes(ctx context.Context) ([]Volume, error) {
 	if len(names) == 0 {
 		return nil, nil
 	}
-	out, err = p.run(ctx, nil, append([]string{"volume", "inspect"}, names...)...)
+	raw, err := p.inspectVolumes(ctx, names...)
+	if err != nil && isNoSuch(err) {
+		// one of them went away between ls and inspect: inspect one by one
+		raw, err = nil, nil
+		for _, n := range names {
+			one, err := p.inspectVolumes(ctx, n)
+			if err != nil && !isNoSuch(err) {
+				return nil, err
+			}
+			raw = append(raw, one...)
+		}
+	}
 	if err != nil {
 		return nil, err
-	}
-	var raw []struct {
-		Name   string            `json:"Name"`
-		Labels map[string]string `json:"Labels"`
-	}
-	if err := json.Unmarshal(out, &raw); err != nil {
-		return nil, fmt.Errorf("parse volume inspect output: %w", err)
 	}
 	var vols []Volume
 	for _, v := range raw {
@@ -644,6 +648,23 @@ func (p *Provider) volumes(ctx context.Context) ([]Volume, error) {
 		vols = append(vols, Volume{Name: v.Name, Project: v.Labels[LabelProject], RootPath: v.Labels[LabelRootPath]})
 	}
 	return vols, nil
+}
+
+type rawVolume struct {
+	Name   string            `json:"Name"`
+	Labels map[string]string `json:"Labels"`
+}
+
+func (p *Provider) inspectVolumes(ctx context.Context, names ...string) ([]rawVolume, error) {
+	out, err := p.run(ctx, nil, append([]string{"volume", "inspect"}, names...)...)
+	if err != nil {
+		return nil, err
+	}
+	var raw []rawVolume
+	if err := json.Unmarshal(out, &raw); err != nil {
+		return nil, fmt.Errorf("parse volume inspect output: %w", err)
+	}
+	return raw, nil
 }
 
 // Down stops the store of root. An ephemeral one is removed (with its data);

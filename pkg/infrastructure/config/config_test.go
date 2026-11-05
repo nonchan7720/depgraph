@@ -106,6 +106,12 @@ rules:
 	if _, err := Parse([]byte("rules:\n  unused-export: {ignore: [\"a/**b\"]}\n")); err == nil {
 		t.Error("bad unused glob accepted")
 	}
+	if _, err := Parse([]byte("rules:\n  duplicate-symbol: {ignore: [\"Test*\", \"\"]}\n")); err == nil {
+		t.Error("empty duplicate-symbol name pattern accepted")
+	}
+	if f, err := Parse([]byte("rules:\n  duplicate-symbol: {ignore: [\"Test*\", \"Get?\"]}\n")); err != nil || !reflect.DeepEqual(f.Rules.IgnoreDuplicateNames, []string{"Test*", "Get?"}) {
+		t.Errorf("duplicate-symbol name patterns: %v %v", f.Rules.IgnoreDuplicateNames, err)
+	}
 	if _, err := Parse([]byte("rules:\n  god-package: {entries: [x]}\n")); err == nil {
 		t.Error("entries accepted on god-package")
 	}

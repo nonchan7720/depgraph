@@ -474,7 +474,7 @@ rules:                      # ルールごと: enabled、severity（error | warn
   god-package: {severity: warn, fanIn: 10, fanOut: 3}
   duplicate-symbol: {enabled: false}
   duplicate-code: {minTokens: 50, similarity: 0.8}   # 本体の大きさと指紋の類似度
-  # duplicate-symbol: {ignore: [main, init, New]}   # 対象外の名前（デフォルトを置き換える）
+  # duplicate-symbol: {ignore: [main, New, "Test*", "*Handler"]}  # 対象外の名前（デフォルトを置き換える）
   unused-export: {ignore: ["pkg/api/**"]}            # 報告しないパス（ライブラリの公開 API など）
   unreachable-file: {entries: ["plugins/**"]}       # depgraph から見えないエントリポイント
   # entries / ignore は unused-export・unreachable-file・unreachable-package で共通
@@ -491,6 +491,9 @@ store:                      # Neo4j の用意の仕方（Neo4j 参照）。フ�
   マッチします。`**` は任意個のセグメント、`*` と `?` は 1 セグメント内だけ。
   `pkg/domain/**` は `pkg/domain` とその配下すべて、`**/db/**` は `db` や `internal/db/sql` にマッチし、
   `pkg/feedback` にはマッチしません。
+- **名前のパターン**（`duplicate-symbol` の `ignore`）はシンボル名全体に一致します。`*` は任意の文字列、
+  `?` は 1 文字で、それ以外はそのままの文字です。`New` はその名前だけ、`Test*` は `Test` で始まる名前（前方一致）、
+  `*Handler` は `Handler` で終わる名前に一致します。
 - 1 つのパッケージが複数のレイヤーに属してもかまいません。違反になるのはペアをまたぐ import だけで、
   両方が禁止される側のレイヤー、または両方が import する側のレイヤーに属するなら報告しません。
 - `layers` を書くとデフォルトのレイヤーを置き換え、デフォルトの禁止ペアもなくなります。

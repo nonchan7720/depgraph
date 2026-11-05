@@ -84,7 +84,7 @@
               "type": "boolean"
             },
             "ignore": {
-              "description": "Names never reported (replaces the defaults).",
+              "description": "Symbol names never reported (replaces the defaults): an exact name, a prefix such as Test*, or a glob where * is any run of characters and ? one character.",
               "items": {
                 "type": "string"
               },

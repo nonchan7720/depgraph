@@ -117,7 +117,9 @@ type Config struct {
 	// repository (a domain model) is stable, not a god package.
 	GodPackageFanIn  int
 	GodPackageFanOut int
-	// IgnoreDuplicateNames: symbol names excluded from the duplicate check.
+	// IgnoreDuplicateNames: symbol name patterns (see NamePattern: an exact
+	// name, a prefix such as Test*, or a glob with * and ?) excluded from
+	// the duplicate check.
 	IgnoreDuplicateNames []string
 	// Ignore: package key globs excluded from every rule.
 	Ignore []string
@@ -283,6 +285,9 @@ func (c Config) Validate() error {
 		return err
 	}
 	if _, _, err := c.UnusedGlobs(); err != nil {
+		return err
+	}
+	if _, err := c.DuplicateNameRegexes(); err != nil {
 		return err
 	}
 	if c.GodPackageFanOut < 0 {

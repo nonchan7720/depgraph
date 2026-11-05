@@ -150,17 +150,21 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 
 	// 4. Duplicate exported functions/classes across files (AI tends to re-implement).
 	if cfg.Enabled(rules.RuleDuplicateSymbol) {
+		names, err := cfg.DuplicateNameRegexes()
+		if err != nil {
+			return nil, err
+		}
 		rows, err := r.query(ctx, `
 			MATCH (p:Package {project: $project})-[:CONTAINS]->(f:File)-[:DECLARES]->(s:Symbol)
 			WHERE s.exported AND s.kind IN ['function', 'class', 'struct']
-			  AND NOT s.name IN $names
+			  AND NOT any(rx IN $names WHERE s.name =~ rx)
 			  AND NOT any(rx IN $ignore WHERE p.key =~ rx)
 			WITH s.name AS name, s.kind AS kind,
 			     collect(DISTINCT f.path) AS files,
 			     collect(DISTINCT CASE WHEN f.language = 'go' THEN p.key ELSE f.path END) AS places
 			WHERE size(places) > 1
 			RETURN name, kind, files ORDER BY size(places) DESC, name LIMIT 50
-		`, ignore, map[string]any{"names": nonNil(cfg.IgnoreDuplicateNames)})
+		`, ignore, map[string]any{"names": names})
 		// A Go name declared in several files of ONE package compiles only
 		// because build constraints separate the files (x_unix.go /
 		// x_windows.go): one declaration per build, so a Go package counts
@@ -227,15 +231,6 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 
 	sort.Slice(out, func(i, j int) bool { return out[i].Key() < out[j].Key() })
 	return out, nil
-}
-
-// nonNil keeps an empty list a list in Cypher (nil would be null, and
-// `x IN null` is null, which drops every row).
-func nonNil(s []string) []string {
-	if s == nil {
-		return []string{}
-	}
-	return s
 }
 
 func toInt(v any) int {

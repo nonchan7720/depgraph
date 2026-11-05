@@ -27,6 +27,8 @@ type fakeCLI struct {
 	rmErr  error
 	// onRun runs after a successful `run` (e.g. a racing second start).
 	onRun func(f *fakeCLI)
+	// onVolumeLs runs after `volume ls` (e.g. a volume removed before inspect).
+	onVolumeLs func(f *fakeCLI)
 }
 
 type fakeContainer struct {
@@ -268,6 +270,9 @@ func (f *fakeCLI) Run(_ context.Context, env []string, _ string, args ...string)
 				if l[LabelManaged] == "1" {
 					names = append(names, n)
 				}
+			}
+			if f.onVolumeLs != nil {
+				f.onVolumeLs(f)
 			}
 			return []byte(strings.Join(names, "\n")), nil
 		case "rm":

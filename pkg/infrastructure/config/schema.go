@@ -46,7 +46,7 @@ func optionSchema(rule, option string) jsonObj {
 		if rules.IsUnusedRule(rule) {
 			return stringList(unusedOptionDesc[option])
 		}
-		return stringList("Names never reported (replaces the defaults).")
+		return stringList("Symbol names never reported (replaces the defaults): an exact name, a prefix such as Test*, or a glob where * is any run of characters and ? one character.")
 	case "entries":
 		return stringList(unusedOptionDesc[option])
 	}

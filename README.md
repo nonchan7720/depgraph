@@ -482,7 +482,7 @@ rules:                      # per rule: enabled, severity (error | warn | info),
   god-package: {severity: warn, fanIn: 10, fanOut: 3}
   duplicate-symbol: {enabled: false}
   duplicate-code: {minTokens: 50, similarity: 0.8}   # body size and fingerprint similarity
-  # duplicate-symbol: {ignore: [main, init, New]}   # names not checked (replaces the defaults)
+  # duplicate-symbol: {ignore: [main, New, "Test*", "*Handler"]}  # names not checked (replaces the defaults)
   unused-export: {ignore: ["pkg/api/**"]}            # paths not reported (a library's public API)
   unreachable-file: {entries: ["plugins/**"]}       # entry points depgraph cannot see
   # entries / ignore are shared by unused-export, unreachable-file and unreachable-package
@@ -499,6 +499,9 @@ store:                      # how Neo4j is provided (see Neo4j); flags and env t
   whole path segments: `**` is any number of segments, `*` and `?` stay within one segment.
   `pkg/domain/**` matches `pkg/domain` and everything below it; `**/db/**` matches `db` and
   `internal/db/sql` but not `pkg/feedback`.
+- **Name patterns** (`duplicate-symbol`'s `ignore`) match the whole symbol name: `*` is any run
+  of characters, `?` one character, everything else is literal. `New` is that name only,
+  `Test*` every name starting with `Test` (a prefix), `*Handler` every name ending in `Handler`.
 - A package may be in several layers. An import is a violation only when it crosses the pair:
   it is not reported when both packages are in the forbidden layer, or both in the importing one.
 - `layers` replaces the default layers, and with them the default forbidden pairs; `forbidden`

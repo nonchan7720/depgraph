@@ -410,3 +410,42 @@ func TestDuplicateSymbolBuildVariants(t *testing.T) {
 		t.Errorf("duplicates =\n%q\nwant\n%q", got, want)
 	}
 }
+
+// duplicate-symbol's ignore takes name patterns: an exact name, a prefix
+// (Test*) or any glob with * and ?; regex metacharacters stay literal.
+func TestDuplicateSymbolIgnorePatterns(t *testing.T) {
+	ctx, st := connect(t)
+	key := fmt.Sprintf("zz_test_%d_dupignore", time.Now().UnixNano())
+	r := graphrepo.ForProject(st, key)
+	t.Cleanup(func() { _ = r.Clear(context.Background()) })
+	file := func(pkg string, names ...string) *graph.FileGraph {
+		fg := &graph.FileGraph{Path: pkg + "/f.go", Package: pkg, Language: graph.Go}
+		for _, n := range names {
+			fg.Symbols = append(fg.Symbols, graph.Symbol{Name: n, Kind: "function", Exported: true})
+		}
+		return fg
+	}
+	names := []string{"New", "NewClient", "TestHelper", "MyTest", "UserHandler", "Handlers", "GetX", "GetXY", "aXb"}
+	for _, fg := range []*graph.FileGraph{file("a", names...), file("b", names...)} {
+		if err := r.UpsertFile(ctx, fg); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := rules.DefaultConfig()
+	cfg.IgnoreDuplicateNames = []string{"New", "Test*", "*Handler", "Get?", "a.b"}
+	fs, err := New(st, key).Evaluate(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, f := range fs {
+		if f.Rule == rules.RuleDuplicateSymbol {
+			got = append(got, fmt.Sprint(f.Data["name"]))
+		}
+	}
+	sort.Strings(got)
+	want := []string{"GetXY", "Handlers", "MyTest", "NewClient", "aXb"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("reported %v, want %v", got, want)
+	}
+}

@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -323,13 +324,12 @@ func ShortHash(s string) string {
 	return hex.EncodeToString(sum[:8])
 }
 
-// ownReflog are the HEAD reflog actions that make a commit in the checkout
-// (as opposed to moving to one made elsewhere: merge, checkout, reset, a
-// fast-forward pull).
-var ownReflog = []string{"commit", "cherry-pick", "revert", "am",
-	"rebase (pick)", "rebase (reword)", "rebase (edit)", "rebase (squash)", "rebase (fixup)",
-	"rebase -i (pick)", "rebase -i (reword)", "rebase -i (edit)", "rebase -i (squash)", "rebase -i (fixup)",
-	"pull --rebase (pick)"}
+// ownReflog matches the HEAD reflog subjects of commits made in the
+// checkout (as opposed to moving to one made elsewhere: merge fast-forward,
+// checkout, reset): commit (also amend, merge, initial), cherry-pick, revert,
+// am, and every step of a rebase that writes a commit, including the one
+// "rebase --continue" writes after a conflict.
+var ownReflog = regexp.MustCompile(`^(commit|cherry-pick|revert|am)( \([^)]*\))?:|^(pull --)?rebase( -i)? \((pick|reword|edit|squash|fixup|continue)\):`)
 
 // OwnCommits returns the commits root's HEAD reflog records as made in this
 // checkout (commit, amend, rebase picks, cherry-pick, revert, am, and merge
@@ -352,11 +352,8 @@ func OwnCommits(ctx context.Context, root string) map[string]bool {
 			own[sha] = true // a merge commit made here
 			continue
 		}
-		for _, a := range ownReflog {
-			if strings.HasPrefix(subject, a+":") || strings.HasPrefix(subject, a+" (") {
-				own[sha] = true
-				break
-			}
+		if ownReflog.MatchString(subject) {
+			own[sha] = true
 		}
 	}
 	return own

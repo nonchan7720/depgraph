@@ -262,3 +262,42 @@ func TestOwnFilesOfMerges(t *testing.T) {
 		t.Errorf("Base after fast-forward = %q", b)
 	}
 }
+
+// A rebase that stops on a conflict and is resumed with --continue: the
+// resolved commit is own, and the base is upstream's tip.
+func TestOwnCommitsRebaseContinue(t *testing.T) {
+	git := gitRunner(t)
+	ctx := context.Background()
+	main := realpath(t, t.TempDir())
+	git(main, "init", "-q", "-b", "main")
+	write(t, filepath.Join(main, "a.go"), "package a\n")
+	git(main, "add", ".")
+	git(main, "commit", "-qm", "init")
+	wt := filepath.Join(main, ".claude", "worktrees", "feat")
+	git(main, "worktree", "add", "-q", "-b", "feat", wt)
+	write(t, filepath.Join(wt, "a.go"), "package a // mine\n")
+	git(wt, "commit", "-qam", "mine")
+	write(t, filepath.Join(main, "a.go"), "package a // upstream\n")
+	git(main, "commit", "-qam", "upstream")
+	up := Head(ctx, main)
+	cmd := exec.Command("git", "-C", wt, "rebase", "main")
+	cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@e", "GIT_COMMITTER_NAME=t",
+		"GIT_COMMITTER_EMAIL=t@e", "GIT_CONFIG_GLOBAL=/dev/null")
+	if err := cmd.Run(); err == nil {
+		t.Fatal("rebase should conflict")
+	}
+	write(t, filepath.Join(wt, "a.go"), "package a // resolved\n")
+	git(wt, "add", "a.go")
+	cont := exec.Command("git", "-C", wt, "-c", "core.editor=true", "rebase", "--continue")
+	cont.Env = append(cmd.Env, "GIT_EDITOR=true")
+	if out, err := cont.CombinedOutput(); err != nil {
+		t.Fatalf("rebase --continue: %v\n%s", err, out)
+	}
+	own := OwnCommits(ctx, wt)
+	if !own[Head(ctx, wt)] {
+		t.Error("the resolved commit is not own")
+	}
+	if b := Base(ctx, wt, own); b != up {
+		t.Errorf("Base = %s, want %s", b, up)
+	}
+}

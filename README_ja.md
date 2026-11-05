@@ -208,6 +208,25 @@ depgraph projects prune [--dry-run]  # root が存在しなくなったプロジ
 | `--timeout` / `--debug` / `--format` | hook | `3s` / false / `json`（`text`: 文脈そのものを出力。claude-hook-gate の `session_start` 用） |
 | `--fail-on` / `--timeout` | gate | `warn` / `60s` |
 
+## Claude Code プラグイン
+
+このリポジトリは Claude Code のプラグインマーケットプレイスでもあります。`depgraph` プラグインは
+[hook](#claude-code-hooks) を設定し、スキルを 2 つ追加します:
+
+```text
+/plugin marketplace add nonchan7720/depgraph
+/plugin install depgraph@depgraph
+```
+
+| 構成 | 内容 |
+|---|---|
+| hook | セッション開始時とプロンプトごとに `depgraph hook session-start` / `prompt`（下記）。`depgraph` が `PATH` に無いとき、プロジェクトの `.claude/settings.json` が自前で `depgraph hook` を実行しているとき、（セッション開始のみ）claude-hook-gate の `session_start` が実行しているときは何もしないので、文脈が二重に入りません |
+| `/depgraph:setup [init\|update\|review]` | `.depgraph.yml`（コードから読み取れるレイヤー、エントリポイント、ルールのオプション）と `.depgraphignore`、claude-hook-gate を使っていれば `.claude/gate.yaml` の `depgraph gate` ルールと `session_start` を書きます |
+| `/depgraph:fix [rule]` | Findings をルールで黙らせるのではなく、コードに合った形で直します（逆向きの import を移す、作り直さず再利用する、未使用コードはつなぐか消す） |
+
+バイナリはプラグインではインストールしません。[インストール](#インストール) の手順で Releases から入れ（プラグインの
+バージョンは作られたリリースと同じ）、`depgraph watch --root <repo>` を動かしておいてください。
+
 ## Claude Code hooks
 
 `depgraph hook <session-start|prompt>` は Neo4j に入っている解析結果を Claude Code の
@@ -536,6 +555,7 @@ pkg/interfaces/cmd/                  CLI（cobra: parse / scan / check / watch /
 pkg/interfaces/handler/ui/           HTTP サーバー + SSE + 埋め込み UI（web/ のビルド成果物）
 pkg/interfaces/handler/mcpapp/       MCP サーバー: UI を MCP App として提供（web/ の 1 ファイルビルド、アプリ専用ツール）
 web/                                 ブラウザ UI のソース（Vite + TypeScript、Cytoscape + elkjs）
+plugin/                              Claude Code プラグイン（hook・スキル。.claude-plugin/marketplace.json に登録）
 pkg/interfaces/handler/hook/         Claude Code hook・品質ゲート（要約・差分・セッションで増えた Findings）
 ```
 

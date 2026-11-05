@@ -1,0 +1,19 @@
+{
+  "description": "Add the findings depgraph already has in Neo4j to the context: a summary at session start, what changed at each prompt. Read-only, never blocks; nothing happens without depgraph on PATH or a running depgraph watch.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "timeout": 10, "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.sh\" session-start" }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          { "type": "command", "timeout": 10, "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.sh\" prompt" }
+        ]
+      }
+    ]
+  }
+}

@@ -21,7 +21,10 @@
       "include-component-in-tag": false,
       "bump-minor-pre-major": true,
       "bump-patch-for-minor-pre-major": true,
-      "extra-files": ["pkg/version/version.go"]
+      "extra-files": [
+        "pkg/version/version.go",
+        { "type": "json", "path": "plugin/.claude-plugin/plugin.json", "jsonpath": "$.version" }
+      ]
     }
   }
 }

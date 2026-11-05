@@ -412,7 +412,8 @@ func TestDuplicateSymbolBuildVariants(t *testing.T) {
 }
 
 // duplicate-symbol's ignore takes name patterns: an exact name, a prefix
-// (Test*) or any glob with * and ?; regex metacharacters stay literal.
+// (Test*) or any glob with * and ? (* also in the middle, several times);
+// regex metacharacters stay literal.
 func TestDuplicateSymbolIgnorePatterns(t *testing.T) {
 	ctx, st := connect(t)
 	key := fmt.Sprintf("zz_test_%d_dupignore", time.Now().UnixNano())
@@ -425,14 +426,19 @@ func TestDuplicateSymbolIgnorePatterns(t *testing.T) {
 		}
 		return fg
 	}
-	names := []string{"New", "NewClient", "TestHelper", "MyTest", "UserHandler", "Handlers", "GetX", "GetXY", "aXb"}
+	names := []string{
+		"New", "NewClient", "TestHelper", "MyTest", "UserHandler", "Handlers", "GetX", "GetXY", "aXb",
+		// * in the middle (also matching nothing) and several *
+		"useState", "useFormState", "useStates", "xuseState",
+		"FindUserByID", "FindBy", "FetchUserByID",
+	}
 	for _, fg := range []*graph.FileGraph{file("a", names...), file("b", names...)} {
 		if err := r.UpsertFile(ctx, fg); err != nil {
 			t.Fatal(err)
 		}
 	}
 	cfg := rules.DefaultConfig()
-	cfg.IgnoreDuplicateNames = []string{"New", "Test*", "*Handler", "Get?", "a.b"}
+	cfg.IgnoreDuplicateNames = []string{"New", "Test*", "*Handler", "Get?", "a.b", "use*State", "Find*By*"}
 	fs, err := New(st, key).Evaluate(ctx, cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -444,7 +450,7 @@ func TestDuplicateSymbolIgnorePatterns(t *testing.T) {
 		}
 	}
 	sort.Strings(got)
-	want := []string{"GetXY", "Handlers", "MyTest", "NewClient", "aXb"}
+	want := []string{"FetchUserByID", "GetXY", "Handlers", "MyTest", "NewClient", "aXb", "useStates", "xuseState"}
 	if fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("reported %v, want %v", got, want)
 	}

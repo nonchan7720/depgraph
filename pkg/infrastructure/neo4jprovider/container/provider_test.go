@@ -466,3 +466,23 @@ func TestNames(t *testing.T) {
 		t.Errorf("empty key: %q", ContainerName("", "/r"))
 	}
 }
+
+// A volume removed between `volume ls` and `volume inspect` (another
+// depgraph's store rm, or a parallel test's cleanup) is gone, not an error:
+// List returns the volumes that are still there.
+func TestListToleratesAVolumeRemovedMeanwhile(t *testing.T) {
+	f := newFakeCLI()
+	f.volumes["depgraph-a"] = map[string]string{LabelManaged: "1", LabelProject: "a"}
+	f.volumes["depgraph-b"] = map[string]string{LabelManaged: "1", LabelProject: "b"}
+	f.onVolumeLs = func(f *fakeCLI) {
+		delete(f.volumes, "depgraph-a")
+		f.onVolumeLs = nil
+	}
+	_, vols, err := newTestProvider(f).List(context.Background())
+	if err != nil {
+		t.Fatalf("List = %v", err)
+	}
+	if len(vols) != 1 || vols[0].Project != "b" {
+		t.Errorf("volumes = %+v, want only b", vols)
+	}
+}

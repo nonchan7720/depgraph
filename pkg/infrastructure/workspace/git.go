@@ -380,54 +380,46 @@ func Base(ctx context.Context, root string, own map[string]bool) string {
 
 // OwnFiles returns the root-relative files changed by the commits of own
 // that lie between from and to, on either side (a reset back over an own
-// commit undoes own work). Of a merge commit of own, only the files that
-// differ from both parents are counted: the conflict resolution; the rest
-// came with the merged branch.
-func OwnFiles(ctx context.Context, root, from, to string, own map[string]bool) ([]string, error) {
+// commit undoes own work), each with the newest such commit. Merge commits
+// are not counted, not even their conflict resolution: a conflicted file
+// holds the merged branch's changes too, and blaming the checkout for those
+// is worse than missing debt added in the resolution itself.
+func OwnFiles(ctx context.Context, root, from, to string, own map[string]bool) (map[string]string, error) {
+	out := map[string]string{}
 	if from == to {
-		return nil, nil
+		return out, nil
 	}
 	b, err := gitLong(ctx, root, "log", "--no-merges", "--no-renames", "--format=%x01%H", "--name-only", "-z",
 		from+"..."+to, "--")
 	if err != nil {
 		return nil, err
 	}
-	var out []string
-	mine := false
+	cur := "" // the commit whose files follow, when own
 	for e := range strings.SplitSeq(string(b), "\x00") {
 		e = strings.TrimLeft(e, "\n")
 		if sha, ok := strings.CutPrefix(e, "\x01"); ok {
 			sha, rest, _ := strings.Cut(sha, "\n")
-			mine = own[strings.TrimSpace(sha)]
+			cur = strings.TrimSpace(sha)
+			if !own[cur] {
+				cur = ""
+			}
 			e = rest
 		}
-		if mine && e != "" {
-			out = append(out, e)
-		}
-	}
-	merges, err := gitLong(ctx, root, "rev-list", "--merges", from+"..."+to, "--")
-	if err != nil {
-		return nil, err
-	}
-	for m := range strings.SplitSeq(strings.TrimSpace(string(merges)), "\n") {
-		if m == "" || !own[m] {
-			continue
-		}
-		first, err := ChangedBetween(ctx, root, m+"^1", m)
-		if err != nil {
-			return nil, err
-		}
-		second, err := ChangedBetween(ctx, root, m+"^2", m)
-		if err != nil {
-			return nil, err
-		}
-		for _, f := range first {
-			if slices.Contains(second, f) {
-				out = append(out, f)
+		if cur != "" && e != "" {
+			p := filepath.ToSlash(e)
+			if _, seen := out[p]; !seen { // git log lists the newest first
+				out[p] = cur
 			}
 		}
 	}
-	return paths([]byte(strings.Join(out, "\x00")), func(e string) string { return e }), nil
+	return out, nil
+}
+
+// SameContent reports whether rel has the same content in commits a and b
+// (both without it counts as the same).
+func SameContent(ctx context.Context, root, a, b, rel string) bool {
+	blob := func(c string) string { return git(ctx, root, "rev-parse", "-q", "--verify", c+":"+rel) }
+	return blob(a) == blob(b)
 }
 
 // InProgress names the git operation that is stopped half way in root

@@ -402,29 +402,29 @@ func TestGateWorktreeOwnCommits(t *testing.T) {
 	}
 }
 
-// A merge of upstream that conflicts: while it is in progress the gate
-// passes (the incoming changes are staged as if the agent made them); once
-// committed, upstream's debt is not the agent's, its conflict resolution is.
+// A merge of upstream that conflicts in the very file that brings the other
+// agent's cycle: while it is in progress the gate passes (the incoming
+// changes are staged as if the agent made them); once committed, the
+// upstream cycle is not the agent's, and later edits are checked as usual.
 func TestGateWorktreeConflictingMerge(t *testing.T) {
 	f := newWTFixture(t)
-	writeTree(t, f.wt, map[string]string{"main.go": "package main\n\nimport (\n\t\"example.com/m/a\"\n\t\"example.com/m/c\"\n)\n\n// main runs A and C.\nfunc main() { a.A(); c.C() }\n"})
-	if failed, out := f.gate(f.wt, "main.go"); failed {
+	writeTree(t, f.wt, map[string]string{"b/b.go": "package b\n\n// B does nothing, on purpose.\nfunc B() {}\n"})
+	if failed, out := f.gate(f.wt, "b/b.go"); failed {
 		t.Fatalf("clean edit: %q", out)
 	}
-	testGit(t, f.wt, "commit", "-qam", "doc main")
-	// upstream: another agent's cycle, and a change to main.go that conflicts
-	writeTree(t, f.main, map[string]string{"b/b.go": bCycle,
-		"main.go": "package main\n\nimport (\n\t\"example.com/m/a\"\n\t\"example.com/m/c\"\n)\n\n// main runs everything.\nfunc main() { a.A(); c.C() }\n"})
-	testGit(t, f.main, "commit", "-qam", "cycle and main from elsewhere")
+	testGit(t, f.wt, "commit", "-qam", "doc b")
+	// upstream: another agent's cycle, in b/b.go
+	writeTree(t, f.main, map[string]string{"b/b.go": bCycle})
+	testGit(t, f.main, "commit", "-qam", "cycle from elsewhere")
 	cmd := exec.Command("git", "-C", f.wt, "merge", "main")
 	cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@e", "GIT_COMMITTER_NAME=t",
 		"GIT_COMMITTER_EMAIL=t@e", "GIT_CONFIG_GLOBAL=/dev/null")
 	if err := cmd.Run(); err == nil {
 		t.Fatal("merge should conflict")
 	}
-	// the agent resolves the conflict with an edit: the gate passes and says why
-	writeTree(t, f.wt, map[string]string{"main.go": "package main\n\nimport (\n\t\"example.com/m/a\"\n\t\"example.com/m/c\"\n)\n\n// main runs A and C, everything.\nfunc main() { a.A(); c.C() }\n"})
-	failed, e := f.gate(f.wt, "main.go")
+	// the agent resolves the conflict keeping both sides: the gate passes and says why
+	writeTree(t, f.wt, map[string]string{"b/b.go": "package b\n\nimport \"example.com/m/a\"\n\n// B calls A, on purpose.\nfunc B() { a.A() }\n"})
+	failed, e := f.gate(f.wt, "b/b.go")
 	if failed || !strings.Contains(e, "merge is in progress") {
 		t.Fatalf("gate during the merge: failed=%v %q", failed, e)
 	}
@@ -432,10 +432,11 @@ func TestGateWorktreeConflictingMerge(t *testing.T) {
 	if failed, out := f.gate(f.wt, ""); failed {
 		t.Fatalf("upstream cycle blamed on the agent after the merge: %q", out)
 	}
-	// edits after the merge are checked as usual
-	writeTree(t, f.wt, map[string]string{"c/c.go": "package c\n\nimport \"example.com/m/d\"\n\n// C calls D (again).\nfunc C() { d.D() }\n"})
-	if failed, out := f.gate(f.wt, "c/c.go"); failed {
-		t.Fatalf("clean edit after the merge: %q", out)
+	// the agent's own debt after the merge still fails
+	writeTree(t, f.wt, map[string]string{"e/e.go": "package e\n\nimport \"example.com/m/f\"\n\n// E calls F.\nfunc E() { f.F() }\n",
+		"f/f.go": "package f\n\nimport \"example.com/m/e\"\n\n// F calls E.\nfunc F() { e.E() }\n"})
+	if failed, out := f.gate(f.wt, "e/e.go f/f.go"); !failed || strings.Contains(out, "a -> b") {
+		t.Fatalf("own cycle after the merge: failed=%v %q", failed, out)
 	}
 }
 

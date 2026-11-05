@@ -128,9 +128,15 @@ func (w *worktreeGate) plan(ctx context.Context, p project.Project) (syncPlan, b
 	if err != nil {
 		return syncPlan{}, false, err
 	}
-	mine, err := workspace.OwnFiles(ctx, root, p.Commit, head, workspace.OwnCommits(ctx, root))
+	lastOwn, err := workspace.OwnFiles(ctx, root, p.Commit, head, workspace.OwnCommits(ctx, root))
 	if err != nil {
 		return syncPlan{}, false, nil
+	}
+	// mine: HEAD holds what the worktree's own last commit to rel made (not
+	// changed since by a merge or another commit brought in)
+	mine := func(rel string) bool {
+		c, ok := lastOwn[rel]
+		return ok && workspace.SameContent(ctx, root, c, head, rel)
 	}
 	applied := map[string]string{} // path -> hash applied last time
 	for _, d := range p.Dirty {
@@ -138,6 +144,7 @@ func (w *worktreeGate) plan(ctx context.Context, p project.Project) (syncPlan, b
 	}
 	plan := syncPlan{head: head}
 	own := map[string]bool{}
+	upstream := map[string]bool{}
 	for _, rel := range dirtyNow {
 		h := workspace.FileHash(root, rel)
 		plan.dirty = append(plan.dirty, project.DirtyFile{Path: rel, Hash: h})
@@ -145,24 +152,29 @@ func (w *worktreeGate) plan(ctx context.Context, p project.Project) (syncPlan, b
 			own[rel] = true
 		}
 	}
-	for rel, h := range applied { // no longer dirty: committed as applied, or reverted
-		if !slices.Contains(dirtyNow, rel) && workspace.FileHash(root, rel) != h {
-			own[rel] = true
+	changed := slices.Clone(moved)
+	for rel := range applied { // no longer dirty: committed or reverted
+		if !slices.Contains(dirtyNow, rel) && !slices.Contains(changed, rel) {
+			changed = append(changed, rel)
 		}
 	}
-	for _, rel := range moved {
+	for _, rel := range changed {
 		if own[rel] || slices.Contains(dirtyNow, rel) {
 			continue
 		}
 		if h, ok := applied[rel]; ok && workspace.FileHash(root, rel) == h {
 			continue // committed as applied
 		}
-		if slices.Contains(mine, rel) {
-			own[rel] = true // committed here before a gate run saw it
-			continue
+		if mine(rel) {
+			own[rel] = true // committed here, also when no gate run saw the edit
+		} else {
+			upstream[rel] = true // brought in, reverted, or changed since by a merge
 		}
+	}
+	for rel := range upstream {
 		plan.upstream = append(plan.upstream, rel)
 	}
+	slices.Sort(plan.upstream)
 	for rel := range own {
 		plan.own = append(plan.own, rel)
 	}

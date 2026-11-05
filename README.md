@@ -319,8 +319,9 @@ rules:
     whose content changed since they were applied. A file changed only by commits the worktree did not make
     (another agent's work merged or rebased in from upstream) is upstream: the debt it brings is added to the
     baselines of the worktree's sessions, as it is not this agent's. Everything else, including what the agent
-    edited and committed in one step, counts as the agent's. Of a merge commit made in the worktree, only the
-    conflict resolution (what differs from both parents) is the agent's. While a merge, cherry-pick, revert or
+    edited and committed in one step, counts as the agent's. A merge commit, conflict resolution included, is
+    upstream (a conflicted file holds the merged branch's changes too; debt added only in a resolution is not
+    reported). While a merge, cherry-pick, revert or
     rebase is in progress, the gate passes and says so: the incoming changes are staged as if the agent made
     them; it checks once the operation is committed.
   - The first build, absorbing upstream changes, and a delta that touches a file import resolution depends on

@@ -188,13 +188,17 @@ func TestOwnCommits(t *testing.T) {
 		t.Errorf("Base = %s, want %s", b, up)
 	}
 	files, err := OwnFiles(ctx, wt, start, rebased, own)
-	if err != nil || !slices.Equal(files, []string{"own.go"}) {
-		t.Errorf("OwnFiles = %q, %v", files, err)
+	if err != nil || len(files) != 1 || files["own.go"] != rebased {
+		t.Errorf("OwnFiles = %v, %v", files, err)
+	}
+	if !SameContent(ctx, wt, rebased, "HEAD", "own.go") || SameContent(ctx, wt, start, rebased, "own.go") ||
+		!SameContent(ctx, wt, start, rebased, "nope.go") {
+		t.Error("SameContent")
 	}
 	// going back over an own commit: still own
 	git(wt, "reset", "-q", "--hard", up)
-	if files, _ := OwnFiles(ctx, wt, rebased, up, own); !slices.Equal(files, []string{"own.go"}) {
-		t.Errorf("OwnFiles back = %q", files)
+	if files, _ := OwnFiles(ctx, wt, rebased, up, own); len(files) != 1 || files["own.go"] != rebased {
+		t.Errorf("OwnFiles back = %v", files)
 	}
 	// the main tree made all of its commits itself
 	if b := Base(ctx, main, OwnCommits(ctx, main)); b != "" {
@@ -202,9 +206,9 @@ func TestOwnCommits(t *testing.T) {
 	}
 }
 
-// In a merge made here, only what differs from both parents (the conflict
-// resolution) is own; a fast-forward brings nothing own; an operation in
-// progress is reported.
+// A merge made here, conflict resolution included, brings nothing own (the
+// conflicted file holds the merged branch's changes too); neither does a
+// fast-forward; an operation in progress is reported.
 func TestOwnFilesOfMerges(t *testing.T) {
 	git := gitRunner(t)
 	ctx := context.Background()
@@ -242,7 +246,7 @@ func TestOwnFilesOfMerges(t *testing.T) {
 	}
 	own := OwnCommits(ctx, wt)
 	files, err := OwnFiles(ctx, wt, before, Head(ctx, wt), own)
-	if err != nil || !slices.Equal(files, []string{"a.go"}) { // not up.go
+	if err != nil || len(files) != 0 {
 		t.Errorf("OwnFiles of the merge = %q, %v", files, err)
 	}
 

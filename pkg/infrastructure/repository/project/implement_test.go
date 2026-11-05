@@ -46,7 +46,7 @@ func TestRepository(t *testing.T) {
 	}
 	scan := time.Date(2026, 11, 3, 10, 0, 0, 0, time.UTC)
 	a := project.Project{Key: ka, Name: "a", Root: "/r/a", Origin: "github.com/o/a", Base: ka, LastScanAt: scan}
-	b := project.Project{Key: kb, Name: "b", Root: "/r/b", Base: "zz_b", Worktree: "wt", Commit: "c0ffee",
+	b := project.Project{Key: kb, Name: "b", Root: "/r/b", Base: "zz_b", Worktree: "wt", Commit: "c0ffee", BaseCommit: "ba5e",
 		Dirty: []project.DirtyFile{{Path: "a.go", Hash: "0a1b"}, {Path: "dir with space/c.go", Hash: "-"}}}
 	for _, p := range []project.Project{a, b} {
 		if err := repo.Upsert(ctx, p); err != nil {
@@ -59,7 +59,7 @@ func TestRepository(t *testing.T) {
 	}
 	gb, err := repo.Get(ctx, kb)
 	if err != nil || gb == nil || gb.Worktree != "wt" || gb.Base != "zz_b" || !gb.LastScanAt.IsZero() ||
-		gb.Commit != "c0ffee" || !slices.Equal(gb.Dirty, b.Dirty) {
+		gb.Commit != "c0ffee" || gb.BaseCommit != "ba5e" || !slices.Equal(gb.Dirty, b.Dirty) {
 		t.Fatalf("Get b = %+v, %v", gb, err)
 	}
 	// update in place (moved root)

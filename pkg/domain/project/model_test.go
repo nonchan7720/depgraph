@@ -84,7 +84,7 @@ func TestNormalizeOrigin(t *testing.T) {
 func TestReconcile(t *testing.T) {
 	last := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	stored := &Project{Key: "app", Base: "app", Root: "/old/app", Origin: "github.com/o/app", LastScanAt: last,
-		Commit: "c0ffee", Dirty: []DirtyFile{{Path: "a.go", Hash: "-"}}}
+		Commit: "c0ffee", Dirty: []DirtyFile{{Path: "a.go", Hash: "-"}}, BaseCommit: "ba5e"}
 	in := func(root, origin, wt string) Project {
 		k := Key("app", wt)
 		return Project{Key: k, Base: "app", Worktree: wt, Root: root, Origin: origin}
@@ -133,7 +133,7 @@ func TestReconcile(t *testing.T) {
 			if got.Root != tt.wantRoot || got.Key != tt.incoming.Key || got.Origin != tt.incoming.Origin {
 				t.Errorf("Reconcile = %+v", got)
 			}
-			if tt.existing != nil && (got.Commit != tt.existing.Commit || !slices.Equal(got.Dirty, tt.existing.Dirty)) {
+			if tt.existing != nil && (got.Commit != tt.existing.Commit || got.BaseCommit != tt.existing.BaseCommit || !slices.Equal(got.Dirty, tt.existing.Dirty)) {
 				t.Errorf("sync state not kept: %+v", got)
 			}
 			if tt.existing != nil && !got.LastScanAt.Equal(tt.existing.LastScanAt) {

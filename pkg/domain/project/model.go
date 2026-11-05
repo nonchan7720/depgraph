@@ -35,6 +35,10 @@ type Project struct {
 	// differ from the graph. Empty when unknown.
 	Commit string
 	Dirty  []DirtyFile
+	// BaseCommit is the newest commit of the checkout's history it did not
+	// make itself when the graph was last brought up to date (gate); the
+	// findings of that commit are no session's debt. Empty when unknown.
+	BaseCommit string
 }
 
 // DirtyFile is a file that differed from Project.Commit when the graph was
@@ -169,7 +173,7 @@ func Reconcile(existing *Project, incoming Project, exists func(root string) boo
 	}
 	out := incoming
 	out.LastScanAt = existing.LastScanAt
-	out.Commit, out.Dirty = existing.Commit, existing.Dirty
+	out.Commit, out.Dirty, out.BaseCommit = existing.Commit, existing.Dirty, existing.BaseCommit
 	if existing.Root == incoming.Root {
 		return out, nil
 	}

@@ -101,6 +101,8 @@ type syncPlan struct {
 	own      []string // changed by the worktree (or not attributable)
 	head     string
 	dirty    []project.DirtyFile // to record once everything is applied
+	base     string              // the worktree's base now (workspace.Base)
+	newBase  bool                // base moved (rebase, pull): its findings are absorbed
 }
 
 // heavy reports whether p goes to the background child: absorbing upstream
@@ -108,7 +110,7 @@ type syncPlan struct {
 // not tell upstream apart any more), and a full scan or a large delta may
 // not fit in it.
 func (p syncPlan) heavy(isConfig func(string) bool) bool {
-	return len(p.upstream) > 0 || len(p.own) > maxInlineSync || slices.ContainsFunc(p.own, isConfig)
+	return len(p.upstream) > 0 || p.newBase || len(p.own) > maxInlineSync || slices.ContainsFunc(p.own, isConfig)
 }
 
 // plan compares p's recorded sync state with the worktree; ok is false when
@@ -128,7 +130,8 @@ func (w *worktreeGate) plan(ctx context.Context, p project.Project) (syncPlan, b
 	if err != nil {
 		return syncPlan{}, false, err
 	}
-	lastOwn, err := workspace.OwnFiles(ctx, root, p.Commit, head, workspace.OwnCommits(ctx, root))
+	ownCommits := workspace.OwnCommits(ctx, root)
+	lastOwn, err := workspace.OwnFiles(ctx, root, p.Commit, head, ownCommits)
 	if err != nil {
 		return syncPlan{}, false, nil
 	}
@@ -142,7 +145,8 @@ func (w *worktreeGate) plan(ctx context.Context, p project.Project) (syncPlan, b
 	for _, d := range p.Dirty {
 		applied[d.Path] = d.Hash
 	}
-	plan := syncPlan{head: head}
+	plan := syncPlan{head: head, base: workspace.Base(ctx, root, ownCommits)}
+	plan.newBase = plan.base != "" && plan.base != p.BaseCommit
 	own := map[string]bool{}
 	upstream := map[string]bool{}
 	for _, rel := range dirtyNow {
@@ -218,7 +222,7 @@ func (w *worktreeGate) prepare(ctx context.Context, p project.Project, stored, l
 	if err != nil {
 		return nil, syncPlan{}, err
 	}
-	if len(plan.upstream) > 0 { // arrived while the child ran: the next run absorbs it
+	if len(plan.upstream) > 0 || plan.newBase { // arrived while the child ran: the next run absorbs it
 		a.resolver.Close()
 		return nil, syncPlan{}, fmt.Errorf("%w: %s changed while its graph was brought up to date", errGateSkip, w.o.root)
 	}
@@ -242,6 +246,23 @@ func absorbUpstream(ctx context.Context, a *app, sessions *hooksession.Sessions,
 	}
 	added, _ := rules.Diff(before, after)
 	return sessions.Absorb(ctx, added, time.Now())
+}
+
+// absorbBase adds the findings of the worktree's new base (after a rebase or
+// pull onto upstream work) to every session's baseline: debt that is there
+// was not made by the worktree, also where an own commit was replayed onto a
+// file that brought it. The base is scanned as a scratch project, deleted
+// afterwards.
+func absorbBase(ctx context.Context, st *graphrepo.Store, o *options, p project.Project, base string, settings config.File, sessions *hooksession.Sessions) error {
+	scratch := p
+	scratch.Key = p.Key + "#base"
+	repo := projectrepo.New(st)
+	defer func() { _ = repo.Delete(context.WithoutCancel(ctx), scratch.Key) }()
+	built, err := buildFromCommit(ctx, st, o, scratch, base, settings)
+	if err != nil {
+		return err
+	}
+	return sessions.Absorb(ctx, built.findings, time.Now())
 }
 
 // evaluateNow evaluates the rules on a's graph and returns the findings.
@@ -414,6 +435,7 @@ func runGateSync(ctx context.Context, o *options, session string) error {
 		if base == "" {
 			base = workspace.Head(ctx, o.root)
 		}
+		p.BaseCommit = base
 		built, err := buildFromCommit(ctx, st, o, p, base, settings)
 		if err != nil {
 			return err
@@ -438,7 +460,12 @@ func runGateSync(ctx context.Context, o *options, session string) error {
 			return err
 		}
 	}
-	a.project.Commit, a.project.Dirty = plan.head, plan.dirty
+	if plan.newBase {
+		if err := absorbBase(ctx, st, o, p, plan.base, settings, sessions); err != nil {
+			return err
+		}
+	}
+	a.project.Commit, a.project.Dirty, a.project.BaseCommit = plan.head, plan.dirty, plan.base
 	if err := projects.Upsert(ctx, a.project); err != nil {
 		return err
 	}

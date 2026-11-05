@@ -440,6 +440,46 @@ func TestGateWorktreeConflictingMerge(t *testing.T) {
 	}
 }
 
+// A clean rebase onto main, where main's change (another agent's cycle) and
+// the agent's own commit touch the same file: the rebased commit is the
+// agent's, but the cycle came with main and is not.
+func TestGateWorktreeRebaseSameFile(t *testing.T) {
+	f := newWTFixture(t)
+	long := func(top, z string) string {
+		return "package b\n\n" + top + "\n\n\n\n\n\n// " + z + "\nfunc Z() {}\n"
+	}
+	clean := "// B does nothing.\nfunc B() {}"
+	cycle := "import \"example.com/m/a\"\n\n// B calls A.\nfunc B() { a.A() }"
+	writeTree(t, f.main, map[string]string{"b/b.go": long(clean, "Z is the end.")})
+	testGit(t, f.main, "commit", "-qam", "longer b")
+	testGit(t, f.wt, "merge", "-q", "--ff-only", "main")
+	if failed, out := f.gate(f.wt, ""); failed {
+		t.Fatalf("after the fast-forward: %q", out)
+	}
+	// the agent's commit: the comment of Z
+	writeTree(t, f.wt, map[string]string{"b/b.go": long(clean, "Z is the end, really.")})
+	if failed, out := f.gate(f.wt, "b/b.go"); failed {
+		t.Fatalf("own edit: %q", out)
+	}
+	testGit(t, f.wt, "commit", "-qam", "doc Z")
+	if failed, out := f.gate(f.wt, ""); failed {
+		t.Fatalf("own commit: %q", out)
+	}
+	// main: another agent's cycle at the top of the same file
+	writeTree(t, f.main, map[string]string{"b/b.go": long(cycle, "Z is the end.")})
+	testGit(t, f.main, "commit", "-qam", "cycle from elsewhere")
+	testGit(t, f.wt, "rebase", "-q", "main")
+	if failed, out := f.gate(f.wt, ""); failed {
+		t.Fatalf("upstream cycle blamed on the agent after the rebase: %q", out)
+	}
+	// the agent's own debt still fails
+	writeTree(t, f.wt, map[string]string{"e/e.go": "package e\n\nimport \"example.com/m/f\"\n\n// E calls F.\nfunc E() { f.F() }\n",
+		"f/f.go": "package f\n\nimport \"example.com/m/e\"\n\n// F calls E.\nfunc F() { e.E() }\n"})
+	if failed, out := f.gate(f.wt, "e/e.go f/f.go"); !failed || strings.Contains(out, "a -> b") {
+		t.Fatalf("own cycle after the rebase: failed=%v %q", failed, out)
+	}
+}
+
 // While another process holds the worktree's sync lease (the first build of
 // a large repository running in the background), the gate passes and says
 // why; once it is released the gate checks again.

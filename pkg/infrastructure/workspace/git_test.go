@@ -195,9 +195,9 @@ func TestOwnCommits(t *testing.T) {
 		!SameContent(ctx, wt, start, rebased, "nope.go") {
 		t.Error("SameContent")
 	}
-	// going back over an own commit: still own
+	// going back over an own commit makes nothing own
 	git(wt, "reset", "-q", "--hard", up)
-	if files, _ := OwnFiles(ctx, wt, rebased, up, own); len(files) != 1 || files["own.go"] != rebased {
+	if files, _ := OwnFiles(ctx, wt, rebased, up, own); len(files) != 0 {
 		t.Errorf("OwnFiles back = %v", files)
 	}
 	// the main tree made all of its commits itself

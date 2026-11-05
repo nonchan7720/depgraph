@@ -30,7 +30,7 @@ func New(st Store) *Projects { return &Projects{st: st} }
 
 const fields = `p.key AS key, p.name AS name, p.root AS root, p.origin AS origin,
 	p.base AS base, p.worktree AS worktree, p.lastScanAt AS lastScanAt,
-	p.commit AS commit, p.dirty AS dirty`
+	p.commit AS commit, p.dirty AS dirty, p.baseCommit AS baseCommit`
 
 // Get returns the project stored under key, or nil.
 func (r *Projects) Get(ctx context.Context, key string) (*project.Project, error) {
@@ -49,9 +49,12 @@ func (r *Projects) Upsert(ctx context.Context, p project.Project) error {
 	if !p.LastScanAt.IsZero() {
 		last = p.LastScanAt.UTC()
 	}
-	var commit, dirty any
+	var commit, dirty, base any
 	if p.Commit != "" {
 		commit = p.Commit
+	}
+	if p.BaseCommit != "" {
+		base = p.BaseCommit
 	}
 	if len(p.Dirty) > 0 {
 		enc := make([]string, 0, len(p.Dirty))
@@ -64,10 +67,10 @@ func (r *Projects) Upsert(ctx context.Context, p project.Project) error {
 		MERGE (p:Project {key: $key})
 		SET p.name = $name, p.root = $root, p.origin = $origin,
 		    p.base = $base, p.worktree = $worktree, p.lastScanAt = $last,
-		    p.commit = $commit, p.dirty = $dirty
+		    p.commit = $commit, p.dirty = $dirty, p.baseCommit = $baseCommit
 	`, map[string]any{
 		"key": p.Key, "name": p.Name, "root": p.Root, "origin": p.Origin,
-		"base": p.Base, "worktree": p.Worktree, "last": last, "commit": commit, "dirty": dirty,
+		"base": p.Base, "worktree": p.Worktree, "last": last, "commit": commit, "dirty": dirty, "baseCommit": base,
 	})
 }
 
@@ -110,7 +113,7 @@ func fromRow(row map[string]any) project.Project {
 	}
 	p := project.Project{
 		Key: s("key"), Name: s("name"), Root: s("root"), Origin: s("origin"),
-		Base: s("base"), Worktree: s("worktree"), Commit: s("commit"),
+		Base: s("base"), Worktree: s("worktree"), Commit: s("commit"), BaseCommit: s("baseCommit"),
 	}
 	if l, ok := row["dirty"].([]any); ok {
 		for _, v := range l {

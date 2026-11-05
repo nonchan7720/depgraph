@@ -379,8 +379,8 @@ func Base(ctx context.Context, root string, own map[string]bool) string {
 }
 
 // OwnFiles returns the root-relative files changed by the commits of own
-// that lie between from and to, on either side (a reset back over an own
-// commit undoes own work), each with the newest such commit. Merge commits
+// that to has and from does not (the ones that can have made to's content),
+// each with the newest such commit. Merge commits
 // are not counted, not even their conflict resolution: a conflicted file
 // holds the merged branch's changes too, and blaming the checkout for those
 // is worse than missing debt added in the resolution itself.
@@ -390,7 +390,7 @@ func OwnFiles(ctx context.Context, root, from, to string, own map[string]bool) (
 		return out, nil
 	}
 	b, err := gitLong(ctx, root, "log", "--no-merges", "--no-renames", "--format=%x01%H", "--name-only", "-z",
-		from+"..."+to, "--")
+		from+".."+to, "--")
 	if err != nil {
 		return nil, err
 	}

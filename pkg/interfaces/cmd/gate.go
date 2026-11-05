@@ -12,13 +12,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/nonchan7720/depgraph/pkg/domain/project"
 	"github.com/nonchan7720/depgraph/pkg/domain/rules"
 	"github.com/nonchan7720/depgraph/pkg/domain/view"
-	graphrepo "github.com/nonchan7720/depgraph/pkg/infrastructure/repository/graph"
 	"github.com/nonchan7720/depgraph/pkg/infrastructure/repository/hooksession"
 	projectrepo "github.com/nonchan7720/depgraph/pkg/infrastructure/repository/project"
 	"github.com/nonchan7720/depgraph/pkg/infrastructure/resolver"
+	"github.com/nonchan7720/depgraph/pkg/infrastructure/resolver/treesitter"
 	"github.com/nonchan7720/depgraph/pkg/infrastructure/workspace"
 	"github.com/nonchan7720/depgraph/pkg/interfaces/handler/hook"
 )
@@ -102,7 +101,7 @@ func runGateCheck(parent context.Context, o *options, session string, files []st
 	if worktree {
 		alt = append(alt, here.Main, os.Getenv("CLAUDE_PROJECT_DIR"))
 	}
-	st, err := hookStore(ctx, o, o.root, alt...) // never starts Neo4j
+	st, live, err := hookStoreFor(ctx, o, o.root, alt...) // never starts Neo4j
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", errGateSkip, err)
 	}
@@ -112,21 +111,28 @@ func runGateCheck(parent context.Context, o *options, session string, files []st
 		return nil, fmt.Errorf("%w: %v", errGateSkip, err)
 	}
 	files = gateFiles(o.root, files)
-	var sync *syncState
+	var a *app
+	var plan *syncPlan
 	if worktree {
-		s, err := prepareWorktree(ctx, st, o, p, stored, session)
-		if err != nil {
-			return nil, describeWorktree(o.root, err)
+		if err := st.EnsureSchema(ctx); err != nil {
+			return nil, err
 		}
-		sync, stored = &s, true
-		files = append(files, s.files...)
-	}
-	if !stored {
-		return nil, fmt.Errorf("%w: %s is not scanned (run depgraph watch)", errGateSkip, o.root)
-	}
-	a, err := buildApp(ctx, st, o, nil, io.Discard)
-	if err != nil {
-		return nil, err
+		r := treesitter.New()
+		w := &worktreeGate{o: o, st: st, projects: projectrepo.New(st), session: session, isConfig: r.IsConfigFile}
+		wa, wp, err := w.prepare(ctx, p, stored, live)
+		r.Close()
+		if err != nil {
+			return nil, err
+		}
+		a, plan = wa, &wp
+		files = append(files, wp.own...)
+	} else {
+		if !stored {
+			return nil, fmt.Errorf("%w: %s is not scanned (run depgraph watch)", errGateSkip, o.root)
+		}
+		if a, err = buildApp(ctx, st, o, nil, io.Discard); err != nil {
+			return nil, err
+		}
 	}
 	defer a.resolver.Close()
 
@@ -164,37 +170,12 @@ func runGateCheck(parent context.Context, o *options, session string, files []st
 		},
 	}
 	added, err := hook.RunGate(ctx, d, session, files, floor, time.Now())
-	if err == nil && sync != nil { // the graph now matches HEAD plus these
-		a.project.Commit, a.project.Dirty = sync.head, sync.dirty
+	if err == nil && plan != nil { // the graph now matches HEAD plus these
+		a.project.Commit, a.project.Dirty = plan.head, plan.dirty
 		err = a.projects.Upsert(ctx, a.project)
 	}
 	return added, err
 }
-
-// prepareWorktree makes sure the project p of the linked worktree o.root has
-// a graph (built from HEAD the first time, with session's baseline) and
-// returns what to apply to bring it up to date.
-func prepareWorktree(ctx context.Context, st *graphrepo.Store, o *options, p project.Project, stored bool, session string) (syncState, error) {
-	if stored && !p.LastScanAt.IsZero() {
-		if p.Commit == "" { // scanned by scan / watch: up to date as of now
-			p.Commit = workspace.Head(ctx, o.root)
-		}
-		s, ok, err := syncWorktree(ctx, o.root, p)
-		if err != nil || ok {
-			return s, err
-		}
-	}
-	p, err := bootstrapWorktree(ctx, st, o, p, session, time.Now())
-	if err != nil {
-		return syncState{}, err
-	}
-	s, ok, err := syncWorktree(ctx, o.root, p)
-	if err == nil && !ok {
-		err = fmt.Errorf("cannot compare with HEAD %s", p.Commit)
-	}
-	return s, err
-}
-
 func newGateCommand(o *options) *cobra.Command {
 	var failOn string
 	c := &cobra.Command{
@@ -212,8 +193,11 @@ The root is --root, else the current directory's working tree when it is
 another git worktree of $CLAUDE_PROJECT_DIR's repository, else
 $CLAUDE_PROJECT_DIR, else the current directory. A linked worktree is
 checked as its own project (<base>@<name>) in the Neo4j of its main tree:
-the gate builds it from the worktree's HEAD the first time and brings it
-up to date from git on every run, so only "watch" of the main tree is needed.`,
+the gate builds it from the worktree's HEAD the first time (in the
+background when that takes long) and brings it up to date from git on
+every run, so only "watch" of the main tree is needed. Debt that arrives
+with commits the session did not make (a merge or rebase from upstream) is
+not counted as the session's.`,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 			if !cmd.Flags().Changed("root") {
 				if cwd, err := os.Getwd(); err == nil {

@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -162,3 +163,8 @@ func watchContainer(stdin io.Reader, run Runner, cli, id string, mode WatchMode,
 	}
 	return fmt.Errorf("watchdog: %w", err)
 }
+
+// DetachedProcAttr is the process attributes of a child that must outlive
+// the terminal and its process group (the watchdog, depgraph gate's
+// background sync).
+func DetachedProcAttr() *syscall.SysProcAttr { return detachedProcAttr() }

@@ -83,6 +83,13 @@ func TestExportHeadAndChanges(t *testing.T) {
 	if err := os.Symlink("/etc/passwd", filepath.Join(root, "link")); err != nil {
 		t.Fatal(err)
 	}
+	// archive attributes do not apply: the export is the committed tree
+	write(t, filepath.Join(root, ".gitattributes"), "gone.go export-ignore\na.go export-subst\n")
+	write(t, filepath.Join(root, ".gitignore"), "gen/\n")
+	if err := os.MkdirAll(filepath.Join(root, "gen"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(root, "gen", "z.go"), "package gen\n")
 	git(root, "add", ".")
 	git(root, "commit", "-qm", "one")
 	first := Head(ctx, root)
@@ -97,23 +104,36 @@ func TestExportHeadAndChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 	dst := t.TempDir()
-	commit, err := ExportHead(ctx, root, dst)
-	if err != nil || commit != first {
-		t.Fatalf("ExportHead = %q, %v", commit, err)
+	ex, err := ExportHead(ctx, root, dst)
+	if err != nil || ex.Commit != first || len(ex.Submodules) != 0 {
+		t.Fatalf("ExportHead = %+v, %v", ex, err)
 	}
 	for rel, want := range map[string]string{"a.go": "package a\n", "d/b.go": "package d\n", "gone.go": "package g\n"} {
 		if b, err := os.ReadFile(filepath.Join(dst, rel)); err != nil || string(b) != want {
 			t.Errorf("%s = %q, %v", rel, b, err)
 		}
 	}
-	for _, rel := range []string{"new.go", "link"} { // untracked; symlinks are never written
+	if target, err := os.Readlink(filepath.Join(dst, "link")); err != nil || target != "/etc/passwd" {
+		t.Errorf("symlink = %q, %v", target, err)
+	}
+	for _, rel := range []string{"new.go", "gen/z.go"} { // untracked / ignored
 		if _, err := os.Lstat(filepath.Join(dst, rel)); err == nil {
 			t.Errorf("%s exported", rel)
 		}
 	}
+	if ign, err := Ignored(ctx, root); err != nil || !slices.Equal(ign, []string{"gen/z.go"}) {
+		t.Errorf("Ignored = %q, %v", ign, err)
+	}
+	if err := CopyFile(root, dst, "gen/z.go"); err != nil {
+		t.Fatal(err)
+	}
+	if FileHash(dst, "gen/z.go") != FileHash(root, "gen/z.go") || FileHash(root, "gen/z.go") == FileHash(root, "a.go") ||
+		FileHash(root, "nope.go") != "-" {
+		t.Error("FileHash / CopyFile")
+	}
 
 	dirty, err := Dirty(ctx, root)
-	if want := []string{"a.go", "gone.go", "new.go"}; err != nil || !slices.Equal(dirty, want) {
+	if want := []string{"a.go", "gone.go", "new.go"}; err != nil || !slices.Equal(dirty, want) { // not gen/ (ignored)
 		t.Errorf("Dirty = %q, %v; want %q", dirty, err, want)
 	}
 

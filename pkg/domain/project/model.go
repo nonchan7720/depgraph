@@ -28,12 +28,20 @@ type Project struct {
 	LastScanAt time.Time // zero until the first full scan finished
 	Files      int64     // number of stored files (filled by Repository.List)
 	// Commit and Dirty are what the graph of a checkout nothing watches was
-	// last brought up to date with (by depgraph gate): the git HEAD and the
-	// files that then differed from it. Only files that changed between
-	// Commit and the current HEAD, Dirty, and what differs from HEAD now can
+	// last brought up to date with (by depgraph gate): the git HEAD, and the
+	// files that then differed from it with the content that was applied.
+	// Only files changed between Commit and the current HEAD, and files whose
+	// content differs from their Dirty entry (or from HEAD, without one), can
 	// differ from the graph. Empty when unknown.
 	Commit string
-	Dirty  []string
+	Dirty  []DirtyFile
+}
+
+// DirtyFile is a file that differed from Project.Commit when the graph was
+// brought up to date, with the content hash that was applied.
+type DirtyFile struct {
+	Path string
+	Hash string // "-" when the file did not exist
 }
 
 // BaseKey returns the project key before the worktree suffix: flag (--project),

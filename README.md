@@ -307,14 +307,23 @@ rules:
   `$CLAUDE_PROJECT_DIR`'s repository (see below), else `$CLAUDE_PROJECT_DIR`, else the current directory.
 - **Agents in git worktrees.** claude-hook-gate runs the rules of a file under `.claude/worktrees/<name>/`
   in that worktree, with `$CLAUDE_PROJECT_DIR` still the main tree and `$CLAUDE_GATE_FILES` relative to the
-  worktree. The gate then checks the worktree, not the main tree: as its own project (`<base>@<name>`, see
+  worktree. The gate then checks the worktree, not the main tree, as its own project (`<base>@<name>`, see
   [Projects](#projects)) in the Neo4j of the main tree's `watch`, so one `depgraph watch` of the main tree is
-  enough. The first run builds that project from the worktree's `HEAD` (what the agent changed before it
-  still counts as added; debt already committed does not) and records it as the session's baseline; every
-  run then applies what git says changed since the last one (commits, `git reset` / `rebase`, uncommitted
-  and untracked files) besides `$CLAUDE_GATE_FILES`. Findings of the worktree reach only the agent working
-  there, and the main tree's project and findings are not touched. Projects of removed worktrees are
-  deleted the next time a worktree project is built (`depgraph projects prune` deletes them too).
+  enough. Findings of the worktree reach only the agent working there; the main tree's project is not touched.
+  - The worktree's graph is built from its `HEAD` (the exact committed tree, plus ignored files and submodules
+    present in the checkout) and that is the session's baseline: what the agent changed before the first run
+    still counts as added, debt already committed does not.
+  - Every run then applies what git says may differ from the graph, besides `$CLAUDE_GATE_FILES`: files changed
+    between the recorded commit and `HEAD` (commits, `git reset` / `rebase`) and uncommitted or untracked files
+    whose content changed since they were applied. Debt that arrives with commits the session did not make
+    (another agent's work merged or rebased in from upstream) is added to the baselines of the worktree's
+    sessions: it is not this agent's.
+  - The first build, and a delta that touches a file import resolution depends on (`go.mod`, `tsconfig.json`,
+    `package.json`, ...) or more than 200 files, run in a background `depgraph` process under a lease on the
+    project, so a large repository is never stuck behind the gate's `--timeout`. The gate waits for it as long
+    as its timeout allows and otherwise passes, saying so on stderr; the next run checks.
+  - Projects of removed worktrees of the same main tree are deleted after a build (`depgraph projects prune`
+    deletes them too).
 
 ## Browser UI
 

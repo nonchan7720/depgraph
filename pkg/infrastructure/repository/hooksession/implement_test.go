@@ -179,3 +179,39 @@ func TestBaseline(t *testing.T) {
 		t.Error("Put must not create a baseline")
 	}
 }
+
+// Debt that reached the checkout through git is added to the baseline of
+// every session that has one; sessions without a baseline get none.
+func TestAbsorb(t *testing.T) {
+	st, ctx := store(t)
+	k := key(t, "absorb")
+	t.Cleanup(func() { _ = projectrepo.New(st).Delete(context.Background(), k) })
+	s := New(st, k)
+	now := time.Now()
+	mine := rules.Finding{Rule: "import-cycle", Severity: "error", Message: "a -> b -> a"}
+	theirs := rules.Finding{Rule: "import-cycle", Severity: "error", Message: "c -> d -> c"}
+	if err := s.PutBaseline(ctx, "s1", []rules.Finding{mine}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutBaseline(ctx, "s2", nil, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Put(ctx, "s3", nil, now); err != nil { // injected state only
+		t.Fatal(err)
+	}
+	if err := s.Absorb(ctx, []rules.Finding{theirs, mine}, now); err != nil {
+		t.Fatal(err)
+	}
+	for id, want := range map[string]int{"s1": 2, "s2": 2} {
+		got, ok, err := s.Baseline(ctx, id)
+		if err != nil || !ok || len(got) != want {
+			t.Errorf("%s baseline = %+v ok=%v err=%v", id, got, ok, err)
+		}
+	}
+	if _, ok, _ := s.Baseline(ctx, "s3"); ok {
+		t.Error("Absorb created a baseline")
+	}
+	if err := s.Absorb(ctx, nil, now); err != nil {
+		t.Fatal(err)
+	}
+}

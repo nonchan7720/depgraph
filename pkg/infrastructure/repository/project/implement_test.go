@@ -46,7 +46,8 @@ func TestRepository(t *testing.T) {
 	}
 	scan := time.Date(2026, 11, 3, 10, 0, 0, 0, time.UTC)
 	a := project.Project{Key: ka, Name: "a", Root: "/r/a", Origin: "github.com/o/a", Base: ka, LastScanAt: scan}
-	b := project.Project{Key: kb, Name: "b", Root: "/r/b", Base: "zz_b", Worktree: "wt", Commit: "c0ffee", Dirty: []string{"a.go", "b/c.go"}}
+	b := project.Project{Key: kb, Name: "b", Root: "/r/b", Base: "zz_b", Worktree: "wt", Commit: "c0ffee",
+		Dirty: []project.DirtyFile{{Path: "a.go", Hash: "0a1b"}, {Path: "dir with space/c.go", Hash: "-"}}}
 	for _, p := range []project.Project{a, b} {
 		if err := repo.Upsert(ctx, p); err != nil {
 			t.Fatal(err)
@@ -68,6 +69,34 @@ func TestRepository(t *testing.T) {
 	}
 	if got, _ = repo.Get(ctx, ka); got.Root != "/r/a2" {
 		t.Errorf("Root not updated: %+v", got)
+	}
+
+	// the sync lease: one holder at a time, taken over once expired; a
+	// claim on a missing key creates the node with the project's identity
+	kc := fmt.Sprintf("zz_test_%d_c@wt", now)
+	t.Cleanup(func() { _ = repo.Delete(context.Background(), kc) })
+	c := project.Project{Key: kc, Name: "c", Root: "/r/c", Base: "zz_c", Worktree: "wt"}
+	t0 := time.Now()
+	if ok, err := repo.ClaimSync(ctx, c, t0, t0.Add(time.Minute)); err != nil || !ok {
+		t.Fatalf("first claim = %v, %v", ok, err)
+	}
+	if gc, _ := repo.Get(ctx, kc); gc == nil || gc.Root != "/r/c" || gc.Worktree != "wt" || !gc.LastScanAt.IsZero() {
+		t.Fatalf("claimed node = %+v", gc)
+	}
+	if ok, _ := repo.ClaimSync(ctx, c, t0.Add(time.Second), t0.Add(2*time.Minute)); ok {
+		t.Error("second claim while held")
+	}
+	if held, _ := repo.SyncHeld(ctx, kc, t0.Add(time.Second)); !held {
+		t.Error("not held")
+	}
+	if ok, _ := repo.ClaimSync(ctx, c, t0.Add(2*time.Minute), t0.Add(3*time.Minute)); !ok {
+		t.Error("expired lease not taken over")
+	}
+	if err := repo.ReleaseSync(ctx, kc); err != nil {
+		t.Fatal(err)
+	}
+	if held, _ := repo.SyncHeld(ctx, kc, t0); held {
+		t.Error("held after release")
 	}
 
 	// data of a; List counts its files

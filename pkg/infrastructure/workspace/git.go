@@ -1,9 +1,11 @@
 package workspace
 
 import (
-	"archive/tar"
+	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/nonchan7720/depgraph/pkg/domain/project"
@@ -118,64 +121,200 @@ func ChangedBetween(ctx context.Context, root, from, to string) ([]string, error
 	return paths(b, func(e string) string { return e }), nil
 }
 
-// ExportHead writes the files of root's HEAD commit (as committed, whatever
-// the working tree holds) under dst and returns the commit. Only regular
-// files are written: symlinks and submodules are left out, and no entry can
-// leave dst.
-func ExportHead(ctx context.Context, root, dst string) (string, error) {
-	commit := Head(ctx, root)
-	if commit == "" {
-		return "", fmt.Errorf("%s has no commit to export", root)
-	}
-	cmd := exec.CommandContext(ctx, "git", "-C", root, "archive", "--format=tar", commit)
-	var errOut bytes.Buffer
-	cmd.Stderr = &errOut
-	r, err := cmd.StdoutPipe()
-	if err != nil {
-		return "", err
-	}
-	if err := cmd.Start(); err != nil {
-		return "", err
-	}
-	xerr := untar(r, dst)
-	_, _ = io.Copy(io.Discard, r)
-	if err := cmd.Wait(); err != nil {
-		return "", fmt.Errorf("git archive: %w: %s", err, strings.TrimSpace(errOut.String()))
-	}
-	return commit, xerr
+// Export is what ExportHead wrote.
+type Export struct {
+	Commit string
+	// Submodules are the root-relative paths of the submodules at HEAD; their
+	// files are not part of the commit (copy them from the checkout if needed).
+	Submodules []string
 }
 
-func untar(r io.Reader, dst string) error {
-	tr := tar.NewReader(r)
-	for {
-		h, err := tr.Next()
-		if errors.Is(err, io.EOF) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		if h.Typeflag != tar.TypeReg {
-			continue // directories are created on demand; links are never followed
-		}
-		rel := filepath.FromSlash(h.Name)
-		if !filepath.IsLocal(rel) {
+// ExportHead writes the tree of root's HEAD commit under dst exactly as
+// committed (blob contents, no export-ignore / export-subst, whatever the
+// working tree holds): regular files, then symlinks with their committed
+// target. No entry can leave dst, and nothing is written through a symlink.
+func ExportHead(ctx context.Context, root, dst string) (Export, error) {
+	commit := Head(ctx, root)
+	if commit == "" {
+		return Export{}, fmt.Errorf("%s has no commit to export", root)
+	}
+	b, err := gitLong(ctx, root, "ls-tree", "-r", "-z", "--full-tree", commit)
+	if err != nil {
+		return Export{}, err
+	}
+	type entry struct{ mode, sha, path string }
+	var blobs []entry
+	ex := Export{Commit: commit}
+	for e := range strings.SplitSeq(string(b), "\x00") {
+		meta, path, ok := strings.Cut(e, "\t") // "<mode> <type> <sha>\t<path>"
+		f := strings.Fields(meta)
+		if !ok || len(f) != 3 || !filepath.IsLocal(filepath.FromSlash(path)) {
 			continue
 		}
-		p := filepath.Join(dst, rel)
-		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-			return err
-		}
-		f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-		if err != nil {
-			return err
-		}
-		_, err = io.Copy(f, tr)
-		if cerr := f.Close(); err == nil {
-			err = cerr
-		}
-		if err != nil {
-			return err
+		switch {
+		case f[1] == "commit":
+			ex.Submodules = append(ex.Submodules, path)
+		case f[1] == "blob" && (f[0] == "100644" || f[0] == "100755" || f[0] == "120000"):
+			blobs = append(blobs, entry{f[0], f[2], path})
 		}
 	}
+	// regular files first: a symlink created later can never be written through
+	slices.SortStableFunc(blobs, func(a, b entry) int {
+		return strings.Compare(boolKey(a.mode == "120000"), boolKey(b.mode == "120000"))
+	})
+	var shas strings.Builder
+	for _, e := range blobs {
+		shas.WriteString(e.sha + "\n")
+	}
+	cmd := exec.CommandContext(ctx, "git", "-C", root, "cat-file", "--batch")
+	cmd.Stdin = strings.NewReader(shas.String())
+	var errOut bytes.Buffer
+	cmd.Stderr = &errOut
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		return Export{}, err
+	}
+	if err := cmd.Start(); err != nil {
+		return Export{}, err
+	}
+	r := bufio.NewReader(out)
+	var werr error
+	for _, e := range blobs {
+		body, err := readBatchBlob(r)
+		if err != nil {
+			werr = err
+			break
+		}
+		if werr = writeEntry(dst, e.path, e.mode == "120000", body); werr != nil {
+			break
+		}
+	}
+	_, _ = io.Copy(io.Discard, r)
+	if err := cmd.Wait(); err != nil {
+		return Export{}, fmt.Errorf("git cat-file: %w: %s", err, strings.TrimSpace(errOut.String()))
+	}
+	return ex, werr
+}
+
+func boolKey(b bool) string {
+	if b {
+		return "1"
+	}
+	return "0"
+}
+
+// readBatchBlob reads one "<sha> <type> <size>\n<content>\n" record of
+// git cat-file --batch.
+func readBatchBlob(r *bufio.Reader) ([]byte, error) {
+	head, err := r.ReadString('\n')
+	if err != nil {
+		return nil, err
+	}
+	f := strings.Fields(head)
+	if len(f) != 3 {
+		return nil, fmt.Errorf("git cat-file: unexpected %q", strings.TrimSpace(head))
+	}
+	n, err := strconv.Atoi(f[2])
+	if err != nil {
+		return nil, err
+	}
+	body := make([]byte, n+1) // content and the trailing newline
+	if _, err := io.ReadFull(r, body); err != nil {
+		return nil, err
+	}
+	return body[:n], nil
+}
+
+// writeEntry writes body as dst/rel, or a symlink to body when link. A path
+// whose parent is a symlink (or anything but a directory) is not written.
+func writeEntry(dst, rel string, link bool, body []byte) error {
+	p := filepath.Join(dst, filepath.FromSlash(rel))
+	if err := mkdirNoLinks(dst, filepath.Dir(p)); err != nil {
+		return nil // e.g. under a path that is not a directory: skip it
+	}
+	if link {
+		return os.Symlink(string(body), p)
+	}
+	return os.WriteFile(p, body, 0o644)
+}
+
+// mkdirNoLinks creates dir (inside base) without following a symlink on the way.
+func mkdirNoLinks(base, dir string) error {
+	rel, err := filepath.Rel(base, dir)
+	if err != nil || !filepath.IsLocal(rel) && rel != "." {
+		return fmt.Errorf("%s is outside %s", dir, base)
+	}
+	cur := base
+	for part := range strings.SplitSeq(rel, string(filepath.Separator)) {
+		if part == "." {
+			continue
+		}
+		cur = filepath.Join(cur, part)
+		st, err := os.Lstat(cur)
+		switch {
+		case errors.Is(err, os.ErrNotExist):
+			if err := os.Mkdir(cur, 0o755); err != nil {
+				return err
+			}
+		case err != nil:
+			return err
+		case !st.IsDir():
+			return fmt.Errorf("%s is not a directory", cur)
+		}
+	}
+	return nil
+}
+
+// Ignored returns the root-relative files present in root that git ignores.
+func Ignored(ctx context.Context, root string) ([]string, error) {
+	b, err := gitLong(ctx, root, "ls-files", "-z", "--others", "--ignored", "--exclude-standard")
+	if err != nil {
+		return nil, err
+	}
+	return paths(b, func(e string) string { return e }), nil
+}
+
+// CopyFile copies root/rel to dst/rel (a symlink as a symlink); a file that
+// is gone is not an error.
+func CopyFile(root, dst, rel string) error {
+	src := filepath.Join(root, filepath.FromSlash(rel))
+	st, err := os.Lstat(src)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if st.Mode()&os.ModeSymlink != 0 {
+		target, err := os.Readlink(src)
+		if err != nil {
+			return err
+		}
+		return writeEntry(dst, rel, true, []byte(target))
+	}
+	if !st.Mode().IsRegular() {
+		return nil
+	}
+	b, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	return writeEntry(dst, rel, false, b)
+}
+
+// FileHash identifies the content of root/rel ("-" when it does not exist),
+// to tell whether a file changed since it was last applied.
+func FileHash(root, rel string) string {
+	b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+	if err != nil {
+		return "-"
+	}
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:16])
+}
+
+// ShortHash is a short stable file-name-safe identifier of s.
+func ShortHash(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:8])
 }

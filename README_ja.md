@@ -291,13 +291,21 @@ rules:
   リポジトリの別の worktree のとき。下記）、なければ `$CLAUDE_PROJECT_DIR`、なければカレントディレクトリです。
 - **git worktree で動くエージェント。** claude-hook-gate は `.claude/worktrees/<name>/` 配下のファイルのルールを
   その worktree で実行します（`$CLAUDE_PROJECT_DIR` はメインツリーのまま、`$CLAUDE_GATE_FILES` は worktree からの
-  相対パス）。gate はこのときメインツリーではなく worktree を検査します。worktree は別プロジェクト（`<base>@<name>`。
-  [Projects](#projects) 参照）としてメインツリーの `watch` の Neo4j に置くので、`depgraph watch` はメインツリーの
-  1 つで足ります。初回はそのプロジェクトを worktree の `HEAD` から作ってセッションの baseline にし（それまでに
-  エージェントが変えた分も追加として数え、コミット済みの負債は数えません）、以後は毎回 `$CLAUDE_GATE_FILES` に
-  加えて前回から git 上で変わったもの（コミット、`git reset` / `rebase`、未コミット・未追跡のファイル）を反映します。
-  worktree の Findings はそこで動くエージェントにだけ届き、メインツリーのプロジェクトと Findings には触れません。
-  削除済み worktree のプロジェクトは、次に worktree のプロジェクトを作るときに消えます（`depgraph projects prune` でも消せます）。
+  相対パス）。gate はこのときメインツリーではなく worktree を、別プロジェクト（`<base>@<name>`。[Projects](#projects) 参照）
+  としてメインツリーの `watch` の Neo4j 上で検査するので、`depgraph watch` はメインツリーの 1 つで足ります。
+  worktree の Findings はそこで動くエージェントにだけ届き、メインツリーのプロジェクトには触れません。
+  - worktree のグラフは `HEAD`（コミットされたツリーそのもの。チェックアウトにある ignore 対象ファイルと
+    サブモジュールも含む）から作り、それをセッションの baseline にします。初回の実行より前にエージェントが変えた分も
+    追加として数え、コミット済みの負債は数えません。
+  - 以後は毎回、`$CLAUDE_GATE_FILES` に加えて git 上でグラフと違いうるものを反映します: 記録したコミットと `HEAD` の
+    間で変わったファイル（コミット、`git reset` / `rebase`）と、前回反映したときから内容が変わった未コミット・未追跡の
+    ファイル。セッション自身のものでないコミット（上流で他のエージェントの作業がマージされ、それを merge / rebase した
+    など）で入ってきた負債は、その worktree のセッションの baseline に加えます（このエージェントの負債ではないため）。
+  - 初回のビルドと、import 解決が依存するファイル（`go.mod`・`tsconfig.json`・`package.json` など）を含むか 200 ファイルを
+    超える差分は、プロジェクトのリースを取ったバックグラウンドの `depgraph` プロセスで行うので、大きなリポジトリでも
+    gate の `--timeout` で止まったままにはなりません。gate はタイムアウトの範囲で完了を待ち、間に合わなければ
+    理由を標準エラーに出して通します（次の実行で検査します）。
+  - 同じメインツリーの削除済み worktree のプロジェクトは、ビルドの後に消します（`depgraph projects prune` でも消せます）。
 
 ## Browser UI
 

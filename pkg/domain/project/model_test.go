@@ -84,7 +84,7 @@ func TestNormalizeOrigin(t *testing.T) {
 func TestReconcile(t *testing.T) {
 	last := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	stored := &Project{Key: "app", Base: "app", Root: "/old/app", Origin: "github.com/o/app", LastScanAt: last,
-		Commit: "c0ffee", Dirty: []string{"a.go"}}
+		Commit: "c0ffee", Dirty: []DirtyFile{{Path: "a.go", Hash: "-"}}}
 	in := func(root, origin, wt string) Project {
 		k := Key("app", wt)
 		return Project{Key: k, Base: "app", Worktree: wt, Root: root, Origin: origin}

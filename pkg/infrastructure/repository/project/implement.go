@@ -4,6 +4,8 @@ package project
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/nonchan7720/depgraph/pkg/domain/project"
@@ -13,6 +15,7 @@ import (
 type Store interface {
 	Exec(ctx context.Context, cypher string, params map[string]any) error
 	Query(ctx context.Context, cypher string, params map[string]any) ([]map[string]any, error)
+	Write(ctx context.Context, cypher string, params map[string]any) ([]map[string]any, error)
 }
 
 // Projects stores Project nodes (project.Repository).
@@ -51,7 +54,11 @@ func (r *Projects) Upsert(ctx context.Context, p project.Project) error {
 		commit = p.Commit
 	}
 	if len(p.Dirty) > 0 {
-		dirty = p.Dirty
+		enc := make([]string, 0, len(p.Dirty))
+		for _, d := range p.Dirty {
+			enc = append(enc, d.Hash+" "+d.Path) // the hash never holds a blank
+		}
+		dirty = enc
 	}
 	return r.st.Exec(ctx, `
 		MERGE (p:Project {key: $key})
@@ -107,8 +114,8 @@ func fromRow(row map[string]any) project.Project {
 	}
 	if l, ok := row["dirty"].([]any); ok {
 		for _, v := range l {
-			if f, ok := v.(string); ok {
-				p.Dirty = append(p.Dirty, f)
+			if hash, path, ok := strings.Cut(fmt.Sprint(v), " "); ok {
+				p.Dirty = append(p.Dirty, project.DirtyFile{Path: path, Hash: hash})
 			}
 		}
 	}
@@ -116,4 +123,35 @@ func fromRow(row map[string]any) project.Project {
 		p.LastScanAt = t
 	}
 	return p
+}
+
+// ClaimSync takes the sync lease of p until until, unless another holder's
+// lease is still running at now; it creates p's node when there is none (with
+// p's identity, so the key resolves to p). It reports whether the lease was taken.
+func (r *Projects) ClaimSync(ctx context.Context, p project.Project, now, until time.Time) (bool, error) {
+	rows, err := r.st.Write(ctx, `
+		MERGE (p:Project {key: $key})
+		ON CREATE SET p.name = $name, p.root = $root, p.origin = $origin, p.base = $base, p.worktree = $worktree
+		WITH p WHERE p.syncUntil IS NULL OR p.syncUntil < $now
+		SET p.syncUntil = $until
+		RETURN p.key AS key
+	`, map[string]any{
+		"key": p.Key, "name": p.Name, "root": p.Root, "origin": p.Origin, "base": p.Base, "worktree": p.Worktree,
+		"now": now.UTC(), "until": until.UTC(),
+	})
+	return len(rows) == 1, err
+}
+
+// SyncHeld reports whether a sync lease of key runs at now.
+func (r *Projects) SyncHeld(ctx context.Context, key string, now time.Time) (bool, error) {
+	rows, err := r.st.Query(ctx, `
+		MATCH (p:Project {key: $key}) WHERE p.syncUntil IS NOT NULL AND p.syncUntil >= $now
+		RETURN p.key AS key
+	`, map[string]any{"key": key, "now": now.UTC()})
+	return len(rows) == 1, err
+}
+
+// ReleaseSync gives the sync lease of key back.
+func (r *Projects) ReleaseSync(ctx context.Context, key string) error {
+	return r.st.Exec(ctx, `MATCH (p:Project {key: $key}) SET p.syncUntil = null`, map[string]any{"key": key})
 }

@@ -328,10 +328,12 @@ func ShortHash(s string) string {
 // fast-forward pull).
 var ownReflog = []string{"commit", "cherry-pick", "revert", "am",
 	"rebase (pick)", "rebase (reword)", "rebase (edit)", "rebase (squash)", "rebase (fixup)",
-	"rebase -i (pick)", "rebase -i (reword)", "rebase -i (edit)", "rebase -i (squash)", "rebase -i (fixup)"}
+	"rebase -i (pick)", "rebase -i (reword)", "rebase -i (edit)", "rebase -i (squash)", "rebase -i (fixup)",
+	"pull --rebase (pick)"}
 
 // OwnCommits returns the commits root's HEAD reflog records as made in this
-// checkout (commit, amend, rebase picks, cherry-pick, revert, am).
+// checkout (commit, amend, rebase picks, cherry-pick, revert, am, and merge
+// commits made here; a fast-forward brings none).
 func OwnCommits(ctx context.Context, root string) map[string]bool {
 	b, err := gitLong(ctx, root, "reflog", "show", "--format=%H%x09%gs", "HEAD", "--")
 	own := map[string]bool{}
@@ -341,6 +343,13 @@ func OwnCommits(ctx context.Context, root string) map[string]bool {
 	for line := range strings.SplitSeq(string(b), "\n") {
 		sha, subject, ok := strings.Cut(line, "\t")
 		if !ok {
+			continue
+		}
+		if strings.Contains(subject, "Fast-forward") {
+			continue
+		}
+		if (strings.HasPrefix(subject, "merge ") || strings.HasPrefix(subject, "pull")) && strings.Contains(subject, ": Merge made by") {
+			own[sha] = true // a merge commit made here
 			continue
 		}
 		for _, a := range ownReflog {
@@ -371,7 +380,9 @@ func Base(ctx context.Context, root string, own map[string]bool) string {
 
 // OwnFiles returns the root-relative files changed by the commits of own
 // that lie between from and to, on either side (a reset back over an own
-// commit undoes own work); merge commits are not counted.
+// commit undoes own work). Of a merge commit of own, only the files that
+// differ from both parents are counted: the conflict resolution; the rest
+// came with the merged branch.
 func OwnFiles(ctx context.Context, root, from, to string, own map[string]bool) ([]string, error) {
 	if from == to {
 		return nil, nil
@@ -394,5 +405,49 @@ func OwnFiles(ctx context.Context, root, from, to string, own map[string]bool) (
 			out = append(out, e)
 		}
 	}
+	merges, err := gitLong(ctx, root, "rev-list", "--merges", from+"..."+to, "--")
+	if err != nil {
+		return nil, err
+	}
+	for m := range strings.SplitSeq(strings.TrimSpace(string(merges)), "\n") {
+		if m == "" || !own[m] {
+			continue
+		}
+		first, err := ChangedBetween(ctx, root, m+"^1", m)
+		if err != nil {
+			return nil, err
+		}
+		second, err := ChangedBetween(ctx, root, m+"^2", m)
+		if err != nil {
+			return nil, err
+		}
+		for _, f := range first {
+			if slices.Contains(second, f) {
+				out = append(out, f)
+			}
+		}
+	}
 	return paths([]byte(strings.Join(out, "\x00")), func(e string) string { return e }), nil
+}
+
+// InProgress names the git operation that is stopped half way in root
+// (merge, cherry-pick, revert, rebase), or "": while one is, the working
+// tree mixes the operation's incoming changes with the checkout's own.
+func InProgress(ctx context.Context, root string) string {
+	for _, op := range []struct{ path, name string }{
+		{"MERGE_HEAD", "merge"}, {"CHERRY_PICK_HEAD", "cherry-pick"}, {"REVERT_HEAD", "revert"},
+		{"rebase-merge", "rebase"}, {"rebase-apply", "rebase"},
+	} {
+		p := git(ctx, root, "rev-parse", "--git-path", op.path)
+		if p == "" {
+			continue
+		}
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(root, p)
+		}
+		if _, err := os.Stat(p); err == nil {
+			return op.name
+		}
+	}
+	return ""
 }

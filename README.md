@@ -319,7 +319,10 @@ rules:
     whose content changed since they were applied. A file changed only by commits the worktree did not make
     (another agent's work merged or rebased in from upstream) is upstream: the debt it brings is added to the
     baselines of the worktree's sessions, as it is not this agent's. Everything else, including what the agent
-    edited and committed in one step, counts as the agent's.
+    edited and committed in one step, counts as the agent's. Of a merge commit made in the worktree, only the
+    conflict resolution (what differs from both parents) is the agent's. While a merge, cherry-pick, revert or
+    rebase is in progress, the gate passes and says so: the incoming changes are staged as if the agent made
+    them; it checks once the operation is committed.
   - The first build, absorbing upstream changes, and a delta that touches a file import resolution depends on
     (`go.mod`, `tsconfig.json`, `package.json`, ...) or more than 200 files, run in a background `depgraph` process under a lease on the
     project, so a large repository is never stuck behind the gate's `--timeout`. The gate waits for it as long

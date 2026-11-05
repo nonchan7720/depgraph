@@ -366,6 +366,9 @@ func runGateSync(ctx context.Context, o *options, session string) error {
 	if !co.Linked {
 		return fmt.Errorf("%s is not a linked git worktree", o.root)
 	}
+	if op := workspace.InProgress(ctx, o.root); op != "" {
+		return nil // the next gate run after it is committed syncs
+	}
 	st, _, err := hookStoreFor(ctx, o, o.root, co.Main)
 	if err != nil {
 		return err

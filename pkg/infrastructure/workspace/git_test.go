@@ -201,3 +201,60 @@ func TestOwnCommits(t *testing.T) {
 		t.Errorf("main Base = %q", b)
 	}
 }
+
+// In a merge made here, only what differs from both parents (the conflict
+// resolution) is own; a fast-forward brings nothing own; an operation in
+// progress is reported.
+func TestOwnFilesOfMerges(t *testing.T) {
+	git := gitRunner(t)
+	ctx := context.Background()
+	main := realpath(t, t.TempDir())
+	git(main, "init", "-q", "-b", "main")
+	write(t, filepath.Join(main, "a.go"), "package a\n")
+	write(t, filepath.Join(main, "c.go"), "package a // c\n")
+	git(main, "add", ".")
+	git(main, "commit", "-qm", "init")
+	start := Head(ctx, main)
+	wt := filepath.Join(main, ".claude", "worktrees", "feat")
+	git(main, "worktree", "add", "-q", "-b", "feat", wt)
+	// upstream changes a.go and adds up.go; the worktree changes a.go too
+	write(t, filepath.Join(main, "a.go"), "package a // upstream\n")
+	write(t, filepath.Join(main, "up.go"), "package a // up\n")
+	git(main, "add", ".")
+	git(main, "commit", "-qm", "upstream")
+	write(t, filepath.Join(wt, "a.go"), "package a // mine\n")
+	git(wt, "commit", "-qam", "mine")
+	before := Head(ctx, wt)
+
+	cmd := exec.Command("git", "-C", wt, "merge", "main")
+	cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@e", "GIT_COMMITTER_NAME=t",
+		"GIT_COMMITTER_EMAIL=t@e", "GIT_CONFIG_GLOBAL=/dev/null")
+	if err := cmd.Run(); err == nil {
+		t.Fatal("merge should conflict")
+	}
+	if op := InProgress(ctx, wt); op != "merge" {
+		t.Errorf("InProgress = %q", op)
+	}
+	write(t, filepath.Join(wt, "a.go"), "package a // resolved\n")
+	git(wt, "commit", "-qam", "merge")
+	if op := InProgress(ctx, wt); op != "" {
+		t.Errorf("InProgress after = %q", op)
+	}
+	own := OwnCommits(ctx, wt)
+	files, err := OwnFiles(ctx, wt, before, Head(ctx, wt), own)
+	if err != nil || !slices.Equal(files, []string{"a.go"}) { // not up.go
+		t.Errorf("OwnFiles of the merge = %q, %v", files, err)
+	}
+
+	// a fast-forward is not own
+	wt2 := filepath.Join(main, ".claude", "worktrees", "ff")
+	git(main, "worktree", "add", "-q", "-b", "ff", wt2, start)
+	git(wt2, "merge", "-q", "--ff-only", "main")
+	own2 := OwnCommits(ctx, wt2)
+	if own2[Head(ctx, wt2)] {
+		t.Error("fast-forwarded commit counted as own")
+	}
+	if b := Base(ctx, wt2, own2); b != Head(ctx, wt2) {
+		t.Errorf("Base after fast-forward = %q", b)
+	}
+}

@@ -402,6 +402,43 @@ func TestGateWorktreeOwnCommits(t *testing.T) {
 	}
 }
 
+// A merge of upstream that conflicts: while it is in progress the gate
+// passes (the incoming changes are staged as if the agent made them); once
+// committed, upstream's debt is not the agent's, its conflict resolution is.
+func TestGateWorktreeConflictingMerge(t *testing.T) {
+	f := newWTFixture(t)
+	writeTree(t, f.wt, map[string]string{"main.go": "package main\n\nimport (\n\t\"example.com/m/a\"\n\t\"example.com/m/c\"\n)\n\n// main runs A and C.\nfunc main() { a.A(); c.C() }\n"})
+	if failed, out := f.gate(f.wt, "main.go"); failed {
+		t.Fatalf("clean edit: %q", out)
+	}
+	testGit(t, f.wt, "commit", "-qam", "doc main")
+	// upstream: another agent's cycle, and a change to main.go that conflicts
+	writeTree(t, f.main, map[string]string{"b/b.go": bCycle,
+		"main.go": "package main\n\nimport (\n\t\"example.com/m/a\"\n\t\"example.com/m/c\"\n)\n\n// main runs everything.\nfunc main() { a.A(); c.C() }\n"})
+	testGit(t, f.main, "commit", "-qam", "cycle and main from elsewhere")
+	cmd := exec.Command("git", "-C", f.wt, "merge", "main")
+	cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@e", "GIT_COMMITTER_NAME=t",
+		"GIT_COMMITTER_EMAIL=t@e", "GIT_CONFIG_GLOBAL=/dev/null")
+	if err := cmd.Run(); err == nil {
+		t.Fatal("merge should conflict")
+	}
+	// the agent resolves the conflict with an edit: the gate passes and says why
+	writeTree(t, f.wt, map[string]string{"main.go": "package main\n\nimport (\n\t\"example.com/m/a\"\n\t\"example.com/m/c\"\n)\n\n// main runs A and C, everything.\nfunc main() { a.A(); c.C() }\n"})
+	failed, e := f.gate(f.wt, "main.go")
+	if failed || !strings.Contains(e, "merge is in progress") {
+		t.Fatalf("gate during the merge: failed=%v %q", failed, e)
+	}
+	testGit(t, f.wt, "commit", "-qam", "merge main")
+	if failed, out := f.gate(f.wt, ""); failed {
+		t.Fatalf("upstream cycle blamed on the agent after the merge: %q", out)
+	}
+	// edits after the merge are checked as usual
+	writeTree(t, f.wt, map[string]string{"c/c.go": "package c\n\nimport \"example.com/m/d\"\n\n// C calls D (again).\nfunc C() { d.D() }\n"})
+	if failed, out := f.gate(f.wt, "c/c.go"); failed {
+		t.Fatalf("clean edit after the merge: %q", out)
+	}
+}
+
 // While another process holds the worktree's sync lease (the first build of
 // a large repository running in the background), the gate passes and says
 // why; once it is released the gate checks again.

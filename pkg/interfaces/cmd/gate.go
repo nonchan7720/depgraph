@@ -114,6 +114,10 @@ func runGateCheck(parent context.Context, o *options, session string, files []st
 	var a *app
 	var plan *syncPlan
 	if worktree {
+		if op := workspace.InProgress(ctx, o.root); op != "" {
+			// its incoming changes are staged as if the agent made them
+			return nil, fmt.Errorf("%w: a %s is in progress in %s; the gate checks once it is committed", errGateSkip, op, o.root)
+		}
 		if err := st.EnsureSchema(ctx); err != nil {
 			return nil, err
 		}

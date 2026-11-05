@@ -56,6 +56,43 @@ func (s *Sessions) PutBaseline(ctx context.Context, session string, findings []r
 	return s.write(ctx, `SET h.baseline = coalesce(h.baseline, $findings), h.updatedAt = $now`, session, findings, now)
 }
 
+// Absorb adds findings to the baseline of every session of the project that
+// has one (debt that reached the checkout through git, e.g. a rebase or a
+// merge, is not the sessions' own); a finding already there is not repeated.
+func (s *Sessions) Absorb(ctx context.Context, findings []rules.Finding, now time.Time) error {
+	if len(findings) == 0 {
+		return nil
+	}
+	rows, err := s.st.Query(ctx, `
+		MATCH (h:HookSession {project: $project}) WHERE h.baseline IS NOT NULL
+		RETURN h.id AS id
+	`, map[string]any{"project": s.project})
+	if err != nil {
+		return err
+	}
+	for _, row := range rows {
+		id, _ := row["id"].(string)
+		base, ok, err := s.Baseline(ctx, id)
+		if err != nil || !ok {
+			continue
+		}
+		seen := map[string]bool{}
+		for _, f := range base {
+			seen[f.Key()] = true
+		}
+		for _, f := range findings {
+			if !seen[f.Key()] {
+				seen[f.Key()] = true
+				base = append(base, f)
+			}
+		}
+		if err := s.write(ctx, `SET h.baseline = $findings, h.updatedAt = $now`, id, base, now); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // read returns the findings in property prop of the session; ok is false
 // when the session or the property does not exist.
 func (s *Sessions) read(ctx context.Context, session, prop string) ([]rules.Finding, bool, error) {

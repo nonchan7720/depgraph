@@ -287,7 +287,31 @@ rules:
   `prompt` の hook でエージェントに届きます。
 - 判断できないときは通します（exit 0、理由は標準エラー）: 稼働中のストアが無い（Neo4j は起動しません）、
   root のプロジェクトが未スキャン、セッションが無い、`--timeout`（既定 `60s`）切れ。
-  CLAUDE.md は更新しません。root は `--root`、なければ `$CLAUDE_PROJECT_DIR`、なければカレントディレクトリです。
+  CLAUDE.md は更新しません。root は `--root`、なければカレントディレクトリの git worktree（`$CLAUDE_PROJECT_DIR` と同じ
+  リポジトリの別の worktree のとき。下記）、なければ `$CLAUDE_PROJECT_DIR`、なければカレントディレクトリです。
+- **git worktree で動くエージェント。** claude-hook-gate は `.claude/worktrees/<name>/` 配下のファイルのルールを
+  その worktree で実行します（`$CLAUDE_PROJECT_DIR` はメインツリーのまま、`$CLAUDE_GATE_FILES` は worktree からの
+  相対パス）。gate はこのときメインツリーではなく worktree を、別プロジェクト（`<base>@<name>`。[Projects](#projects) 参照）
+  としてメインツリーの `watch` の Neo4j 上で検査するので、`depgraph watch` はメインツリーの 1 つで足ります。
+  worktree の Findings はそこで動くエージェントにだけ届き、メインツリーのプロジェクトには触れません。
+  - worktree のグラフはその base（履歴のうち worktree 自身が作っていない最新のコミット。`HEAD` の reflog で判定。
+    コミットされたツリーそのもので、チェックアウトにある ignore 対象ファイルとサブモジュールも含む）から作り、それを
+    セッションの baseline にします。初回の実行より前にエージェントが変えた分・コミットした分も追加として数え、
+    もともとあった負債は数えません。
+  - 以後は毎回、`$CLAUDE_GATE_FILES` に加えて git 上でグラフと違いうるものを反映します: 記録したコミットと `HEAD` の
+    間で変わったファイル（コミット、`git reset` / `rebase`）と、前回反映したときから内容が変わった未コミット・未追跡の
+    ファイル。worktree 自身が作っていないコミット（上流で他のエージェントの作業がマージされ、それを merge / rebase した
+    など）だけで変わったファイルは上流の変更とし、それで入ってきた負債はその worktree のセッションの baseline に加えます
+    （このエージェントの負債ではないため）。それ以外は、編集とコミットを 1 度にしたものも含めてエージェントの変更です。worktree の base が動いたとき（上流への rebase や
+    `pull --rebase`）は新しい base の Findings も baseline に加えるので、main から来た負債は、エージェントの
+    コミットが載り直したファイルの中にあってもエージェントのものになりません。マージコミットはコンフリクトの解決も含めて上流の変更とします
+    （コンフリクトしたファイルには取り込んだ側の変更も入っているため。解決の中だけで入った負債は報告しません）。merge・cherry-pick・revert・rebase の途中は、
+    取り込み中の変更がエージェントの変更のようにステージされているので、gate は理由を出して通し、コミット後に検査します。
+  - 初回のビルド、上流の変更の取り込み、import 解決が依存するファイル（`go.mod`・`tsconfig.json`・`package.json` など）を含むか 200 ファイルを
+    超える差分は、プロジェクトのリースを取ったバックグラウンドの `depgraph` プロセスで行うので、大きなリポジトリでも
+    gate の `--timeout` で止まったままにはなりません。gate はタイムアウトの範囲で完了を待ち、間に合わなければ
+    理由を標準エラーに出して通します（次の実行で検査します）。
+  - 同じメインツリーの削除済み worktree のプロジェクトは、ビルドの後に消します（`depgraph projects prune` でも消せます）。
 
 ## Browser UI
 

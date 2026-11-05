@@ -1,0 +1,640 @@
+package cmd
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
+	"time"
+
+	"github.com/spf13/cobra"
+
+	"github.com/nonchan7720/depgraph/pkg/domain/project"
+	"github.com/nonchan7720/depgraph/pkg/domain/rules"
+	"github.com/nonchan7720/depgraph/pkg/domain/view"
+	"github.com/nonchan7720/depgraph/pkg/infrastructure/config"
+	"github.com/nonchan7720/depgraph/pkg/infrastructure/neo4jprovider/container"
+	graphrepo "github.com/nonchan7720/depgraph/pkg/infrastructure/repository/graph"
+	"github.com/nonchan7720/depgraph/pkg/infrastructure/repository/hooksession"
+	projectrepo "github.com/nonchan7720/depgraph/pkg/infrastructure/repository/project"
+	"github.com/nonchan7720/depgraph/pkg/infrastructure/resolver"
+	"github.com/nonchan7720/depgraph/pkg/infrastructure/resolver/treesitter"
+	"github.com/nonchan7720/depgraph/pkg/infrastructure/workspace"
+)
+
+// An agent that works in a linked git worktree (claude-hook-gate puts them
+// under <project>/.claude/worktrees/<name>) runs the gate there while only
+// the main tree is watched. The gate then checks the worktree as a project
+// of its own (key <base>@<name>) in the main tree's Neo4j, and keeps that
+// project's graph up to date itself:
+//
+//   - the graph is built from the worktree's base (the newest commit on
+//     HEAD's first-parent history the worktree did not make itself, by its
+//     HEAD reflog), exactly as committed, and those findings become the
+//     session's baseline: what the agent changed or committed before the
+//     first gate run still counts as added;
+//   - every run then applies what git says may differ from the graph: files
+//     changed between the recorded commit and HEAD, and dirty files whose
+//     content differs from what was applied last (Project.Commit / Dirty).
+//     A file changed only by commits the worktree did not make (a merge or
+//     rebase of upstream work) is upstream: the findings it brings are added
+//     to the baselines of the project's sessions, as they are not the
+//     agent's debt. Everything else counts as the agent's;
+//   - absorbing upstream, the first build, a delta with a file import
+//     resolution depends on, and a large delta run in a background child
+//     (depgraph __gate-sync) under a lease on the project, so a large
+//     repository is never stuck behind the gate's timeout. The gate waits for
+//     it as long as its own --timeout allows, and passes (saying so) when it
+//     is not done yet.
+//
+// Nothing of it reaches the main tree's project, and nothing of the main
+// tree's reaches the worktree's agent.
+
+// gateSyncCommand is the hidden command of the background sync child.
+const gateSyncCommand = "__gate-sync"
+
+const (
+	// syncLease bounds a background sync; a lease older than this is taken over.
+	syncLease = 30 * time.Minute
+	// maxInlineSync is the largest delta the gate applies itself.
+	maxInlineSync = 200
+)
+
+// gateRoot is the root the gate checks when --root is not given: the working
+// tree of cwd when it is another worktree of projectDir's repository
+// (claude-hook-gate runs a worktree's rules there while $CLAUDE_PROJECT_DIR
+// stays the main tree), else projectDir, else cwd.
+func gateRoot(ctx context.Context, projectDir, cwd string) string {
+	if projectDir == "" {
+		return cwd
+	}
+	here := workspace.Locate(ctx, cwd)
+	if here.Top == "" {
+		return projectDir
+	}
+	session := workspace.Locate(ctx, projectDir)
+	if here.SameRepository(session) && !here.SameCheckout(session) {
+		return here.Top
+	}
+	return projectDir
+}
+
+// worktreeGate is the gate's view of a linked worktree's project.
+type worktreeGate struct {
+	o        *options
+	st       *graphrepo.Store
+	projects *projectrepo.Projects
+	session  string
+	// isConfig reports a file import resolution depends on.
+	isConfig func(rel string) bool
+}
+
+// syncPlan is what brings the graph of the worktree's project up to date.
+type syncPlan struct {
+	upstream []string // changed only by commits the worktree did not make: their findings are absorbed
+	own      []string // changed by the worktree (or not attributable)
+	head     string
+	dirty    []project.DirtyFile // to record once everything is applied
+	base     string              // the worktree's base now (workspace.Base)
+	newBase  bool                // base moved (rebase, pull): its findings are absorbed
+}
+
+// heavy reports whether p goes to the background child: absorbing upstream
+// must not be cut off by the gate's deadline (half done, the next run could
+// not tell upstream apart any more), and a full scan or a large delta may
+// not fit in it.
+func (p syncPlan) heavy(isConfig func(string) bool) bool {
+	return len(p.upstream) > 0 || p.newBase || len(p.own) > maxInlineSync || slices.ContainsFunc(p.own, isConfig)
+}
+
+// plan compares p's recorded sync state with the worktree; ok is false when
+// the graph cannot be brought up to date from it (no recorded commit, or
+// git no longer knows it): the graph must be rebuilt.
+func (w *worktreeGate) plan(ctx context.Context, p project.Project) (syncPlan, bool, error) {
+	root := w.o.root
+	head := workspace.Head(ctx, root)
+	if p.Commit == "" || head == "" {
+		return syncPlan{}, false, nil
+	}
+	moved, err := workspace.ChangedBetween(ctx, root, p.Commit, head)
+	if err != nil {
+		return syncPlan{}, false, nil // e.g. the commit was rewritten away
+	}
+	dirtyNow, err := workspace.Dirty(ctx, root)
+	if err != nil {
+		return syncPlan{}, false, err
+	}
+	ownCommits := workspace.OwnCommits(ctx, root)
+	lastOwn, err := workspace.OwnFiles(ctx, root, p.Commit, head, ownCommits)
+	if err != nil {
+		return syncPlan{}, false, nil
+	}
+	// mine: HEAD holds what the worktree's own last commit to rel made (not
+	// changed since by a merge or another commit brought in)
+	mine := func(rel string) bool {
+		c, ok := lastOwn[rel]
+		return ok && workspace.SameContent(ctx, root, c, head, rel)
+	}
+	applied := map[string]string{} // path -> hash applied last time
+	for _, d := range p.Dirty {
+		applied[d.Path] = d.Hash
+	}
+	plan := syncPlan{head: head, base: workspace.Base(ctx, root, ownCommits)}
+	plan.newBase = plan.base != "" && plan.base != p.BaseCommit
+	own := map[string]bool{}
+	upstream := map[string]bool{}
+	for _, rel := range dirtyNow {
+		h := workspace.FileHash(root, rel)
+		plan.dirty = append(plan.dirty, project.DirtyFile{Path: rel, Hash: h})
+		if applied[rel] != h {
+			own[rel] = true
+		}
+	}
+	changed := slices.Clone(moved)
+	for rel := range applied { // no longer dirty: committed or reverted
+		if !slices.Contains(dirtyNow, rel) && !slices.Contains(changed, rel) {
+			changed = append(changed, rel)
+		}
+	}
+	for _, rel := range changed {
+		if own[rel] || slices.Contains(dirtyNow, rel) {
+			continue
+		}
+		if h, ok := applied[rel]; ok && workspace.FileHash(root, rel) == h {
+			continue // committed as applied
+		}
+		if mine(rel) {
+			own[rel] = true // committed here, also when no gate run saw the edit
+		} else {
+			upstream[rel] = true // brought in, reverted, or changed since by a merge
+		}
+	}
+	for rel := range upstream {
+		plan.upstream = append(plan.upstream, rel)
+	}
+	slices.Sort(plan.upstream)
+	for rel := range own {
+		plan.own = append(plan.own, rel)
+	}
+	slices.Sort(plan.own)
+	return plan, true, nil
+}
+
+// prepare makes sure the worktree's project p has a graph and returns the
+// app over it and the plan of what is left to apply (the agent's own
+// changes; upstream is absorbed by the background child). live: the store
+// was found for the worktree itself (its own watch keeps the graph current).
+func (w *worktreeGate) prepare(ctx context.Context, p project.Project, stored, live bool) (*app, syncPlan, error) {
+	if stored && !p.LastScanAt.IsZero() && p.Commit == "" && live {
+		p.Commit = workspace.Head(ctx, w.o.root)
+	}
+	build := !stored || p.LastScanAt.IsZero() || p.Commit == ""
+	var plan syncPlan
+	if !build {
+		var ok bool
+		var err error
+		if plan, ok, err = w.plan(ctx, p); err != nil {
+			return nil, syncPlan{}, err
+		}
+		build = !ok || plan.heavy(w.isConfig)
+	}
+	if build {
+		if err := w.background(ctx, p); err != nil {
+			return nil, syncPlan{}, err
+		}
+		q, err := w.projects.Get(ctx, p.Key)
+		if err != nil || q == nil || q.LastScanAt.IsZero() {
+			return nil, syncPlan{}, fmt.Errorf("%w: the graph of %s was not built (%v)", errGateSkip, w.o.root, err)
+		}
+		p = *q
+		ok := false
+		if plan, ok, err = w.plan(ctx, p); err != nil || !ok {
+			return nil, syncPlan{}, fmt.Errorf("%w: cannot compare %s with its graph (%v)", errGateSkip, w.o.root, err)
+		}
+	}
+	a, err := buildApp(ctx, w.st, w.o, nil, io.Discard)
+	if err != nil {
+		return nil, syncPlan{}, err
+	}
+	if len(plan.upstream) > 0 || plan.newBase { // arrived while the child ran: the next run absorbs it
+		a.resolver.Close()
+		return nil, syncPlan{}, fmt.Errorf("%w: %s changed while its graph was brought up to date", errGateSkip, w.o.root)
+	}
+	return a, plan, nil
+}
+
+// absorbUpstream applies files changed only by upstream commits (the agent's
+// own changes must already be in the graph, so that only upstream's effect
+// is measured) and adds the findings they bring to every session's baseline.
+func absorbUpstream(ctx context.Context, a *app, sessions *hooksession.Sessions, files []string) error {
+	before, err := evaluateNow(ctx, a)
+	if err != nil {
+		return err
+	}
+	if err := applyFiles(ctx, a, files); err != nil {
+		return err
+	}
+	after, err := evaluateNow(ctx, a)
+	if err != nil {
+		return err
+	}
+	added, _ := rules.Diff(before, after)
+	return sessions.Absorb(ctx, added, time.Now())
+}
+
+// absorbBase adds the findings of the worktree's new base (after a rebase or
+// pull onto upstream work) to every session's baseline: debt that is there
+// was not made by the worktree, also where an own commit was replayed onto a
+// file that brought it. The base is scanned as a scratch project, deleted
+// afterwards.
+func absorbBase(ctx context.Context, st *graphrepo.Store, o *options, p project.Project, base string, settings config.File, sessions *hooksession.Sessions) error {
+	scratch := p
+	scratch.Key = p.Key + "#base"
+	repo := projectrepo.New(st)
+	defer func() { _ = repo.Delete(context.WithoutCancel(ctx), scratch.Key) }()
+	built, err := buildFromCommit(ctx, st, o, scratch, base, settings)
+	if err != nil {
+		return err
+	}
+	return sessions.Absorb(ctx, built.findings, time.Now())
+}
+
+// evaluateNow evaluates the rules on a's graph and returns the findings.
+func evaluateNow(ctx context.Context, a *app) ([]rules.Finding, error) {
+	var got []rules.Finding
+	a.svc.SetNotifier(notifyFunc(func(_ view.Stats, fs []rules.Finding) { got = fs }))
+	defer a.svc.SetNotifier(nil)
+	if err := a.svc.Evaluate(ctx); err != nil {
+		return nil, err
+	}
+	return got, nil
+}
+
+// background runs the sync of p in a detached child (depgraph __gate-sync)
+// unless another process holds p's lease, and waits for it until ctx is
+// about to expire. When it is still running then, the error wraps
+// errGateSkip.
+func (w *worktreeGate) background(ctx context.Context, p project.Project) error {
+	held, err := w.projects.SyncHeld(ctx, p.Key, time.Now())
+	if err != nil {
+		return err
+	}
+	var exited chan error
+	logPath := filepath.Join(os.TempDir(), "depgraph-gate-sync-"+workspace.ShortHash(p.Key)+".log")
+	if !held {
+		if exited, err = w.spawn(logPath); err != nil {
+			return err
+		}
+	}
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		deadline = time.Now().Add(time.Minute)
+	}
+	wait := time.NewTimer(time.Until(deadline.Add(-time.Second)))
+	defer wait.Stop()
+	tick := time.NewTicker(250 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		select {
+		case err := <-exited:
+			if err != nil {
+				b, _ := os.ReadFile(logPath)
+				return fmt.Errorf("building the graph of %s: %v: %s", w.o.root, err, bytes.TrimSpace(b))
+			}
+			return nil
+		case <-tick.C:
+			if exited != nil {
+				continue
+			}
+			if held, err := w.projects.SyncHeld(ctx, p.Key, time.Now()); err == nil && !held {
+				return nil
+			}
+		case <-wait.C:
+			return fmt.Errorf("%w: the graph of %s is being built in the background; the gate checks once it is done", errGateSkip, w.o.root)
+		case <-ctx.Done():
+			return fmt.Errorf("%w: %v", errGateSkip, ctx.Err())
+		}
+	}
+}
+
+// spawn starts the sync child, detached so that it outlives this process
+// (claude-hook-gate kills the gate at its timeout), and returns a channel
+// that receives its exit.
+func (w *worktreeGate) spawn(logPath string) (chan error, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return nil, err
+	}
+	log, err := os.Create(logPath)
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.Command(exe, w.o.syncArgs(w.session)...)
+	cmd.Stdout, cmd.Stderr = log, log
+	cmd.Env = append(os.Environ(), "NEO4J_PASSWORD="+w.o.neo4jPass) // never on the command line
+	cmd.SysProcAttr = container.DetachedProcAttr()
+	if err := cmd.Start(); err != nil {
+		_ = log.Close()
+		return nil, err
+	}
+	exited := make(chan error, 1)
+	go func() {
+		exited <- cmd.Wait()
+		_ = log.Close()
+	}()
+	return exited, nil
+}
+
+// syncArgs is the argument list of the sync child for o's root.
+func (o *options) syncArgs(session string) []string {
+	args := []string{gateSyncCommand, "--root", o.root, "--session", session,
+		"--neo4j", o.neo4jURI, "--user", o.neo4jUser, "--db", o.neo4jDB,
+		"--neo4j-provider", o.neo4jProvider, "--container-cli", o.containerCLI,
+		"--ignore-file", o.ignoreFile}
+	if o.project != "" {
+		args = append(args, "--project", o.project)
+	}
+	if o.exclude != "" {
+		args = append(args, "--exclude", o.exclude)
+	}
+	return args
+}
+
+// newGateSyncCommand is the background sync child of the gate.
+func newGateSyncCommand(o *options) *cobra.Command {
+	var session string
+	c := &cobra.Command{
+		Use:    gateSyncCommand,
+		Short:  "internal: build or bring up to date the graph of a linked worktree for depgraph gate",
+		Hidden: true,
+		Args:   cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctx, cancel := context.WithTimeout(cmd.Context(), syncLease)
+			defer cancel()
+			return runGateSync(ctx, o, session)
+		},
+	}
+	addNeo4jFlags(c.Flags(), o)
+	c.Flags().StringVar(&session, "session", "", "the session whose baseline the build records")
+	return c
+}
+
+// runGateSync brings the graph of the linked worktree o.root up to date
+// under the project's lease. Without a usable graph it is rebuilt from the
+// worktree's base, whose findings become session's baseline
+// (unless it has one). Then the agent's own changes are applied, then the
+// upstream ones, whose findings are absorbed into the sessions' baselines,
+// and the sync state is recorded. Projects of removed worktrees of the same
+// main tree are deleted. (Killed between applying upstream and recording,
+// the next run cannot tell that upstream apart; the lease gives it 30
+// minutes, which is far beyond what a sync takes.)
+func runGateSync(ctx context.Context, o *options, session string) error {
+	co := workspace.Locate(ctx, o.root)
+	if !co.Linked {
+		return fmt.Errorf("%s is not a linked git worktree", o.root)
+	}
+	if op := workspace.InProgress(ctx, o.root); op != "" {
+		return nil // the next gate run after it is committed syncs
+	}
+	st, _, err := hookStoreFor(ctx, o, o.root, co.Main)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = st.Close(context.WithoutCancel(ctx)) }()
+	if err := st.EnsureSchema(ctx); err != nil {
+		return err
+	}
+	projects := projectrepo.New(st)
+	p, _, err := resolveProject(ctx, projects, o.root, o.project)
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	if ok, err := projects.ClaimSync(ctx, p, now, now.Add(syncLease)); err != nil || !ok {
+		return err // another sync runs
+	}
+	defer func() { _ = projects.ReleaseSync(context.WithoutCancel(ctx), p.Key) }()
+	sessions := hooksession.New(st, p.Key)
+	settings := settingsOrDefault(o.root)
+	w := &worktreeGate{o: o, st: st, projects: projects, isConfig: func(string) bool { return false }}
+
+	plan, ok := syncPlan{}, false
+	if !p.LastScanAt.IsZero() && p.Commit != "" {
+		if plan, ok, err = w.plan(ctx, p); err != nil {
+			return err
+		}
+	}
+	if !ok { // no usable graph: rebuild it from the base
+		base := workspace.Base(ctx, o.root, workspace.OwnCommits(ctx, o.root))
+		if base == "" {
+			base = workspace.Head(ctx, o.root)
+		}
+		p.BaseCommit = base
+		built, err := buildFromCommit(ctx, st, o, p, base, settings)
+		if err != nil {
+			return err
+		}
+		if session != "" {
+			if err := sessions.PutBaseline(ctx, session, built.findings, now); err != nil {
+				return err
+			}
+		}
+		p = built.project
+		if plan, ok, err = w.plan(ctx, p); err != nil || !ok {
+			return fmt.Errorf("cannot compare %s with %s: %v", o.root, p.Commit, err)
+		}
+	}
+	a := assembleApp(st, o, settings, p, o.root, nil, io.Discard)
+	defer a.resolver.Close()
+	if err := applyFiles(ctx, a, plan.own); err != nil {
+		return err
+	}
+	if len(plan.upstream) > 0 {
+		if err := absorbUpstream(ctx, a, sessions, plan.upstream); err != nil {
+			return err
+		}
+	}
+	if plan.newBase {
+		if err := absorbBase(ctx, st, o, p, plan.base, settings, sessions); err != nil {
+			return err
+		}
+	}
+	a.project.Commit, a.project.Dirty, a.project.BaseCommit = plan.head, plan.dirty, plan.base
+	if err := projects.Upsert(ctx, a.project); err != nil {
+		return err
+	}
+	pruneGoneWorktrees(ctx, projects, a.project, co.Main)
+	return nil
+}
+
+// applyFiles applies root-relative files to a's graph as watch does: a file
+// import resolution depends on means a full scan.
+func applyFiles(ctx context.Context, a *app, files []string) error {
+	var rels []string
+	for _, rel := range files {
+		if !resolver.ShouldSkipPath(rel) && !slices.Contains(rels, rel) {
+			rels = append(rels, rel)
+		}
+	}
+	config, sources := splitChanges(rels, a.resolver.IsConfigFile, a.resolver.Supports)
+	switch {
+	case len(config) > 0:
+		return a.fullScan(ctx)
+	case len(sources) > 0:
+		return a.svc.HandleChanges(ctx, sources)
+	}
+	return nil
+}
+
+// settingsOrDefault is root's .depgraph.yml, or the defaults when it is
+// invalid (the command reports that on its own).
+func settingsOrDefault(root string) config.File {
+	s, err := config.Load(root)
+	if err != nil {
+		return config.File{}
+	}
+	return s
+}
+
+// commitBuild is the graph of a commit of a worktree.
+type commitBuild struct {
+	project  project.Project // as stored: Commit = the commit, no Dirty
+	findings []rules.Finding
+}
+
+// buildFromCommit replaces p's graph with commit of the worktree: its tree
+// exported to a temporary directory, plus what is in the checkout but not in
+// git and not the session's work (ignored files such as generated code, and
+// submodules), scanned and evaluated with settings (the checkout's
+// .depgraph.yml). HookSession nodes are kept.
+func buildFromCommit(ctx context.Context, st *graphrepo.Store, o *options, p project.Project, commit string, settings config.File) (commitBuild, error) {
+	tmp, err := os.MkdirTemp("", "depgraph-head-")
+	if err != nil {
+		return commitBuild{}, err
+	}
+	defer func() { _ = os.RemoveAll(tmp) }()
+	ex, err := workspace.ExportCommit(ctx, o.root, commit, tmp)
+	if err != nil {
+		return commitBuild{}, err
+	}
+	r := treesitter.New()
+	keep := func(rel string) bool {
+		return !resolver.ShouldSkipPath(rel) && (r.Supports(rel) || r.IsConfigFile(rel))
+	}
+	err = copyOutsideGit(ctx, o.root, tmp, ex.Submodules, keep)
+	r.Close()
+	if err != nil {
+		return commitBuild{}, err
+	}
+	head := *o
+	head.reset = false // FullScan replaces every file; Clear would drop the sessions
+	p.LastScanAt, p.Commit, p.Dirty = time.Time{}, ex.Commit, nil
+	a := assembleApp(st, &head, settings, p, tmp, nil, io.Discard)
+	defer a.resolver.Close()
+	if err := a.fullScan(ctx); err != nil {
+		return commitBuild{}, err
+	}
+	findings, err := evaluateNow(ctx, a)
+	if err != nil {
+		return commitBuild{}, err
+	}
+	return commitBuild{project: a.project, findings: findings}, nil
+}
+
+// copyOutsideGit copies into dst the files of root that a scan of root sees
+// but the commit does not hold: ignored files and the submodules' files.
+func copyOutsideGit(ctx context.Context, root, dst string, submodules []string, keep func(string) bool) error {
+	ignored, err := workspace.Ignored(ctx, root)
+	if err != nil {
+		return err
+	}
+	for _, rel := range ignored {
+		if keep(rel) {
+			if err := workspace.CopyFile(root, dst, rel); err != nil {
+				return err
+			}
+		}
+	}
+	for _, sub := range submodules {
+		base := filepath.Join(root, filepath.FromSlash(sub))
+		err := filepath.WalkDir(base, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			rel, rerr := filepath.Rel(root, path)
+			if rerr != nil {
+				return nil
+			}
+			rel = filepath.ToSlash(rel)
+			if d.IsDir() {
+				if path != base && resolver.ShouldSkipDir(rel, d.Name()) {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if keep(rel) {
+				return workspace.CopyFile(root, dst, rel)
+			}
+			return nil
+		})
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
+}
+
+// pruneGoneWorktrees removes the projects of p's other worktrees of the same
+// main tree (same base and origin, root under main) whose directory no longer
+// exists: the agent's worktree was removed. Failures are ignored: this is
+// housekeeping, not the check.
+func pruneGoneWorktrees(ctx context.Context, repo project.Repository, p project.Project, main string) {
+	all, err := repo.List(ctx)
+	if err != nil {
+		return
+	}
+	for _, q := range project.Stale(all, workspace.Exists) {
+		rel, err := filepath.Rel(main, q.Root)
+		if q.Key == p.Key || q.Base != p.Base || q.Worktree == "" || q.Origin != p.Origin ||
+			err != nil || !filepath.IsLocal(rel) {
+			continue
+		}
+		_ = repo.Delete(ctx, q.Key)
+	}
+}
+
+// gateFiles turns the gate's file arguments into root-relative slash paths;
+// paths outside root are dropped.
+func gateFiles(root string, files []string) []string {
+	var out []string
+	for _, f := range files {
+		if filepath.IsAbs(f) {
+			rel, err := filepath.Rel(root, f)
+			if err != nil {
+				continue
+			}
+			f = rel
+		}
+		f = filepath.Clean(f)
+		if !filepath.IsLocal(f) {
+			continue
+		}
+		out = append(out, filepath.ToSlash(f))
+	}
+	return out
+}
+
+// evalSymlinks resolves p's symlinks (p itself when that fails), for
+// comparing it with workspace.Locate's paths.
+func evalSymlinks(p string) string {
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r
+	}
+	return p
+}

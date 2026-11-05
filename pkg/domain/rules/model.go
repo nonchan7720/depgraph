@@ -167,7 +167,7 @@ func DefaultConfig() Config {
 		GodPackageFanOut: 3,
 		Clones:           DefaultCloneOptions(),
 		IgnoreDuplicateNames: []string{
-			"main", "init", "New", "String", "Error", "Close", "Run", "Validate",
+			"main", "init", "TestMain", "New", "String", "Error", "Close", "Run", "Validate",
 			"default", "index", "setup", "teardown", "handler", "render", "App",
 		},
 	}

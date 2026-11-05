@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -34,6 +35,12 @@ func TestDefaultConfig(t *testing.T) {
 	}
 	if err := c.Validate(); err != nil {
 		t.Fatalf("DefaultConfig is invalid: %v", err)
+	}
+	// names a language requires in every package are not duplicated logic
+	for _, n := range []string{"main", "init", "TestMain"} {
+		if !slices.Contains(c.IgnoreDuplicateNames, n) {
+			t.Errorf("%s is not ignored by duplicate-symbol", n)
+		}
 	}
 	for _, r := range Builtin() {
 		if !c.Enabled(r.Name) || c.Severity(r.Name) != r.Severity {

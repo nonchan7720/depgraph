@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -17,6 +17,8 @@ import (
 	"github.com/nonchan7720/depgraph/pkg/infrastructure/repository/hooksession"
 	projectrepo "github.com/nonchan7720/depgraph/pkg/infrastructure/repository/project"
 	"github.com/nonchan7720/depgraph/pkg/infrastructure/resolver"
+	"github.com/nonchan7720/depgraph/pkg/infrastructure/resolver/treesitter"
+	"github.com/nonchan7720/depgraph/pkg/infrastructure/workspace"
 	"github.com/nonchan7720/depgraph/pkg/interfaces/handler/hook"
 )
 
@@ -84,27 +86,63 @@ var errGateSkip = errors.New("skipped")
 // runGateCheck applies files to the graph of o.root's project and returns the
 // findings at least floor added in session. It never starts Neo4j and never
 // writes CLAUDE.md; when the store or the project is not there, or the
-// session is unknown, the error wraps errGateSkip.
+// session is unknown, the error wraps errGateSkip. A linked git worktree is
+// checked as its own project, which the gate builds and keeps up to date
+// itself (see gate_worktree.go).
 func runGateCheck(parent context.Context, o *options, session string, files []string, floor rules.Severity) ([]rules.Finding, error) {
 	if session == "" {
 		return nil, fmt.Errorf("%w: no CLAUDE_SESSION_ID", errGateSkip)
 	}
 	ctx, cancel := context.WithTimeout(parent, o.gateTimeout)
 	defer cancel()
-	st, err := hookStore(ctx, o, o.root) // never starts Neo4j
+	here := workspace.Locate(ctx, o.root)
+	worktree := here.Linked && here.Top == evalSymlinks(o.root)
+	var alt []string // a worktree uses the store of its main tree
+	if worktree {
+		alt = append(alt, here.Main, os.Getenv("CLAUDE_PROJECT_DIR"))
+	}
+	st, live, err := hookStoreFor(ctx, o, o.root, alt...) // never starts Neo4j
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", errGateSkip, err)
 	}
 	defer func() { _ = st.Close(context.WithoutCancel(ctx)) }()
-	if _, stored, err := resolveProject(ctx, projectrepo.New(st), o.root, o.project); err != nil || !stored {
-		if err == nil {
-			err = fmt.Errorf("%s is not scanned (run depgraph watch)", o.root)
-		}
+	p, stored, err := resolveProject(ctx, projectrepo.New(st), o.root, o.project)
+	if err != nil {
 		return nil, fmt.Errorf("%w: %v", errGateSkip, err)
 	}
-	a, err := buildApp(ctx, st, o, nil, io.Discard)
-	if err != nil {
-		return nil, err
+	files = gateFiles(o.root, files)
+	var a *app
+	var plan *syncPlan
+	if worktree {
+		if op := workspace.InProgress(ctx, o.root); op != "" {
+			// its incoming changes are staged as if the agent made them
+			return nil, fmt.Errorf("%w: a %s is in progress in %s; the gate checks once it is committed", errGateSkip, op, o.root)
+		}
+		if err := st.EnsureSchema(ctx); err != nil {
+			return nil, err
+		}
+		r := treesitter.New()
+		w := &worktreeGate{o: o, st: st, projects: projectrepo.New(st), session: session, isConfig: r.IsConfigFile}
+		wa, wp, err := w.prepare(ctx, p, stored, live)
+		r.Close()
+		if err != nil {
+			return nil, err
+		}
+		a, plan = wa, &wp
+		// the plan tracks the dirty files (and applies them once per change)
+		tracked := map[string]bool{}
+		for _, d := range wp.dirty {
+			tracked[d.Path] = true
+		}
+		files = slices.DeleteFunc(files, func(f string) bool { return tracked[f] })
+		files = append(files, wp.own...)
+	} else {
+		if !stored {
+			return nil, fmt.Errorf("%w: %s is not scanned (run depgraph watch)", errGateSkip, o.root)
+		}
+		if a, err = buildApp(ctx, st, o, nil, io.Discard); err != nil {
+			return nil, err
+		}
 	}
 	defer a.resolver.Close()
 
@@ -115,9 +153,8 @@ func runGateCheck(parent context.Context, o *options, session string, files []st
 		Sessions: hooksession.New(st, a.project.Key),
 		Apply: func(ctx context.Context, files []string) error {
 			var rels []string
-			for _, f := range files {
-				rel := filepath.ToSlash(filepath.Clean(f))
-				if !resolver.ShouldSkipPath(rel) {
+			for _, rel := range files {
+				if !resolver.ShouldSkipPath(rel) && !slices.Contains(rels, rel) {
 					rels = append(rels, rel)
 				}
 			}
@@ -142,9 +179,13 @@ func runGateCheck(parent context.Context, o *options, session string, files []st
 			return last, nil
 		},
 	}
-	return hook.RunGate(ctx, d, session, files, floor, time.Now())
+	added, err := hook.RunGate(ctx, d, session, files, floor, time.Now())
+	if err == nil && plan != nil { // the graph now matches HEAD plus these
+		a.project.Commit, a.project.Dirty = plan.head, plan.dirty
+		err = a.projects.Upsert(ctx, a.project)
+	}
+	return added, err
 }
-
 func newGateCommand(o *options) *cobra.Command {
 	var failOn string
 	c := &cobra.Command{
@@ -158,10 +199,20 @@ session's baseline is recorded by "depgraph hook session-start"; without it,
 the findings before the first gate run's changes are the baseline.
 It never starts Neo4j and never writes CLAUDE.md: without a running store,
 a scanned project or a session it passes (exit 0, the reason on stderr).
-The root is --root, else $CLAUDE_PROJECT_DIR, else the current directory.`,
+The root is --root, else the current directory's working tree when it is
+another git worktree of $CLAUDE_PROJECT_DIR's repository, else
+$CLAUDE_PROJECT_DIR, else the current directory. A linked worktree is
+checked as its own project (<base>@<name>) in the Neo4j of its main tree:
+the gate builds it from the worktree's HEAD the first time (in the
+background when that takes long) and brings it up to date from git on
+every run, so only "watch" of the main tree is needed. Debt that arrives
+with commits the session did not make (a merge or rebase from upstream) is
+not counted as the session's.`,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 			if !cmd.Flags().Changed("root") {
-				if d := os.Getenv("CLAUDE_PROJECT_DIR"); d != "" {
+				if cwd, err := os.Getwd(); err == nil {
+					o.root = gateRoot(cmd.Context(), os.Getenv("CLAUDE_PROJECT_DIR"), cwd)
+				} else if d := os.Getenv("CLAUDE_PROJECT_DIR"); d != "" {
 					o.root = d
 				}
 			}

@@ -41,6 +41,11 @@ func (s *Store) Exec(ctx context.Context, cypher string, params map[string]any) 
 	return err
 }
 
+// Write runs a write statement and returns its rows as maps.
+func (s *Store) Write(ctx context.Context, cypher string, params map[string]any) ([]map[string]any, error) {
+	return s.execute(ctx, cypher, params)
+}
+
 // Query runs a read query and returns rows as maps.
 func (s *Store) Query(ctx context.Context, cypher string, params map[string]any) ([]map[string]any, error) {
 	return s.execute(ctx, cypher, params, neo4j.ExecuteQueryWithReadersRouting())

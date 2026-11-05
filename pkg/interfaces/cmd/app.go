@@ -73,6 +73,12 @@ func buildApp(ctx context.Context, st *graphrepo.Store, o *options, report analy
 	} else {
 		_, _ = fmt.Fprintf(out, "project %s\n", p.Key)
 	}
+	return assembleApp(st, o, settings, p, o.root, report, out), nil
+}
+
+// assembleApp builds the app of project p whose files are read from root
+// (o.root, or another copy of the same tree); settings are root's.
+func assembleApp(st *graphrepo.Store, o *options, settings config.File, p project.Project, root string, report analysis.ReportWriter, out io.Writer) *app {
 	g := graphrepo.ForProject(st, p.Key)
 	r := treesitter.New()
 	svc := analysis.New(analysis.Deps{
@@ -83,8 +89,8 @@ func buildApp(ctx context.Context, st *graphrepo.Store, o *options, report analy
 		Report:   report,
 		Out:      out,
 		Config:   &settings.Rules,
-	}, analysis.Options{Root: o.root, Reset: o.reset})
-	return &app{store: st, graph: g, projects: projects, project: p, resolver: r, svc: svc}, nil
+	}, analysis.Options{Root: root, Reset: o.reset})
+	return &app{store: st, graph: g, projects: projectrepo.New(st), project: p, resolver: r, svc: svc}
 }
 
 // fullScan registers the project (so its data never exists without a Project

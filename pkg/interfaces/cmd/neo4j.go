@@ -126,25 +126,56 @@ func openStore(ctx context.Context, o *options, policy neo4jprovider.Policy, out
 	return st, conn, release, nil
 }
 
-// hookStore connects to the Neo4j already serving root, read-only: nothing
-// is started and nothing is printed (the hook reports errors only with
-// --debug).
-func hookStore(ctx context.Context, o *options, root string) (*graphrepo.Store, error) {
+// hookStore connects to the Neo4j already serving root, else the first of
+// alt that has one (a linked worktree uses its main tree's), read-only:
+// nothing is started and nothing is printed (the hook reports errors only
+// with --debug).
+func hookStore(ctx context.Context, o *options, root string, alt ...string) (*graphrepo.Store, error) {
+	st, _, err := hookStoreFor(ctx, o, root, alt...)
+	return st, err
+}
+
+// hookStoreFor is hookStore; live reports that a store of a provider that
+// tracks roots (not external) was found for root itself, i.e. something
+// (watch, serve) serves root and keeps its graph current.
+func hookStoreFor(ctx context.Context, o *options, root string, alt ...string) (*graphrepo.Store, bool, error) {
 	settings, err := config.Load(root)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	choice := o.storeChoice(settings.Store)
 	p, err := neo4jprovider.Select(ctx, choice.provider, o.providers(choice))
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
+	c, live, err := discoverStore(ctx, p, root, alt)
+	if err != nil {
+		return nil, false, err
+	}
+	st, err := graphrepo.New(ctx, c.URI, c.User, c.Password, c.Database)
+	return st, live, err
+}
+
+// discoverStore finds the running store of root with p, else of the first of
+// alt; live is true when it is root's own and p tracks roots.
+func discoverStore(ctx context.Context, p neo4jprovider.Provider, root string, alt []string) (neo4jprovider.Conn, bool, error) {
 	c, ok, err := p.Discover(ctx, root)
 	if err != nil {
-		return nil, err
+		return neo4jprovider.Conn{}, false, err
 	}
-	if !ok {
-		return nil, fmt.Errorf("no running Neo4j for %s (%s)", root, p.Name())
+	if ok {
+		return c, p.Name() != neo4jprovider.External, nil
 	}
-	return graphrepo.New(ctx, c.URI, c.User, c.Password, c.Database)
+	for _, r := range alt {
+		if r == "" || r == root {
+			continue
+		}
+		if c, ok, err = p.Discover(ctx, r); err != nil {
+			return neo4jprovider.Conn{}, false, err
+		}
+		if ok {
+			return c, false, nil
+		}
+	}
+	return neo4jprovider.Conn{}, false, fmt.Errorf("no running Neo4j for %s (%s)", root, p.Name())
 }

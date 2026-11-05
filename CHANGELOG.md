@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/nonchan7720/depgraph/compare/v0.1.2...v0.1.3) (2026-11-04)
+
+
+### Features
+
+* **mcp:** show the browser UI as an MCP App (depgraph mcp) ([#31](https://github.com/nonchan7720/depgraph/issues/31)) ([1ebebfa](https://github.com/nonchan7720/depgraph/commit/1ebebfabd193e373960030d0ef1c4ace56069f44))
+
 ## [0.1.2](https://github.com/nonchan7720/depgraph/compare/v0.1.1...v0.1.2) (2026-11-03)
 
 

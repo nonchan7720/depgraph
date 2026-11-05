@@ -126,10 +126,11 @@ func openStore(ctx context.Context, o *options, policy neo4jprovider.Policy, out
 	return st, conn, release, nil
 }
 
-// hookStore connects to the Neo4j already serving root, read-only: nothing
-// is started and nothing is printed (the hook reports errors only with
-// --debug).
-func hookStore(ctx context.Context, o *options, root string) (*graphrepo.Store, error) {
+// hookStore connects to the Neo4j already serving root, else the first of
+// alt that has one (a linked worktree uses its main tree's), read-only:
+// nothing is started and nothing is printed (the hook reports errors only
+// with --debug).
+func hookStore(ctx context.Context, o *options, root string, alt ...string) (*graphrepo.Store, error) {
 	settings, err := config.Load(root)
 	if err != nil {
 		return nil, err
@@ -142,6 +143,14 @@ func hookStore(ctx context.Context, o *options, root string) (*graphrepo.Store, 
 	c, ok, err := p.Discover(ctx, root)
 	if err != nil {
 		return nil, err
+	}
+	for _, r := range alt {
+		if ok || r == "" || r == root {
+			continue
+		}
+		if c, ok, err = p.Discover(ctx, r); err != nil {
+			return nil, err
+		}
 	}
 	if !ok {
 		return nil, fmt.Errorf("no running Neo4j for %s (%s)", root, p.Name())

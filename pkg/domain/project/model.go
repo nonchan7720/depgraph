@@ -27,6 +27,13 @@ type Project struct {
 	Worktree   string    // linked worktree name ("" for the main worktree / no git)
 	LastScanAt time.Time // zero until the first full scan finished
 	Files      int64     // number of stored files (filled by Repository.List)
+	// Commit and Dirty are what the graph of a checkout nothing watches was
+	// last brought up to date with (by depgraph gate): the git HEAD and the
+	// files that then differed from it. Only files that changed between
+	// Commit and the current HEAD, Dirty, and what differs from HEAD now can
+	// differ from the graph. Empty when unknown.
+	Commit string
+	Dirty  []string
 }
 
 // BaseKey returns the project key before the worktree suffix: flag (--project),
@@ -146,7 +153,7 @@ func (e *ConflictError) Error() string {
 // Reconcile decides what to store for incoming given the project stored under
 // the same key (nil when none). The same root, or a move (same worktree and
 // either the same non-empty origin or a previous root that no longer exists),
-// returns incoming with the stored LastScanAt kept. Anything else is a
+// returns incoming with the stored LastScanAt, Commit and Dirty kept. Anything else is a
 // *ConflictError: two live checkouts must not overwrite each other's data.
 func Reconcile(existing *Project, incoming Project, exists func(root string) bool) (Project, error) {
 	if existing == nil {
@@ -154,6 +161,7 @@ func Reconcile(existing *Project, incoming Project, exists func(root string) boo
 	}
 	out := incoming
 	out.LastScanAt = existing.LastScanAt
+	out.Commit, out.Dirty = existing.Commit, existing.Dirty
 	if existing.Root == incoming.Root {
 		return out, nil
 	}

@@ -26,7 +26,8 @@ var _ project.Repository = (*Projects)(nil)
 func New(st Store) *Projects { return &Projects{st: st} }
 
 const fields = `p.key AS key, p.name AS name, p.root AS root, p.origin AS origin,
-	p.base AS base, p.worktree AS worktree, p.lastScanAt AS lastScanAt`
+	p.base AS base, p.worktree AS worktree, p.lastScanAt AS lastScanAt,
+	p.commit AS commit, p.dirty AS dirty`
 
 // Get returns the project stored under key, or nil.
 func (r *Projects) Get(ctx context.Context, key string) (*project.Project, error) {
@@ -38,19 +39,28 @@ func (r *Projects) Get(ctx context.Context, key string) (*project.Project, error
 	return &p, nil
 }
 
-// Upsert creates or replaces the project's properties. A zero LastScanAt is stored as null.
+// Upsert creates or replaces the project's properties. A zero LastScanAt,
+// an empty Commit and an empty Dirty are stored as null.
 func (r *Projects) Upsert(ctx context.Context, p project.Project) error {
 	var last any
 	if !p.LastScanAt.IsZero() {
 		last = p.LastScanAt.UTC()
 	}
+	var commit, dirty any
+	if p.Commit != "" {
+		commit = p.Commit
+	}
+	if len(p.Dirty) > 0 {
+		dirty = p.Dirty
+	}
 	return r.st.Exec(ctx, `
 		MERGE (p:Project {key: $key})
 		SET p.name = $name, p.root = $root, p.origin = $origin,
-		    p.base = $base, p.worktree = $worktree, p.lastScanAt = $last
+		    p.base = $base, p.worktree = $worktree, p.lastScanAt = $last,
+		    p.commit = $commit, p.dirty = $dirty
 	`, map[string]any{
 		"key": p.Key, "name": p.Name, "root": p.Root, "origin": p.Origin,
-		"base": p.Base, "worktree": p.Worktree, "last": last,
+		"base": p.Base, "worktree": p.Worktree, "last": last, "commit": commit, "dirty": dirty,
 	})
 }
 
@@ -93,7 +103,14 @@ func fromRow(row map[string]any) project.Project {
 	}
 	p := project.Project{
 		Key: s("key"), Name: s("name"), Root: s("root"), Origin: s("origin"),
-		Base: s("base"), Worktree: s("worktree"),
+		Base: s("base"), Worktree: s("worktree"), Commit: s("commit"),
+	}
+	if l, ok := row["dirty"].([]any); ok {
+		for _, v := range l {
+			if f, ok := v.(string); ok {
+				p.Dirty = append(p.Dirty, f)
+			}
+		}
 	}
 	if t, ok := row["lastScanAt"].(time.Time); ok {
 		p.LastScanAt = t

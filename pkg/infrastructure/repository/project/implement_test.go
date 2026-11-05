@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"testing"
 	"time"
 
@@ -45,18 +46,19 @@ func TestRepository(t *testing.T) {
 	}
 	scan := time.Date(2026, 11, 3, 10, 0, 0, 0, time.UTC)
 	a := project.Project{Key: ka, Name: "a", Root: "/r/a", Origin: "github.com/o/a", Base: ka, LastScanAt: scan}
-	b := project.Project{Key: kb, Name: "b", Root: "/r/b", Base: "zz_b", Worktree: "wt"}
+	b := project.Project{Key: kb, Name: "b", Root: "/r/b", Base: "zz_b", Worktree: "wt", Commit: "c0ffee", Dirty: []string{"a.go", "b/c.go"}}
 	for _, p := range []project.Project{a, b} {
 		if err := repo.Upsert(ctx, p); err != nil {
 			t.Fatal(err)
 		}
 	}
 	got, err := repo.Get(ctx, ka)
-	if err != nil || got == nil || got.Root != a.Root || got.Origin != a.Origin || got.Base != ka || !got.LastScanAt.Equal(scan) {
+	if err != nil || got == nil || got.Commit != "" || got.Dirty != nil || got.Root != a.Root || got.Origin != a.Origin || got.Base != ka || !got.LastScanAt.Equal(scan) {
 		t.Fatalf("Get = %+v, %v", got, err)
 	}
 	gb, err := repo.Get(ctx, kb)
-	if err != nil || gb == nil || gb.Worktree != "wt" || gb.Base != "zz_b" || !gb.LastScanAt.IsZero() {
+	if err != nil || gb == nil || gb.Worktree != "wt" || gb.Base != "zz_b" || !gb.LastScanAt.IsZero() ||
+		gb.Commit != "c0ffee" || !slices.Equal(gb.Dirty, b.Dirty) {
 		t.Fatalf("Get b = %+v, %v", gb, err)
 	}
 	// update in place (moved root)

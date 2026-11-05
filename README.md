@@ -303,7 +303,18 @@ rules:
   still reach the agent through the `prompt` hook.
 - It passes (exit 0, the reason on stderr) whenever it cannot tell: no running store (it never starts
   Neo4j), the root's project not scanned, no session, or `--timeout` (default `60s`) expired.
-  It never writes CLAUDE.md. The root is `--root`, else `$CLAUDE_PROJECT_DIR`, else the current directory.
+  It never writes CLAUDE.md. The root is `--root`, else the current directory's git worktree when it is another worktree of
+  `$CLAUDE_PROJECT_DIR`'s repository (see below), else `$CLAUDE_PROJECT_DIR`, else the current directory.
+- **Agents in git worktrees.** claude-hook-gate runs the rules of a file under `.claude/worktrees/<name>/`
+  in that worktree, with `$CLAUDE_PROJECT_DIR` still the main tree and `$CLAUDE_GATE_FILES` relative to the
+  worktree. The gate then checks the worktree, not the main tree: as its own project (`<base>@<name>`, see
+  [Projects](#projects)) in the Neo4j of the main tree's `watch`, so one `depgraph watch` of the main tree is
+  enough. The first run builds that project from the worktree's `HEAD` (what the agent changed before it
+  still counts as added; debt already committed does not) and records it as the session's baseline; every
+  run then applies what git says changed since the last one (commits, `git reset` / `rebase`, uncommitted
+  and untracked files) besides `$CLAUDE_GATE_FILES`. Findings of the worktree reach only the agent working
+  there, and the main tree's project and findings are not touched. Projects of removed worktrees are
+  deleted the next time a worktree project is built (`depgraph projects prune` deletes them too).
 
 ## Browser UI
 

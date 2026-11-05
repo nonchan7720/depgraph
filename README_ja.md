@@ -287,7 +287,17 @@ rules:
   `prompt` の hook でエージェントに届きます。
 - 判断できないときは通します（exit 0、理由は標準エラー）: 稼働中のストアが無い（Neo4j は起動しません）、
   root のプロジェクトが未スキャン、セッションが無い、`--timeout`（既定 `60s`）切れ。
-  CLAUDE.md は更新しません。root は `--root`、なければ `$CLAUDE_PROJECT_DIR`、なければカレントディレクトリです。
+  CLAUDE.md は更新しません。root は `--root`、なければカレントディレクトリの git worktree（`$CLAUDE_PROJECT_DIR` と同じ
+  リポジトリの別の worktree のとき。下記）、なければ `$CLAUDE_PROJECT_DIR`、なければカレントディレクトリです。
+- **git worktree で動くエージェント。** claude-hook-gate は `.claude/worktrees/<name>/` 配下のファイルのルールを
+  その worktree で実行します（`$CLAUDE_PROJECT_DIR` はメインツリーのまま、`$CLAUDE_GATE_FILES` は worktree からの
+  相対パス）。gate はこのときメインツリーではなく worktree を検査します。worktree は別プロジェクト（`<base>@<name>`。
+  [Projects](#projects) 参照）としてメインツリーの `watch` の Neo4j に置くので、`depgraph watch` はメインツリーの
+  1 つで足ります。初回はそのプロジェクトを worktree の `HEAD` から作ってセッションの baseline にし（それまでに
+  エージェントが変えた分も追加として数え、コミット済みの負債は数えません）、以後は毎回 `$CLAUDE_GATE_FILES` に
+  加えて前回から git 上で変わったもの（コミット、`git reset` / `rebase`、未コミット・未追跡のファイル）を反映します。
+  worktree の Findings はそこで動くエージェントにだけ届き、メインツリーのプロジェクトと Findings には触れません。
+  削除済み worktree のプロジェクトは、次に worktree のプロジェクトを作るときに消えます（`depgraph projects prune` でも消せます）。
 
 ## Browser UI
 

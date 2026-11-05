@@ -1,0 +1,135 @@
+package workspace
+
+import (
+	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
+	"testing"
+)
+
+// gitRunner returns a function that runs git in a directory with a fixed
+// identity and no global configuration.
+func gitRunner(t *testing.T) func(dir string, args ...string) string {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	return func(dir string, args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@e", "GIT_COMMITTER_NAME=t",
+			"GIT_COMMITTER_EMAIL=t@e", "GIT_CONFIG_GLOBAL=/dev/null")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return string(out)
+	}
+}
+
+func realpath(t *testing.T, p string) string {
+	t.Helper()
+	r, err := filepath.EvalSymlinks(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+func TestLocate(t *testing.T) {
+	git := gitRunner(t)
+	ctx := context.Background()
+	base := realpath(t, t.TempDir())
+	main := filepath.Join(base, "app")
+	if err := os.MkdirAll(filepath.Join(main, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	git(main, "init", "-q")
+	write(t, filepath.Join(main, "sub", "x.go"), "package sub\n")
+	git(main, "add", ".")
+	git(main, "commit", "-qm", "init")
+	wt := filepath.Join(main, ".claude", "worktrees", "feat")
+	git(main, "worktree", "add", "-q", "-b", "feat", wt)
+
+	m := Locate(ctx, filepath.Join(main, "sub"))
+	if m.Top != main || m.Main != main || m.Linked {
+		t.Errorf("main subdir: %+v", m)
+	}
+	w := Locate(ctx, filepath.Join(wt, "sub"))
+	if w.Top != wt || w.Main != main || !w.Linked {
+		t.Errorf("worktree subdir: %+v", w)
+	}
+	if !m.SameRepository(w) || m.SameCheckout(w) || !w.SameCheckout(Locate(ctx, wt)) {
+		t.Errorf("same repository / checkout: %+v %+v", m, w)
+	}
+	if n := Locate(ctx, base); n.Top != "" || n.SameRepository(Checkout{}) {
+		t.Errorf("no git: %+v", n)
+	}
+}
+
+func TestExportHeadAndChanges(t *testing.T) {
+	git := gitRunner(t)
+	ctx := context.Background()
+	root := realpath(t, t.TempDir())
+	git(root, "init", "-q")
+	for rel, body := range map[string]string{"a.go": "package a\n", "d/b.go": "package d\n", "gone.go": "package g\n"} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, rel)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		write(t, filepath.Join(root, rel), body)
+	}
+	if err := os.Symlink("/etc/passwd", filepath.Join(root, "link")); err != nil {
+		t.Fatal(err)
+	}
+	git(root, "add", ".")
+	git(root, "commit", "-qm", "one")
+	first := Head(ctx, root)
+	if len(first) < 40 {
+		t.Fatalf("Head = %q", first)
+	}
+
+	// the working tree differs from HEAD; the export does not
+	write(t, filepath.Join(root, "a.go"), "package a // edited\n")
+	write(t, filepath.Join(root, "new.go"), "package n\n")
+	if err := os.Remove(filepath.Join(root, "gone.go")); err != nil {
+		t.Fatal(err)
+	}
+	dst := t.TempDir()
+	commit, err := ExportHead(ctx, root, dst)
+	if err != nil || commit != first {
+		t.Fatalf("ExportHead = %q, %v", commit, err)
+	}
+	for rel, want := range map[string]string{"a.go": "package a\n", "d/b.go": "package d\n", "gone.go": "package g\n"} {
+		if b, err := os.ReadFile(filepath.Join(dst, rel)); err != nil || string(b) != want {
+			t.Errorf("%s = %q, %v", rel, b, err)
+		}
+	}
+	for _, rel := range []string{"new.go", "link"} { // untracked; symlinks are never written
+		if _, err := os.Lstat(filepath.Join(dst, rel)); err == nil {
+			t.Errorf("%s exported", rel)
+		}
+	}
+
+	dirty, err := Dirty(ctx, root)
+	if want := []string{"a.go", "gone.go", "new.go"}; err != nil || !slices.Equal(dirty, want) {
+		t.Errorf("Dirty = %q, %v; want %q", dirty, err, want)
+	}
+
+	// a commit, then a rename: both paths change between the commits
+	git(root, "add", "-A")
+	git(root, "commit", "-qm", "two")
+	git(root, "mv", "d/b.go", "d/c.go")
+	git(root, "commit", "-qm", "three")
+	changed, err := ChangedBetween(ctx, root, first, Head(ctx, root))
+	if want := []string{"a.go", "d/b.go", "d/c.go", "gone.go", "new.go"}; err != nil || !slices.Equal(changed, want) {
+		t.Errorf("ChangedBetween = %q, %v; want %q", changed, err, want)
+	}
+	if dirty, err := Dirty(ctx, root); err != nil || len(dirty) != 0 {
+		t.Errorf("clean Dirty = %q, %v", dirty, err)
+	}
+	if _, err := ChangedBetween(ctx, root, "0000000000000000000000000000000000000000", Head(ctx, root)); err == nil {
+		t.Error("unknown commit: error expected")
+	}
+}

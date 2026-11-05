@@ -125,6 +125,12 @@ func runGateCheck(parent context.Context, o *options, session string, files []st
 			return nil, err
 		}
 		a, plan = wa, &wp
+		// the plan tracks the dirty files (and applies them once per change)
+		tracked := map[string]bool{}
+		for _, d := range wp.dirty {
+			tracked[d.Path] = true
+		}
+		files = slices.DeleteFunc(files, func(f string) bool { return tracked[f] })
 		files = append(files, wp.own...)
 	} else {
 		if !stored {

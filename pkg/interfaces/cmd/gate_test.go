@@ -379,6 +379,29 @@ func TestGateWorktreeUpstreamDebtIsNotTheSessions(t *testing.T) {
 	}
 }
 
+// What the agent commits itself is its own, also when no gate run saw the
+// edit (edited and committed in one Bash command), before or after the
+// worktree's first gate run.
+func TestGateWorktreeOwnCommits(t *testing.T) {
+	f := newWTFixture(t)
+	// committed before the first gate run: the graph is built from the base
+	writeTree(t, f.wt, map[string]string{"b/b.go": bCycle})
+	testGit(t, f.wt, "commit", "-qam", "cycle")
+	if failed, _ := f.gate(f.wt, ""); !failed {
+		t.Fatal("cycle committed before the first gate run passed")
+	}
+	testGit(t, f.wt, "revert", "--no-edit", "HEAD")
+	if failed, out := f.gate(f.wt, ""); failed {
+		t.Fatalf("after the revert: %q", out)
+	}
+	// edited and committed in one step after it
+	writeTree(t, f.wt, map[string]string{"b/b.go": bCycle})
+	testGit(t, f.wt, "commit", "-qam", "cycle again")
+	if failed, _ := f.gate(f.wt, ""); !failed {
+		t.Fatal("cycle edited and committed in one step passed")
+	}
+}
+
 // While another process holds the worktree's sync lease (the first build of
 // a large repository running in the background), the gate passes and says
 // why; once it is released the gate checks again.

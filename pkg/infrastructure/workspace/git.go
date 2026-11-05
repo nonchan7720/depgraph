@@ -129,12 +129,16 @@ type Export struct {
 	Submodules []string
 }
 
-// ExportHead writes the tree of root's HEAD commit under dst exactly as
-// committed (blob contents, no export-ignore / export-subst, whatever the
-// working tree holds): regular files, then symlinks with their committed
-// target. No entry can leave dst, and nothing is written through a symlink.
+// ExportHead is ExportCommit of root's HEAD.
 func ExportHead(ctx context.Context, root, dst string) (Export, error) {
-	commit := Head(ctx, root)
+	return ExportCommit(ctx, root, Head(ctx, root), dst)
+}
+
+// ExportCommit writes the tree of commit under dst exactly as committed
+// (blob contents, no export-ignore / export-subst, whatever the working
+// tree holds): regular files, then symlinks with their committed target. No
+// entry can leave dst, and nothing is written through a symlink.
+func ExportCommit(ctx context.Context, root, commit, dst string) (Export, error) {
 	if commit == "" {
 		return Export{}, fmt.Errorf("%s has no commit to export", root)
 	}
@@ -317,4 +321,78 @@ func FileHash(root, rel string) string {
 func ShortHash(s string) string {
 	sum := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(sum[:8])
+}
+
+// ownReflog are the HEAD reflog actions that make a commit in the checkout
+// (as opposed to moving to one made elsewhere: merge, checkout, reset, a
+// fast-forward pull).
+var ownReflog = []string{"commit", "cherry-pick", "revert", "am",
+	"rebase (pick)", "rebase (reword)", "rebase (edit)", "rebase (squash)", "rebase (fixup)",
+	"rebase -i (pick)", "rebase -i (reword)", "rebase -i (edit)", "rebase -i (squash)", "rebase -i (fixup)"}
+
+// OwnCommits returns the commits root's HEAD reflog records as made in this
+// checkout (commit, amend, rebase picks, cherry-pick, revert, am).
+func OwnCommits(ctx context.Context, root string) map[string]bool {
+	b, err := gitLong(ctx, root, "reflog", "show", "--format=%H%x09%gs", "HEAD", "--")
+	own := map[string]bool{}
+	if err != nil {
+		return own
+	}
+	for line := range strings.SplitSeq(string(b), "\n") {
+		sha, subject, ok := strings.Cut(line, "\t")
+		if !ok {
+			continue
+		}
+		for _, a := range ownReflog {
+			if strings.HasPrefix(subject, a+":") || strings.HasPrefix(subject, a+" (") {
+				own[sha] = true
+				break
+			}
+		}
+	}
+	return own
+}
+
+// Base returns the newest commit on HEAD's first-parent history that is not
+// in own ("" when every commit is): what the checkout started from, before
+// its own work.
+func Base(ctx context.Context, root string, own map[string]bool) string {
+	b, err := gitLong(ctx, root, "rev-list", "--first-parent", "--max-count=10000", "HEAD", "--")
+	if err != nil {
+		return ""
+	}
+	for c := range strings.SplitSeq(strings.TrimSpace(string(b)), "\n") {
+		if c != "" && !own[c] {
+			return c
+		}
+	}
+	return ""
+}
+
+// OwnFiles returns the root-relative files changed by the commits of own
+// that lie between from and to, on either side (a reset back over an own
+// commit undoes own work); merge commits are not counted.
+func OwnFiles(ctx context.Context, root, from, to string, own map[string]bool) ([]string, error) {
+	if from == to {
+		return nil, nil
+	}
+	b, err := gitLong(ctx, root, "log", "--no-merges", "--no-renames", "--format=%x01%H", "--name-only", "-z",
+		from+"..."+to, "--")
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	mine := false
+	for e := range strings.SplitSeq(string(b), "\x00") {
+		e = strings.TrimLeft(e, "\n")
+		if sha, ok := strings.CutPrefix(e, "\x01"); ok {
+			sha, rest, _ := strings.Cut(sha, "\n")
+			mine = own[strings.TrimSpace(sha)]
+			e = rest
+		}
+		if mine && e != "" {
+			out = append(out, e)
+		}
+	}
+	return paths([]byte(strings.Join(out, "\x00")), func(e string) string { return e }), nil
 }

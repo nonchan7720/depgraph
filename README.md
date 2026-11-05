@@ -310,16 +310,18 @@ rules:
   worktree. The gate then checks the worktree, not the main tree, as its own project (`<base>@<name>`, see
   [Projects](#projects)) in the Neo4j of the main tree's `watch`, so one `depgraph watch` of the main tree is
   enough. Findings of the worktree reach only the agent working there; the main tree's project is not touched.
-  - The worktree's graph is built from its `HEAD` (the exact committed tree, plus ignored files and submodules
-    present in the checkout) and that is the session's baseline: what the agent changed before the first run
-    still counts as added, debt already committed does not.
+  - The worktree's graph is built from its base, the newest commit on its history it did not make itself (by
+    its `HEAD` reflog; the exact committed tree, plus ignored files and submodules present in the checkout),
+    and that is the session's baseline: what the agent changed or committed before the first run still counts
+    as added, debt that was there before does not.
   - Every run then applies what git says may differ from the graph, besides `$CLAUDE_GATE_FILES`: files changed
     between the recorded commit and `HEAD` (commits, `git reset` / `rebase`) and uncommitted or untracked files
-    whose content changed since they were applied. Debt that arrives with commits the session did not make
-    (another agent's work merged or rebased in from upstream) is added to the baselines of the worktree's
-    sessions: it is not this agent's.
-  - The first build, and a delta that touches a file import resolution depends on (`go.mod`, `tsconfig.json`,
-    `package.json`, ...) or more than 200 files, run in a background `depgraph` process under a lease on the
+    whose content changed since they were applied. A file changed only by commits the worktree did not make
+    (another agent's work merged or rebased in from upstream) is upstream: the debt it brings is added to the
+    baselines of the worktree's sessions, as it is not this agent's. Everything else, including what the agent
+    edited and committed in one step, counts as the agent's.
+  - The first build, absorbing upstream changes, and a delta that touches a file import resolution depends on
+    (`go.mod`, `tsconfig.json`, `package.json`, ...) or more than 200 files, run in a background `depgraph` process under a lease on the
     project, so a large repository is never stuck behind the gate's `--timeout`. The gate waits for it as long
     as its timeout allows and otherwise passes, saying so on stderr; the next run checks.
   - Projects of removed worktrees of the same main tree are deleted after a build (`depgraph projects prune`

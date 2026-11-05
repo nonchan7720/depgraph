@@ -153,3 +153,51 @@ func TestExportHeadAndChanges(t *testing.T) {
 		t.Error("unknown commit: error expected")
 	}
 }
+
+// The checkout's own commits are those its HEAD reflog records as made here
+// (commit, rebase pick, cherry-pick, ...); commits brought in by a merge or a
+// fast-forward are not, and the base is the newest commit that is not own.
+func TestOwnCommits(t *testing.T) {
+	git := gitRunner(t)
+	ctx := context.Background()
+	main := realpath(t, t.TempDir())
+	git(main, "init", "-q", "-b", "main")
+	write(t, filepath.Join(main, "a.go"), "package a\n")
+	git(main, "add", ".")
+	git(main, "commit", "-qm", "init")
+	start := Head(ctx, main)
+	wt := filepath.Join(main, ".claude", "worktrees", "feat")
+	git(main, "worktree", "add", "-q", "-b", "feat", wt)
+
+	write(t, filepath.Join(wt, "own.go"), "package a // own\n")
+	git(wt, "add", ".")
+	git(wt, "commit", "-qm", "own")
+	own1 := Head(ctx, wt)
+	write(t, filepath.Join(main, "up.go"), "package a // upstream\n")
+	git(main, "add", ".")
+	git(main, "commit", "-qm", "upstream")
+	up := Head(ctx, main)
+	git(wt, "rebase", "-q", "main")
+	rebased := Head(ctx, wt)
+
+	own := OwnCommits(ctx, wt)
+	if !own[rebased] || !own[own1] || own[up] || own[start] {
+		t.Errorf("OwnCommits = %v (rebased %s, own1 %s, up %s, start %s)", own, rebased, own1, up, start)
+	}
+	if b := Base(ctx, wt, own); b != up {
+		t.Errorf("Base = %s, want %s", b, up)
+	}
+	files, err := OwnFiles(ctx, wt, start, rebased, own)
+	if err != nil || !slices.Equal(files, []string{"own.go"}) {
+		t.Errorf("OwnFiles = %q, %v", files, err)
+	}
+	// going back over an own commit: still own
+	git(wt, "reset", "-q", "--hard", up)
+	if files, _ := OwnFiles(ctx, wt, rebased, up, own); !slices.Equal(files, []string{"own.go"}) {
+		t.Errorf("OwnFiles back = %q", files)
+	}
+	// the main tree made all of its commits itself
+	if b := Base(ctx, main, OwnCommits(ctx, main)); b != "" {
+		t.Errorf("main Base = %q", b)
+	}
+}

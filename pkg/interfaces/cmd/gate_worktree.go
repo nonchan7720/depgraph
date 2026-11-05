@@ -34,17 +34,20 @@ import (
 // of its own (key <base>@<name>) in the main tree's Neo4j, and keeps that
 // project's graph up to date itself:
 //
-//   - the graph is built from the worktree's HEAD (its exact committed tree)
-//     and those findings become the session's baseline, so what the agent
-//     changed before the first gate run still counts as added;
+//   - the graph is built from the worktree's base (the newest commit on
+//     HEAD's first-parent history the worktree did not make itself, by its
+//     HEAD reflog), exactly as committed, and those findings become the
+//     session's baseline: what the agent changed or committed before the
+//     first gate run still counts as added;
 //   - every run then applies what git says may differ from the graph: files
 //     changed between the recorded commit and HEAD, and dirty files whose
 //     content differs from what was applied last (Project.Commit / Dirty).
-//     Findings that arrive through commits the session did not make (a merge
-//     or rebase of upstream work) are added to the baselines of the
-//     project's sessions: they are not the agent's debt;
-//   - work that can take long (the first build, a delta with a file import
-//     resolution depends on, or a large delta) runs in a background child
+//     A file changed only by commits the worktree did not make (a merge or
+//     rebase of upstream work) is upstream: the findings it brings are added
+//     to the baselines of the project's sessions, as they are not the
+//     agent's debt. Everything else counts as the agent's;
+//   - absorbing upstream, the first build, a delta with a file import
+//     resolution depends on, and a large delta run in a background child
 //     (depgraph __gate-sync) under a lease on the project, so a large
 //     repository is never stuck behind the gate's timeout. The gate waits for
 //     it as long as its own --timeout allows, and passes (saying so) when it
@@ -94,18 +97,18 @@ type worktreeGate struct {
 
 // syncPlan is what brings the graph of the worktree's project up to date.
 type syncPlan struct {
-	upstream []string // changed by commits the session did not make: applied first, their findings absorbed
-	own      []string // changed by the session (or not attributable): applied by the gate check
+	upstream []string // changed only by commits the worktree did not make: their findings are absorbed
+	own      []string // changed by the worktree (or not attributable)
 	head     string
 	dirty    []project.DirtyFile // to record once everything is applied
 }
 
-// heavy reports whether p is too much for the gate's own deadline.
+// heavy reports whether p goes to the background child: absorbing upstream
+// must not be cut off by the gate's deadline (half done, the next run could
+// not tell upstream apart any more), and a full scan or a large delta may
+// not fit in it.
 func (p syncPlan) heavy(isConfig func(string) bool) bool {
-	if len(p.upstream)+len(p.own) > maxInlineSync {
-		return true
-	}
-	return slices.ContainsFunc(p.upstream, isConfig) || slices.ContainsFunc(p.own, isConfig)
+	return len(p.upstream) > 0 || len(p.own) > maxInlineSync || slices.ContainsFunc(p.own, isConfig)
 }
 
 // plan compares p's recorded sync state with the worktree; ok is false when
@@ -124,6 +127,10 @@ func (w *worktreeGate) plan(ctx context.Context, p project.Project) (syncPlan, b
 	dirtyNow, err := workspace.Dirty(ctx, root)
 	if err != nil {
 		return syncPlan{}, false, err
+	}
+	mine, err := workspace.OwnFiles(ctx, root, p.Commit, head, workspace.OwnCommits(ctx, root))
+	if err != nil {
+		return syncPlan{}, false, nil
 	}
 	applied := map[string]string{} // path -> hash applied last time
 	for _, d := range p.Dirty {
@@ -148,7 +155,11 @@ func (w *worktreeGate) plan(ctx context.Context, p project.Project) (syncPlan, b
 			continue
 		}
 		if h, ok := applied[rel]; ok && workspace.FileHash(root, rel) == h {
-			continue // the session's own change, committed as applied
+			continue // committed as applied
+		}
+		if slices.Contains(mine, rel) {
+			own[rel] = true // committed here before a gate run saw it
+			continue
 		}
 		plan.upstream = append(plan.upstream, rel)
 	}
@@ -160,9 +171,9 @@ func (w *worktreeGate) plan(ctx context.Context, p project.Project) (syncPlan, b
 }
 
 // prepare makes sure the worktree's project p has a graph and returns the
-// app over it and the plan that brings it up to date, with the upstream
-// part already applied and absorbed. live: the store was found for the
-// worktree itself (its own watch keeps the graph current).
+// app over it and the plan of what is left to apply (the agent's own
+// changes; upstream is absorbed by the background child). live: the store
+// was found for the worktree itself (its own watch keeps the graph current).
 func (w *worktreeGate) prepare(ctx context.Context, p project.Project, stored, live bool) (*app, syncPlan, error) {
 	if stored && !p.LastScanAt.IsZero() && p.Commit == "" && live {
 		p.Commit = workspace.Head(ctx, w.o.root)
@@ -195,30 +206,22 @@ func (w *worktreeGate) prepare(ctx context.Context, p project.Project, stored, l
 	if err != nil {
 		return nil, syncPlan{}, err
 	}
-	a.project.Commit = p.Commit
-	if len(plan.upstream) > 0 {
-		if err := absorbUpstream(ctx, a, hooksession.New(w.st, a.project.Key), plan.upstream); err != nil {
-			a.resolver.Close()
-			return nil, syncPlan{}, err
-		}
+	if len(plan.upstream) > 0 { // arrived while the child ran: the next run absorbs it
+		a.resolver.Close()
+		return nil, syncPlan{}, fmt.Errorf("%w: %s changed while its graph was brought up to date", errGateSkip, w.o.root)
 	}
 	return a, plan, nil
 }
 
-// absorbUpstream applies files changed by commits the sessions did not make
-// and adds the findings they bring to every session's baseline.
+// absorbUpstream applies files changed only by upstream commits (the agent's
+// own changes must already be in the graph, so that only upstream's effect
+// is measured) and adds the findings they bring to every session's baseline.
 func absorbUpstream(ctx context.Context, a *app, sessions *hooksession.Sessions, files []string) error {
 	before, err := evaluateNow(ctx, a)
 	if err != nil {
 		return err
 	}
-	var sources []string
-	for _, rel := range files {
-		if !resolver.ShouldSkipPath(rel) {
-			sources = append(sources, rel)
-		}
-	}
-	if err := a.svc.HandleChanges(ctx, sources); err != nil {
+	if err := applyFiles(ctx, a, files); err != nil {
 		return err
 	}
 	after, err := evaluateNow(ctx, a)
@@ -349,12 +352,15 @@ func newGateSyncCommand(o *options) *cobra.Command {
 	return c
 }
 
-// runGateSync rebuilds the graph of the linked worktree o.root from its HEAD
-// under the project's lease: the findings the old graph lacked (they came
-// with commits) are absorbed into the sessions' baselines, HEAD's findings
-// become session's baseline (unless it has one), then the dirty files are
-// applied and the sync state recorded. Projects of removed worktrees of the
-// same main tree are deleted.
+// runGateSync brings the graph of the linked worktree o.root up to date
+// under the project's lease. Without a usable graph it is rebuilt from the
+// worktree's base, whose findings become session's baseline
+// (unless it has one). Then the agent's own changes are applied, then the
+// upstream ones, whose findings are absorbed into the sessions' baselines,
+// and the sync state is recorded. Projects of removed worktrees of the same
+// main tree are deleted. (Killed between applying upstream and recording,
+// the next run cannot tell that upstream apart; the lease gives it 30
+// minutes, which is far beyond what a sync takes.)
 func runGateSync(ctx context.Context, o *options, session string) error {
 	co := workspace.Locate(ctx, o.root)
 	if !co.Linked {
@@ -380,41 +386,42 @@ func runGateSync(ctx context.Context, o *options, session string) error {
 	defer func() { _ = projects.ReleaseSync(context.WithoutCancel(ctx), p.Key) }()
 	sessions := hooksession.New(st, p.Key)
 	settings := settingsOrDefault(o.root)
+	w := &worktreeGate{o: o, st: st, projects: projects, isConfig: func(string) bool { return false }}
 
-	var before []rules.Finding // the old graph's findings
-	if !p.LastScanAt.IsZero() {
-		a := assembleApp(st, o, settings, p, o.root, nil, io.Discard)
-		before, err = evaluateNow(ctx, a)
-		a.resolver.Close()
+	plan, ok := syncPlan{}, false
+	if !p.LastScanAt.IsZero() && p.Commit != "" {
+		if plan, ok, err = w.plan(ctx, p); err != nil {
+			return err
+		}
+	}
+	if !ok { // no usable graph: rebuild it from the base
+		base := workspace.Base(ctx, o.root, workspace.OwnCommits(ctx, o.root))
+		if base == "" {
+			base = workspace.Head(ctx, o.root)
+		}
+		built, err := buildFromCommit(ctx, st, o, p, base, settings)
 		if err != nil {
 			return err
 		}
-	}
-	head, err := buildFromHead(ctx, st, o, p, settings)
-	if err != nil {
-		return err
-	}
-	if before != nil {
-		added, _ := rules.Diff(before, head.findings)
-		if err := sessions.Absorb(ctx, added, now); err != nil {
-			return err
+		if session != "" {
+			if err := sessions.PutBaseline(ctx, session, built.findings, now); err != nil {
+				return err
+			}
+		}
+		p = built.project
+		if plan, ok, err = w.plan(ctx, p); err != nil || !ok {
+			return fmt.Errorf("cannot compare %s with %s: %v", o.root, p.Commit, err)
 		}
 	}
-	if session != "" {
-		if err := sessions.PutBaseline(ctx, session, head.findings, now); err != nil {
-			return err
-		}
-	}
-	// then the session's changes so far, as the gate would apply them
-	a := assembleApp(st, o, settings, head.project, o.root, nil, io.Discard)
+	a := assembleApp(st, o, settings, p, o.root, nil, io.Discard)
 	defer a.resolver.Close()
-	w := &worktreeGate{o: o, st: st, projects: projects, isConfig: a.resolver.IsConfigFile}
-	plan, ok, err := w.plan(ctx, head.project)
-	if err != nil || !ok {
-		return fmt.Errorf("cannot compare %s with HEAD %s: %v", o.root, head.project.Commit, err)
-	}
-	if err := applyFiles(ctx, a, slices.Concat(plan.upstream, plan.own)); err != nil {
+	if err := applyFiles(ctx, a, plan.own); err != nil {
 		return err
+	}
+	if len(plan.upstream) > 0 {
+		if err := absorbUpstream(ctx, a, sessions, plan.upstream); err != nil {
+			return err
+		}
 	}
 	a.project.Commit, a.project.Dirty = plan.head, plan.dirty
 	if err := projects.Upsert(ctx, a.project); err != nil {
@@ -453,26 +460,26 @@ func settingsOrDefault(root string) config.File {
 	return s
 }
 
-// headBuild is the graph of a worktree's HEAD.
-type headBuild struct {
-	project  project.Project // as stored: Commit = HEAD, no Dirty
+// commitBuild is the graph of a commit of a worktree.
+type commitBuild struct {
+	project  project.Project // as stored: Commit = the commit, no Dirty
 	findings []rules.Finding
 }
 
-// buildFromHead replaces p's graph with the worktree's HEAD: the committed
-// tree exported to a temporary directory, plus what is in the checkout but
-// not in git and not the session's work (ignored files such as generated
-// code, and submodules), scanned and evaluated with settings (the
-// checkout's .depgraph.yml). HookSession nodes are kept.
-func buildFromHead(ctx context.Context, st *graphrepo.Store, o *options, p project.Project, settings config.File) (headBuild, error) {
+// buildFromCommit replaces p's graph with commit of the worktree: its tree
+// exported to a temporary directory, plus what is in the checkout but not in
+// git and not the session's work (ignored files such as generated code, and
+// submodules), scanned and evaluated with settings (the checkout's
+// .depgraph.yml). HookSession nodes are kept.
+func buildFromCommit(ctx context.Context, st *graphrepo.Store, o *options, p project.Project, commit string, settings config.File) (commitBuild, error) {
 	tmp, err := os.MkdirTemp("", "depgraph-head-")
 	if err != nil {
-		return headBuild{}, err
+		return commitBuild{}, err
 	}
 	defer func() { _ = os.RemoveAll(tmp) }()
-	ex, err := workspace.ExportHead(ctx, o.root, tmp)
+	ex, err := workspace.ExportCommit(ctx, o.root, commit, tmp)
 	if err != nil {
-		return headBuild{}, err
+		return commitBuild{}, err
 	}
 	r := treesitter.New()
 	keep := func(rel string) bool {
@@ -481,7 +488,7 @@ func buildFromHead(ctx context.Context, st *graphrepo.Store, o *options, p proje
 	err = copyOutsideGit(ctx, o.root, tmp, ex.Submodules, keep)
 	r.Close()
 	if err != nil {
-		return headBuild{}, err
+		return commitBuild{}, err
 	}
 	head := *o
 	head.reset = false // FullScan replaces every file; Clear would drop the sessions
@@ -489,13 +496,13 @@ func buildFromHead(ctx context.Context, st *graphrepo.Store, o *options, p proje
 	a := assembleApp(st, &head, settings, p, tmp, nil, io.Discard)
 	defer a.resolver.Close()
 	if err := a.fullScan(ctx); err != nil {
-		return headBuild{}, err
+		return commitBuild{}, err
 	}
 	findings, err := evaluateNow(ctx, a)
 	if err != nil {
-		return headBuild{}, err
+		return commitBuild{}, err
 	}
-	return headBuild{project: a.project, findings: findings}, nil
+	return commitBuild{project: a.project, findings: findings}, nil
 }
 
 // copyOutsideGit copies into dst the files of root that a scan of root sees

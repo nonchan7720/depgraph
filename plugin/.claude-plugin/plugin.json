@@ -1,6 +1,6 @@
 {
   "name": "depgraph",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Claude Code hooks that add depgraph's findings (unused code, duplicated logic, import cycles, layer violations) to the context, and skills to set depgraph up in a project and to fix what it reports. Needs the depgraph binary on PATH.",
   "author": {
     "name": "nonchan7720"
@@ -8,5 +8,12 @@
   "homepage": "https://github.com/nonchan7720/depgraph",
   "repository": "https://github.com/nonchan7720/depgraph",
   "license": "Apache-2.0",
-  "keywords": ["dependency-graph", "code-quality", "dead-code", "duplicate-code", "architecture", "hooks"]
+  "keywords": [
+    "dependency-graph",
+    "code-quality",
+    "dead-code",
+    "duplicate-code",
+    "architecture",
+    "hooks"
+  ]
 }

@@ -222,6 +222,25 @@ Flags (see `depgraph <command> --help`):
 | `--timeout` / `--debug` / `--format` | hook | `3s` / false / `json` (`text`: the context itself, for claude-hook-gate's `session_start`) |
 | `--fail-on` / `--timeout` | gate | `warn` / `60s` |
 
+## Claude Code plugin
+
+The repository is also a Claude Code plugin marketplace. The `depgraph` plugin wires the
+[hooks](#claude-code-hooks) for you and adds two skills:
+
+```text
+/plugin marketplace add nonchan7720/depgraph
+/plugin install depgraph@depgraph
+```
+
+| part | what it does |
+|---|---|
+| hooks | `depgraph hook session-start` / `prompt` at session start and on every prompt (as below). They do nothing without `depgraph` on `PATH`, when the project's `.claude/settings.json` runs `depgraph hook` itself, and (session start only) when claude-hook-gate's `session_start` runs it, so the context is never added twice |
+| `/depgraph:setup [init\|update\|review]` | writes `.depgraph.yml` (layers from what the code shows, entry points, rule options), `.depgraphignore` and, with claude-hook-gate, the `depgraph gate` rule and `session_start` entry in `.claude/gate.yaml` |
+| `/depgraph:fix [rule]` | fixes findings the way the code needs (move the import that points the wrong way, reuse instead of re-implement, wire up or remove unused code), not by silencing rules |
+
+The plugin does not install the binary: install it from [Releases](#install) (the plugin's version
+is the release it was made with), and keep `depgraph watch --root <repo>` running.
+
 ## Claude Code hooks
 
 `depgraph hook <session-start|prompt>` feeds the findings already in Neo4j back into
@@ -591,6 +610,7 @@ pkg/interfaces/cmd/                  CLI (cobra: parse / scan / check / watch / 
 pkg/interfaces/handler/ui/           HTTP server + SSE + embedded UI (web/ build output)
 pkg/interfaces/handler/mcpapp/       MCP server: the UI as an MCP App (single-file web/ build, app-only tools)
 web/                                 browser UI source (Vite + TypeScript, Cytoscape + elkjs)
+plugin/                              Claude Code plugin (hooks, skills; .claude-plugin/marketplace.json lists it)
 pkg/interfaces/handler/hook/         Claude Code hook and quality gate (summary / diff / findings added in a session)
 ```
 

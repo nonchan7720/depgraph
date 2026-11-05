@@ -1,0 +1,14 @@
+{
+  "name": "depgraph",
+  "owner": {
+    "name": "nonchan7720"
+  },
+  "description": "depgraph: finds the debt AI agents leave behind (unused code, duplicated logic, import cycles, layer violations) and feeds it back to Claude Code while it works",
+  "plugins": [
+    {
+      "name": "depgraph",
+      "source": "./plugin",
+      "description": "Claude Code hooks that add depgraph's findings to the context, and skills to set depgraph up in a project and to fix what it reports"
+    }
+  ]
+}

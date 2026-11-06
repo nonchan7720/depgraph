@@ -15,6 +15,11 @@ type Usage struct {
 	// Entry is why the file is an entry point ("" when it is not): it is
 	// reachable by definition and its exports are used from outside.
 	Entry string `json:"entry,omitempty"`
+	// Internal: the entry is the API of a package only the repository uses
+	// (a private workspace package other workspace packages depend on): the
+	// file is reachable, but its exports count only where the repository
+	// uses them.
+	Internal bool `json:"internal,omitempty"`
 	// Generated: the file says it is generated; its exports are not reported.
 	Generated bool `json:"generated,omitempty"`
 	// Uses are the names this file uses of other files (and, for Go, of its

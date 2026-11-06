@@ -21,13 +21,15 @@ import (
 // unusedFile is one File node with its usage and declarations.
 type unusedFile struct {
 	Path, Lang, Scope, Entry string
-	Generated                bool
-	HasUsage                 bool
-	Uses                     []graph.Use
-	Exports                  []graph.ExportName
-	Keep                     []string
-	Mentions                 []string
-	Symbols                  []unusedSymbol
+	// Internal: Entry is the API of a package only the repository uses
+	Internal  bool
+	Generated bool
+	HasUsage  bool
+	Uses      []graph.Use
+	Exports   []graph.ExportName
+	Keep      []string
+	Mentions  []string
+	Symbols   []unusedSymbol
 }
 
 type unusedSymbol struct {
@@ -41,7 +43,7 @@ func (r *Repository) evaluateUnused(ctx context.Context, cfg rules.Config) ([]ru
 		MATCH (f:File {project: $project})
 		OPTIONAL MATCH (f)-[:DECLARES]->(s:Symbol)
 		WITH f, collect({name: s.name, kind: s.kind, exported: s.exported, line: s.line}) AS syms
-		RETURN f.path AS path, f.language AS lang, f.scope AS scope, f.entry AS entry,
+		RETURN f.path AS path, f.language AS lang, f.scope AS scope, f.entry AS entry, f.internal AS internal,
 		       f.generated AS generated, f.uses AS uses, f.exports AS exports, f.keep AS keep,
 		       f.mentions AS mentions, syms
 	`, nil, nil)
@@ -55,6 +57,7 @@ func (r *Repository) evaluateUnused(ctx context.Context, cfg rules.Config) ([]ru
 			f.HasUsage = true
 			f.Scope, f.Entry = str(row["scope"]), str(row["entry"])
 			f.Generated, _ = row["generated"].(bool)
+			f.Internal, _ = row["internal"].(bool)
 			for _, s := range toStrings(row["uses"]) {
 				if u, ok := graph.DecodeUse(s); ok {
 					f.Uses = append(f.Uses, u)
@@ -178,9 +181,12 @@ func evalUnused(files []unusedFile, cfg rules.Config) []rules.Finding {
 			}
 		}
 	}
-	// 2. entries are used from outside: all their exports count as used
+	// 2. entries are used from outside: all their exports count as used,
+	// except those of a package only the repository uses
 	for p := range entries {
-		ix.markAll(p)
+		if !ix.files[p].Internal {
+			ix.markAll(p)
+		}
 	}
 
 	// 3. reachability
@@ -202,7 +208,7 @@ func evalUnused(files []unusedFile, cfg rules.Config) []rules.Finding {
 			break
 		}
 		f := ix.files[p]
-		if entries[p] != "" || f.Generated || dead[p] || ignored(p, false) || ix.usedAll[p] {
+		if (entries[p] != "" && !f.Internal) || f.Generated || dead[p] || ignored(p, false) || ix.usedAll[p] {
 			continue
 		}
 		kinds := reportedKinds[f.Lang]

@@ -380,7 +380,7 @@ API: `GET /api/graph`（パッケージ・辺・findings・stats）、`GET /api/
 (Project {key, name, root, origin, base, worktree, lastScanAt})
 (Package {project, key, name, external})
 (File    {project, path, language, lines, updatedAt,
-          scope, entry, generated, uses, exports, keep})   # 未使用コード系ルール用の usage
+          scope, entry, internal, generated, uses, exports, keep})   # 未使用コード系ルール用の usage
 (Symbol  {project, name, kind, exported, line, endLine, language, file})
 
 (Package)-[:CONTAINS]->(File)-[:DECLARES]->(Symbol)
@@ -429,7 +429,7 @@ import は各エコシステム自身の解決方法で、プロジェクトの�
 誤検知はバグなので、import グラフの外から読み込まれる兆候があるファイルはエントリポイント（到達可能で、export は外から使われる扱い。報告しない）とします。
 
 - Go: `main` パッケージ、`_test.go`。`main` パッケージを持たないモジュールはライブラリで、`internal/` 以外のパッケージは公開 API。exported なメソッドは報告しません（interface が必要とする可能性があるため）。ドキュメントだけのパッケージも報告しません。`//go:embed` が埋め込むファイルは使用中です。
-- TS/JS: `package.json` の `main` / `module` / `browser` / `types` / `bin` / `exports` と `scripts` が実行するファイル（`dist/` のパスは `tsconfig.json` を見てソースに戻す）、HTML の `<script src>` とページテンプレートが名前で指すスクリプト、設定ファイル（`*.config.*`・`.*rc.*`）、テスト・stories・型テスト・`testdata/`・`.d.ts`、`scripts/` `bin/` `tools/` `docs/` `public/` `static/`、`examples/` とベンチマーク、パッケージ直下または `src/` 直下の `index` / `main` / `server` / `app` / `cli`、ファイルベースルーティング（Next.js・Remix・Gatsby・Expo Router などの `app/`・`pages/`・`routes/`）、Docusaurus の theme コンポーネント、React Email のテンプレート、MDX が import するファイル。プロジェクトが依存として宣言していないパッケージの import（`@site/...` のようなバンドラ / サイトジェネレータのエイリアス）は捨てずに、プロジェクト内のパスと突き合わせます。Vue・Svelte・Astro・Qwik・Marko・Ember・auto-import を使うパッケージはコンポーネントファイルを解析しないため対象外。shadcn/ui がコピーするコンポーネント群は vendored コードとして報告しません。
+- TS/JS: `package.json` の `main` / `module` / `browser` / `types` / `bin` / `exports` と `scripts` が実行するファイル（`dist/` のパスは `tsconfig.json` を見てソースに戻す）、HTML の `<script src>` とページテンプレートが名前で指すスクリプト、設定ファイル（`*.config.*`・`.*rc.*`）、テスト・stories・型テスト・`testdata/`・`.d.ts`、`scripts/` `bin/` `tools/` `docs/` `public/` `static/`、`examples/` とベンチマーク、パッケージ直下または `src/` 直下の `index` / `main` / `server` / `app` / `cli`、ファイルベースルーティング（Next.js・Remix・Gatsby・Expo Router などの `app/`・`pages/`・`routes/`）、Docusaurus の theme コンポーネント、React Email のテンプレート、MDX が import するファイル。プロジェクトが依存として宣言していないパッケージの import（`@site/...` のようなバンドラ / サイトジェネレータのエイリアス）は捨てずに、プロジェクト内のパスと突き合わせます。Vue・Svelte・Astro・Qwik・Marko・Ember・auto-import を使うパッケージはコンポーネントファイルを解析しないため対象外。shadcn/ui がコピーするコンポーネント群は vendored コードとして報告しません。モノレポで、リポジトリ内の他のパッケージが依存している `private` なワークスペースパッケージは公開されないので、使うのはリポジトリだけです。その `main` / `exports` / `types` と `index` のファイルは到達可能性の起点のままですが、export は他のパッケージが使っていなければ報告します（`bin` と `scripts` のファイルは外から実行されるので従来どおり）。公開されるパッケージと、何も依存していない private なアプリは、エントリの export を従来どおり使用済みとみなします。
 - Python: `__main__.py`、`__main__` ガード、`conftest.py`、`test_*.py`、`tests/`、マイグレーション、`setup.py` / `manage.py` / `wsgi.py` / `asgi.py`、`pyproject.toml` / `setup.cfg` の scripts・entry points の対象、Django プロジェクトでは自動検出されるモジュール（`models`・`admin`・`apps`・`urls`・`views`・`wagtail_hooks` など）。`__init__.py` は到達不能として報告しません。`__all__` の名前とデコレータ付き定義（ルート・fixture・タスク）は使用中とみなします。
 - 共通: Dockerfile・Procfile・Makefile・compose・CI ワークフロー・`mise.toml`・シェルスクリプトが実行するファイルやモジュール（`node dist/server.js`・`python -m pkg.tool`・`uvicorn app.main:app`）、文字列中のパスやドット区切りモジュール名（`new URL('./worker.ts', ...)`・`"app.tasks.send"`・`importlib.import_module(f"app.plugins.{name}")`・`` import(`./locales/${l}`) ``）、あらゆる言語の文字列中のソースファイル名（JS をバンドルする Go プログラムの `"render.js"`）。
 - ヘッダで生成コードと宣言しているファイルは報告しません。

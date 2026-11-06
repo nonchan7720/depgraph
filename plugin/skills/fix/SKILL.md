@@ -1,6 +1,6 @@
 ---
 name: fix
-description: Fix the debt depgraph reports (import-cycle, layer-violation, duplicate-code, duplicate-symbol, god-package, unused-export, unreachable-file, unreachable-package) the way the codebase needs, not by silencing the rule. Use when depgraph findings appear in the context (session start, a prompt, or a failing `depgraph gate`), or when the user asks to clean up what depgraph found.
+description: Fix the debt depgraph reports (import-cycle, module-cycle, layer-violation, duplicate-code, duplicate-symbol, god-package, unused-export, unreachable-file, unreachable-package) the way the codebase needs, not by silencing the rule. Use when depgraph findings appear in the context (session start, a prompt, or a failing `depgraph gate`), or when the user asks to clean up what depgraph found.
 argument-hint: "[rule or finding]"
 ---
 
@@ -22,6 +22,11 @@ refactor nobody asked for.
   wrong way (usually a lower-level package that started importing a higher one). Move the shared
   type or function down into the package both can depend on, or invert the dependency with an
   interface owned by the lower package. Never break a cycle by copying code.
+- **module-cycle** (error): modules of a monorepo (Go modules, npm workspace packages, Python
+  projects, components) that import each other, through directories that do not form a cycle
+  themselves. The finding lists one import per hop. Decide which module is the lower one (the
+  library the other builds on) and move what it imports from the higher one down into it or into
+  a shared package both depend on; never re-implement it on the other side.
 - **layer-violation** (error): a layer imports one it must not (`.depgraph.yml` `forbidden`, or
   the defaults such as handler → repository). Route the call through the layer in between
   (handler → usecase → repository) or depend on an interface the inner layer declares. Change the

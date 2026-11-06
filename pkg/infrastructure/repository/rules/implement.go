@@ -28,21 +28,72 @@ var _ rules.Repository = (*Repository)(nil)
 // New returns a rules repository over q (the graph store) bound to project.
 func New(q Querier, project string) *Repository { return &Repository{q: q, project: project} }
 
+// moduleCycles finds the cycles between cfg's modules and components; the
+// directory cycles already in found (import-cycle) are not repeated.
+func (r *Repository) moduleCycles(ctx context.Context, cfg rules.Config, ignore []string, found []rules.Finding) ([]rules.ModuleCycle, error) {
+	units := append([]string(nil), cfg.Modules...)
+	if len(cfg.Components) > 0 {
+		keys, err := r.packageKeys(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("module cycles: %w", err)
+		}
+		for _, c := range cfg.ExpandComponents(keys).Components {
+			units = append(units, c.Dir)
+		}
+	}
+	if len(units) == 0 {
+		return nil, nil
+	}
+	rows, err := r.query(ctx, `
+		MATCH (a:Package {project: $project})-[:IMPORTS]->(b:Package {project: $project})
+		WHERE a.external = false AND b.external = false AND a <> b
+		  AND none(rx IN $ignore WHERE a.key =~ rx OR b.key =~ rx)
+		RETURN a.key AS from, b.key AS to
+	`, ignore, nil)
+	if err != nil {
+		return nil, fmt.Errorf("module cycles: %w", err)
+	}
+	edges := make([][2]string, 0, len(rows))
+	for _, row := range rows {
+		from, _ := row["from"].(string)
+		to, _ := row["to"].(string)
+		edges = append(edges, [2]string{from, to})
+	}
+	var dirCycles [][]string
+	for _, f := range found {
+		if f.Rule == rules.RuleImportCycle {
+			if keys, ok := f.Data["packages"].([]string); ok {
+				dirCycles = append(dirCycles, keys)
+			}
+		}
+	}
+	return rules.ModuleCycles(edges, units, dirCycles), nil
+}
+
+// packageKeys returns the keys of the project's in-repo packages.
+func (r *Repository) packageKeys(ctx context.Context) ([]string, error) {
+	rows, err := r.query(ctx, `
+		MATCH (p:Package {project: $project}) WHERE p.external = false RETURN p.key AS key
+	`, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	keys := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if k, ok := row["key"].(string); ok {
+			keys = append(keys, k)
+		}
+	}
+	return keys, nil
+}
+
 // layerPairs compiles cfg's forbidden pairs for the query; components whose
 // directory is a pattern are expanded over the project's packages first.
 func (r *Repository) layerPairs(ctx context.Context, cfg rules.Config) ([]map[string]any, error) {
 	if slices.ContainsFunc(cfg.Components, func(c rules.Component) bool { return strings.ContainsAny(c.Dir, "*?") }) {
-		rows, err := r.query(ctx, `
-			MATCH (p:Package {project: $project}) WHERE p.external = false RETURN p.key AS key
-		`, nil, nil)
+		keys, err := r.packageKeys(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("layers: %w", err)
-		}
-		keys := make([]string, 0, len(rows))
-		for _, row := range rows {
-			if k, ok := row["key"].(string); ok {
-				keys = append(keys, k)
-			}
 		}
 		cfg = cfg.ExpandComponents(keys)
 	}
@@ -117,6 +168,23 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 				Rule: rules.RuleImportCycle, Severity: sev(rules.RuleImportCycle),
 				Message: strings.Join(keys, " -> "),
 				Data:    map[string]any{"packages": keys},
+			})
+		}
+	}
+
+	// 1b. Import cycles between modules (Go modules, npm packages, Python
+	// projects, components) that are not directory cycles too.
+	if cfg.Enabled(rules.RuleModuleCycle) {
+		found, err := r.moduleCycles(ctx, cfg, ignore, out)
+		if err != nil {
+			return nil, err
+		}
+		for _, c := range found {
+			out = append(out, rules.Finding{
+				Rule: rules.RuleModuleCycle, Severity: sev(rules.RuleModuleCycle),
+				Message: strings.Join(c.Modules, " -> ") + " (" + strings.Join(c.Imports, ", ") + ")",
+				ID:      strings.Join(c.Modules, " -> "),
+				Data:    map[string]any{"modules": c.Modules, "imports": c.Imports},
 			})
 		}
 	}

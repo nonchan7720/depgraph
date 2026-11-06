@@ -166,3 +166,33 @@ func TestLoadNestedAndComponentsConflict(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+// The directories of the repository's modules (go.mod, package.json,
+// pyproject.toml, setup.py, setup.cfg) are the units of module-cycle; the
+// root and skipped directories are not.
+func TestLoadFindsModules(t *testing.T) {
+	root := t.TempDir()
+	writeFiles(t, root, map[string]string{
+		"go.mod":                         "module example.com/m\n",
+		"package.json":                   "{}",
+		"lib/auth/go.mod":                "module example.com/m/lib/auth\n",
+		"lib/ui/package.json":            "{}",
+		"packages/web/package.json":      "{}",
+		"packages/web/e2e/package.json":  "{}",
+		"py/core/pyproject.toml":         "",
+		"py/legacy/setup.py":             "",
+		"py/old/setup.cfg":               "",
+		"node_modules/x/package.json":    "{}",
+		"packages/web/dist/package.json": "{}",
+		".claude/worktrees/a/go.mod":     "module x\n",
+		"docs/readme.md":                 "",
+	})
+	f, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"lib/auth", "lib/ui", "packages/web", "packages/web/e2e", "py/core", "py/legacy", "py/old"}
+	if !reflect.DeepEqual(f.Rules.Modules, want) {
+		t.Errorf("modules = %v, want %v", f.Rules.Modules, want)
+	}
+}

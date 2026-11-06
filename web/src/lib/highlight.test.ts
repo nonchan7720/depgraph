@@ -32,6 +32,12 @@ describe('findingPackageKeys', () => {
   const f = (rule: string, data: Record<string, unknown>): Finding => ({ rule, severity: 'error', message: '', id: '', data });
   it('reads each rule\'s data', () => {
     expect(findingPackageKeys(f('import-cycle', { packages: ['a', 'b', 'a'] }))).toEqual(['a', 'b', 'a']);
+    expect(findingPackageKeys(f('module-cycle', { modules: ['m', 'n', 'm'], imports: ['m/x -> n/y', 'n/y -> m/z'] }))).toEqual([
+      'm/x',
+      'n/y',
+      'n/y',
+      'm/z',
+    ]);
     expect(findingPackageKeys(f('layer-violation', { from: 'a', to: 'b' }))).toEqual(['a', 'b']);
     expect(findingPackageKeys(f('god-package', { pkg: 'a' }))).toEqual(['a']);
     expect(findingPackageKeys(f('duplicate-symbol', { files: ['x/y/z.go', 'main.go'] }))).toEqual(['x/y', '.']);

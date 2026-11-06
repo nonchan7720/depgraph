@@ -142,6 +142,10 @@ type Config struct {
 	// Components: parts of a monorepo with layers of their own (a
 	// .depgraph.yml in their directory, or components: of the root's).
 	Components []Component
+	// Modules: the directories below the root of the repository's modules
+	// (go.mod, package.json, pyproject.toml, ...), the units of module-cycle
+	// together with the Components.
+	Modules []string
 }
 
 // segmentLayer is a default layer: the name (and its other spellings) as a

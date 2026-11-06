@@ -414,6 +414,7 @@ import は各エコシステム自身の解決方法で、プロジェクトの�
 | rule | severity | 内容 |
 |---|---|---|
 | `import-cycle` | error | パッケージ間の循環 import。8 パッケージ以下の循環に乗る import ごとに、それを通る最短の循環（最大 50 件） |
+| `module-cycle` | error | モノレポのモジュール間の import 循環（Go モジュール・npm のワークスペースパッケージ・Python プロジェクト。`go.mod`・`package.json`・`pyproject.toml`・`setup.py`・`setup.cfg` のあるディレクトリと[コンポーネント](#モノレポcomponents)）。ディレクトリ同士では循環にならないもの（`packages/web/src/a -> packages/kit/src -> packages/web/src/b`）も検出します。1 ホップごとに import を 1 つ示し、`import-cycle` が報告済みの循環は重ねて報告しません |
 | `layer-violation` | error | import してはいけないレイヤーを import している（`handler → repository` など、または独自レイヤー） |
 | `duplicate-code` | warn | 名前に関係なく、同じロジックが複数箇所にある（完全に同じ、または少し手を加えた複製。下記） |
 | `god-package` | warn | ハブ：10 パッケージ以上から import され、かつリポジトリ内の 3 パッケージ以上を import している。多くから依存されてもリポジトリ内の何にも依存しないパッケージ（ドメインモデルなど）は安定しており、god package ではない（安定依存の原則） |

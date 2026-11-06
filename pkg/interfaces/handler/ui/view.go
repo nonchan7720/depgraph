@@ -108,6 +108,14 @@ func violationSets(findings []rules.Finding) (badEdges, badPkgs, godPkgs map[str
 				badEdges[ks[i]+"->"+ks[i+1]] = true
 				badPkgs[ks[i]] = true
 			}
+		case rules.RuleModuleCycle:
+			// one package import per hop between two modules
+			for _, imp := range stringList(f.Data["imports"]) {
+				if from, to, ok := strings.Cut(imp, " -> "); ok {
+					badEdges[from+"->"+to] = true
+					badPkgs[from], badPkgs[to] = true, true
+				}
+			}
 		case "layer-violation":
 			from, _ := f.Data["from"].(string)
 			to, _ := f.Data["to"].(string)

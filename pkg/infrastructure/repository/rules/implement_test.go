@@ -511,3 +511,71 @@ func TestEvaluateMonorepoComponents(t *testing.T) {
 		t.Errorf("layer violations =\n  %s\nwant\n  %s", strings.Join(got, "\n  "), strings.Join(want, "\n  "))
 	}
 }
+
+// Modules that import each other through different directories form no
+// directory cycle; module-cycle reports them, and leaves out a cycle
+// import-cycle already reports.
+func TestEvaluateModuleCycle(t *testing.T) {
+	ctx, st := connect(t)
+	key := fmt.Sprintf("zz_test_%d_modcycle", time.Now().UnixNano())
+	seed(ctx, t, st, key, map[string][]string{
+		"packages/web/src/a": {"packages/kit/src"},
+		"packages/web/src/b": nil,
+		"packages/kit/src":   {"packages/web/src/b"},
+		// a directory cycle: import-cycle's
+		"packages/ui/src":    {"packages/icons/src"},
+		"packages/icons/src": {"packages/ui/src"},
+		// ignored
+		"packages/old/x":     {"packages/web/src/b"},
+		"packages/web/src/c": {"packages/old/y"},
+		"packages/old/y":     nil,
+	})
+	cfg := rules.DefaultConfig()
+	cfg.Ignore = []string{"packages/old/**"}
+	cfg.Modules = []string{"packages/icons", "packages/kit", "packages/ui", "packages/web"}
+	fs, err := New(st, key).Evaluate(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, f := range fs {
+		if f.Rule == rules.RuleModuleCycle || f.Rule == rules.RuleImportCycle {
+			got = append(got, f.Rule+": "+f.Message)
+		}
+	}
+	slices.Sort(got)
+	want := []string{
+		"import-cycle: packages/icons/src -> packages/ui/src -> packages/icons/src",
+		"module-cycle: packages/kit -> packages/web -> packages/kit (packages/kit/src -> packages/web/src/b, packages/web/src/a -> packages/kit/src)",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("cycles =\n  %s\nwant\n  %s", strings.Join(got, "\n  "), strings.Join(want, "\n  "))
+	}
+
+	// components count as modules; disabled, nothing is reported
+	cfg.Modules = nil
+	cfg.Components = []rules.Component{{Dir: "packages/*"}}
+	if fs, err = New(st, key).Evaluate(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if n := countRule(fs, rules.RuleModuleCycle); n != 1 {
+		t.Errorf("components as modules: %d module cycles", n)
+	}
+	cfg.Settings = map[string]rules.RuleSetting{rules.RuleModuleCycle: {Disabled: true}}
+	if fs, err = New(st, key).Evaluate(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if n := countRule(fs, rules.RuleModuleCycle); n != 0 {
+		t.Errorf("disabled: %d module cycles", n)
+	}
+}
+
+func countRule(fs []rules.Finding, rule string) int {
+	n := 0
+	for _, f := range fs {
+		if f.Rule == rule {
+			n++
+		}
+	}
+	return n
+}

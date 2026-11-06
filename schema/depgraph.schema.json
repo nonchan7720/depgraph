@@ -207,6 +207,27 @@
           },
           "type": "object"
         },
+        "module-cycle": {
+          "additionalProperties": false,
+          "description": "import cycle between the modules of a monorepo (Go modules, npm packages, Python projects, components)",
+          "properties": {
+            "enabled": {
+              "default": true,
+              "description": "false turns the rule off.",
+              "type": "boolean"
+            },
+            "severity": {
+              "default": "error",
+              "description": "Severity of the rule's findings.",
+              "enum": [
+                "error",
+                "warn",
+                "info"
+              ]
+            }
+          },
+          "type": "object"
+        },
         "unreachable-file": {
           "additionalProperties": false,
           "description": "a TS/JS/Python file no entry point reaches",

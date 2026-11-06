@@ -150,9 +150,15 @@ func (b watchBatch) handle(ctx context.Context, changed []string) {
 	reloaded := false
 	var settings []string
 	for _, rel := range changed {
-		if watchedConfig(rel) {
+		switch {
+		case watchedConfig(rel):
 			settings = append(settings, rel)
-		} else {
+		case config.IsModuleManifest(path.Base(filepath.ToSlash(rel))):
+			// a module added or removed: module-cycle's units change, and
+			// import resolution too (it stays in files)
+			settings = append(settings, rel)
+			files = append(files, rel)
+		default:
 			files = append(files, rel)
 		}
 	}

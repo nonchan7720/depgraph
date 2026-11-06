@@ -26,16 +26,17 @@ func DefaultLimits() Limits {
 }
 
 var ruleOrder = map[string]int{
-	"import-cycle": 0, "layer-violation": 1, "duplicate-code": 2, "god-package": 3, "duplicate-symbol": 4,
-	rules.RuleUnusedExport: 5, rules.RuleUnreachableFile: 6, rules.RuleUnreachablePackage: 7,
+	"import-cycle": 0, rules.RuleModuleCycle: 1, "layer-violation": 2, "duplicate-code": 3, "god-package": 4, "duplicate-symbol": 5,
+	rules.RuleUnusedExport: 6, rules.RuleUnreachableFile: 7, rules.RuleUnreachablePackage: 8,
 }
 
 var ruleHints = map[string]string{
-	"import-cycle":     "must fix; do not add imports that close a cycle",
-	"layer-violation":  "must fix; respect layer boundaries",
-	"duplicate-code":   "extract and reuse the shared logic; do not add another copy",
-	"god-package":      "avoid adding more dependents",
-	"duplicate-symbol": "reuse or consolidate instead of re-implementing",
+	"import-cycle":        "must fix; do not add imports that close a cycle",
+	rules.RuleModuleCycle: "must fix; modules / workspace packages must depend one way",
+	"layer-violation":     "must fix; respect layer boundaries",
+	"duplicate-code":      "extract and reuse the shared logic; do not add another copy",
+	"god-package":         "avoid adding more dependents",
+	"duplicate-symbol":    "reuse or consolidate instead of re-implementing",
 
 	rules.RuleUnusedExport:       "nothing uses these: delete them instead of building on them",
 	rules.RuleUnreachableFile:    "no entry point imports these: delete or wire them up",

@@ -38,7 +38,7 @@ func Render(stats view.Stats, findings []rules.Finding) string {
 	b.WriteString("- Prefer fixing the violations below over adding new code that depends on them.\n\n")
 
 	byRule := map[string][]rules.Finding{}
-	order := []string{"import-cycle", "layer-violation", "duplicate-code", "god-package", "duplicate-symbol",
+	order := []string{"import-cycle", rules.RuleModuleCycle, "layer-violation", "duplicate-code", "god-package", "duplicate-symbol",
 		rules.RuleUnusedExport, rules.RuleUnreachableFile, rules.RuleUnreachablePackage}
 	known := map[string]bool{}
 	for _, r := range order {
@@ -56,6 +56,7 @@ func Render(stats view.Stats, findings []rules.Finding) string {
 	order = append(order, extra...)
 	titles := map[string]string{
 		"import-cycle":               "Import cycles (must fix)",
+		rules.RuleModuleCycle:        "Import cycles between modules / workspace packages (must fix)",
 		"layer-violation":            "Layer violations (must fix)",
 		"duplicate-code":             "Duplicated code (extract the shared logic and reuse it; do not add another copy)",
 		"god-package":                "God packages (high fan-in; avoid adding more dependents)",

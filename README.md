@@ -440,6 +440,7 @@ external, so it never shows up as a dependency. `watch` rescans when one of thes
 | rule | severity | description |
 |---|---|---|
 | `import-cycle` | error | import cycle between packages: for every import on a cycle of at most 8 packages, the shortest cycle through it (up to 50) |
+| `module-cycle` | error | import cycle between the modules of a monorepo (Go modules, npm workspace packages, Python projects: directories with `go.mod`, `package.json`, `pyproject.toml`, `setup.py` or `setup.cfg`, plus [components](#monorepos-components)) through directories that do not form a cycle themselves (`packages/web/src/a -> packages/kit/src -> packages/web/src/b`). One import is listed per hop; a cycle `import-cycle` already reports is not repeated |
 | `layer-violation` | error | a package imports a layer it must not import (`handler → repository`, ... or your own layers) |
 | `duplicate-code` | warn | the same logic in several places, whatever the names: identical, or a copy changed a little (see below) |
 | `god-package` | warn | a hub: imported by 10 or more packages and importing 3 or more in-repo packages. A package many depend on that depends on nothing in the repository (a domain model) is stable, not a god package (Stable Dependencies Principle) |

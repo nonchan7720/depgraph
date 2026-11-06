@@ -190,7 +190,8 @@ func addComponents(c *rules.Config, dir string, comps map[string]componentYAML) 
 	}
 }
 
-// loadNested applies the .depgraph.yml files below root to f. Each one is
+// loadNested applies the .depgraph.yml files below root to f and records
+// the directories of its modules (IsModuleManifest) in f.Rules.Modules. Each one is
 // the configuration of its directory as a component of a monorepo: its
 // layers, forbidden pairs, components and ignore are relative to it, and so
 // are the paths of the unused-code rules. What only the root decides (rule
@@ -200,6 +201,7 @@ func addComponents(c *rules.Config, dir string, comps map[string]componentYAML) 
 // are not read.
 func loadNested(root string, f *File) error {
 	var dirs []string
+	modules := map[string]bool{}
 	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			if d != nil && d.IsDir() && p != root {
@@ -218,13 +220,21 @@ func loadNested(root string, f *File) error {
 			}
 			return nil
 		}
-		if d.Name() == FileName && path.Dir(rel) != "." {
-			dirs = append(dirs, path.Dir(rel))
+		if dir := path.Dir(rel); dir != "." {
+			switch {
+			case d.Name() == FileName:
+				dirs = append(dirs, dir)
+			case IsModuleManifest(d.Name()):
+				modules[dir] = true
+			}
 		}
 		return nil
 	})
 	if err != nil {
 		return err
+	}
+	if len(modules) > 0 {
+		f.Rules.Modules = sortedKeys(modules)
 	}
 	if len(dirs) == 0 {
 		return nil
@@ -246,6 +256,16 @@ func loadNested(root string, f *File) error {
 		return fmt.Errorf("%s: %w", filepath.Join(root, FileName), err)
 	}
 	return nil
+}
+
+// IsModuleManifest reports whether a file name makes its directory a module
+// of the repository (the units of module-cycle).
+func IsModuleManifest(name string) bool {
+	switch name {
+	case "go.mod", "package.json", "pyproject.toml", "setup.py", "setup.cfg":
+		return true
+	}
+	return false
 }
 
 // applyNested applies the .depgraph.yml of directory dir (below the root).

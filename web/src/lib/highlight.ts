@@ -46,6 +46,9 @@ export function findingPackageKeys(f: Finding): string[] {
   switch (f.rule) {
     case 'import-cycle':
       return strs(d.packages);
+    case 'module-cycle':
+      // one package import ("a -> b") per hop between two modules
+      return strs(d.imports).flatMap((imp) => imp.split(' -> '));
     case 'layer-violation':
       return [d.from, d.to].filter((x): x is string => typeof x === 'string');
     case 'god-package':

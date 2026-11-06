@@ -256,3 +256,21 @@ components:
 		t.Errorf("%d layer violations, want 3:\n%s", n, out)
 	}
 }
+
+// A module manifest (go.mod, package.json, ...) reloads the rules too: the
+// modules of module-cycle are read with them.
+func TestWatchReloadsModules(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	svc := &fakeService{}
+	var out bytes.Buffer
+	b := watchBatch{root: root, svc: svc, out: &out}
+	writeTree(t, root, map[string]string{"packages/web/package.json": "{}"})
+	b.handle(ctx, []string{"packages/web/package.json"})
+	if len(svc.cfgs) != 1 || strings.Join(svc.cfgs[0].Modules, ",") != "packages/web" {
+		t.Fatalf("modules not reloaded: %+v", svc.cfgs)
+	}
+	if len(svc.changes) != 1 || strings.Join(svc.changes[0], ",") != "packages/web/package.json" {
+		t.Errorf("the manifest must still reach the service: %v", svc.changes)
+	}
+}

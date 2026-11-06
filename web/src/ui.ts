@@ -34,7 +34,7 @@ let findings: Finding[] = [];
 let activeKey: string | null = null; // selected finding
 let selected: string | null = null; // selected package key
 let lastShape = '';
-const openRules = new Set(['layer-violation', 'import-cycle']);
+const openRules = new Set(['layer-violation', 'import-cycle', 'module-cycle']);
 
 const save = () => {
   try {

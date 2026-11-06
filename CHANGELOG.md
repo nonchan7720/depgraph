@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.5](https://github.com/nonchan7720/depgraph/compare/v0.1.4...v0.1.5) (2026-11-06)
+
+
+### Features
+
+* **rules:** layers per component of a monorepo (components:, nested .depgraph.yml) ([#37](https://github.com/nonchan7720/depgraph/issues/37)) ([3418e10](https://github.com/nonchan7720/depgraph/commit/3418e10b2b3e29c7fdfab11aba00e4b63a7edac5))
+* **rules:** module-cycle, import cycles between the modules of a monorepo ([#39](https://github.com/nonchan7720/depgraph/issues/39)) ([accc35e](https://github.com/nonchan7720/depgraph/commit/accc35e901567b31f5d184251198cf96ae50a876))
+* **rules:** report unused exports of private workspace packages only the repository uses ([#40](https://github.com/nonchan7720/depgraph/issues/40)) ([d22267c](https://github.com/nonchan7720/depgraph/commit/d22267c58c68ff9a92d602eaa3160b162ad0403d))
+
+
+### Bug Fixes
+
+* **resolver:** resolve TypeScript workspace packages without node_modules ([#38](https://github.com/nonchan7720/depgraph/issues/38)) ([45301e4](https://github.com/nonchan7720/depgraph/commit/45301e402cba99da0b41de23b46dc8b47f4db8e1))
+
 ## [0.1.4](https://github.com/nonchan7720/depgraph/compare/v0.1.3...v0.1.4) (2026-11-05)
 
 

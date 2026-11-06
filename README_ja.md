@@ -509,6 +509,53 @@ store:                      # Neo4j の用意の仕方（Neo4j 参照）。フ�
 `controller → repository / db`、`domain → infra / handler / repository`、`usecase → handler` です。
 このリポジトリ自身の [`.depgraph.yml`](.depgraph.yml) が例になります。
 
+### モノレポ（`components`）
+
+モノレポでは部分ごとにアーキテクチャが違い、言語も違うことがよくあります。`pkg/` は Go、
+`lib/auth` は Go で `lib/ui` は TypeScript、`packages/` の下はディレクトリごとに npm パッケージ、といった構成です。
+それぞれを **コンポーネント** として、そのディレクトリからの相対パスでレイヤーを宣言します。書き方は 2 通りです:
+
+```yaml
+# root の .depgraph.yml
+components:
+  "packages/*":             # パターン: マッチしたディレクトリごとに 1 コンポーネント（packages/web、packages/kit、...）
+    layers:
+      api: ["src/api/**"]
+      ui: ["src/components/**"]
+    forbidden:
+      api: [ui]
+  lib/ui:
+    forbidden:              # forbidden だけ: lib/ui の中でデフォルトのレイヤーを使う
+      handler: [repository]
+```
+
+```yaml
+# lib/auth/.depgraph.yml: 同じファイルが --root lib/auth でもそのまま使える
+layers:
+  domain: ["domain/**"]
+  adapter: ["adapter/**"]
+forbidden:
+  domain: [adapter]
+ignore: ["**/testdata/**"]                 # lib/auth/**/testdata/**
+rules:
+  unused-export: {ignore: ["api/**"]}       # lib/auth/api/**
+```
+
+- コンポーネントの禁止ペアは、同じディレクトリに属する 2 つのパッケージ間の import にだけ適用します。
+  `packages/web/src/api -> packages/web/src/components` は `(packages/web: api must not import ui)` として
+  報告し、`packages/web` から `packages/kit` への import は報告しません。言語は関係ありません（レイヤーはディレクトリ単位です）。
+- デフォルトのレイヤーはディレクトリ名からの推測なので、コンポーネントの中（とコンポーネントへの import）には
+  適用しません。root で宣言したレイヤー（`layers:`）はリポジトリ自体のアーキテクチャなので、
+  コンポーネントをまたいで全体に適用します（`apps` 同士は import しない、など）。
+- root より下にある `.depgraph.yml` は root のものと一緒に読みます（`scan`・`check`・`watch`・`hook`・`gate`。
+  `watch` は変更されると読み直します）。その `layers`・`forbidden`・`components`・`ignore` と、未使用コード系ルールの
+  `ignore` / `entries` は、そのディレクトリからの相対パスです。`components:` のパターンにマッチするディレクトリに
+  専用のファイルがあれば、そちらを優先します。同じディレクトリを `components:` と専用ファイルの両方で宣言するとエラーです。
+  `project` と `store` は、そのディレクトリを root にしたときだけ効きます。ルールの有効 / 無効・severity・閾値も同じで、
+  これらは適用せずに警告を表示します。スキャン対象外のディレクトリ（`node_modules`・`.git`・`.depgraphignore` など）の
+  ファイルは読みません。
+- コンポーネントのディレクトリは root からのパスか、`*` と `?` を使ったパターンです（`**` は使えません）。
+
 ### 重複コード
 
 depgraph は関数・メソッド・クラスごとに本体の「形」を持ちます。構文トークンからコメントを除き、識別子と
@@ -541,7 +588,7 @@ pkg/services/analysis/               スキャン・差分適用・ルール評�
 pkg/infrastructure/repository/graph/ Neo4j 投入・クエリ
 pkg/infrastructure/repository/rules/ Cypher ルール評価
 pkg/infrastructure/repository/project/ Project ノード
-pkg/infrastructure/config/           .depgraph.yml（プロジェクト key・ルール設定・ストア設定）
+pkg/infrastructure/config/           .depgraph.yml（プロジェクト key・ルール設定・ストア設定。モノレポのサブディレクトリの設定）
 pkg/infrastructure/neo4jprovider/    Neo4j の用意の仕方: Provider の契約、選択、external
   container/                         docker / podman / nerdctl のコンテナの Neo4j（ライフサイクル・ラベル・後片付け）
 pkg/infrastructure/workspace/        root のプロジェクト識別（.depgraph.yml、git の origin・worktree）
@@ -568,6 +615,7 @@ pkg/interfaces/handler/hook/         Claude Code hook・品質ゲート（要約
 - [ ] SCIP インデックス取り込み（CI 向けバッチ精密解析）
 - [x] 1 DB で複数プロジェクト（`--project`、`.depgraph.yml` の `project:`、`depgraph projects`）
 - [x] `.depgraph.yml` でのルール設定（レイヤー・禁止 import・severity・ignore）
+- [x] モノレポ: コンポーネントごとのレイヤー（`components:`、ディレクトリごとの `.depgraph.yml`）
 - [x] ブラウザ UI を MCP App として表示する MCP サーバー（`depgraph mcp`）
 - [ ] グラフを直接問い合わせる MCP ツール（依存元・未使用コード・重複）を Claude Code / Cursor から
 - [x] depgraph 自身がコンテナ（docker / podman / nerdctl）で Neo4j を用意（エフェメラル / 永続）

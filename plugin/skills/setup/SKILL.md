@@ -73,6 +73,13 @@ ignore: ["**/testdata/**"]  # packages left out of every rule (still scanned)
 - `layers` replaces the default layers and their forbidden pairs; `forbidden` alone refers to the
   defaults (`controller`, `db`, `domain`, `handler`, `infra`, `repository`, `usecase`).
 - Decoding is strict: an unknown key, rule, option or layer name is an error that names the file.
+- Monorepo (several modules / packages / languages, e.g. `pkg/` Go, `lib/*` Go or TS, `packages/*`
+  TS): do not write one set of layers over the whole tree. Declare each part as a component with
+  layers relative to its directory, under `components:` of the root file (a pattern such as
+  `"packages/*"` is one component per directory with the same layout) or in a `.depgraph.yml` in a
+  part whose layout is its own. A component's pairs only check imports inside one directory; keep
+  repository-wide rules (apps must not import each other) in the root's `layers` / `forbidden`.
+  See README "Monorepos".
 - Prefer a `depgraph:entry` comment (`// depgraph:entry`, `# depgraph:entry`) in the file itself for
   a single entry point; `entries` / `ignore` are for path globs.
 - Do not disable a rule to make findings go away. Disabling is for a rule that does not apply to

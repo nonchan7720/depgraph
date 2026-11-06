@@ -428,7 +428,7 @@ Imports are resolved the way each ecosystem resolves them, from the project's ow
 
 | language | how |
 |---|---|
-| TypeScript / JavaScript | esbuild's resolver: `tsconfig.json` / `jsconfig.json` (`paths`, `baseUrl`, `extends`), `package.json` (`exports`, `imports`, workspaces), `node_modules`, ESM `./x.js` written for `x.ts` |
+| TypeScript / JavaScript | esbuild's resolver: `tsconfig.json` / `jsconfig.json` (`paths`, `baseUrl`, `extends`), `package.json` (`exports`, `imports`, workspaces), `node_modules`, ESM `./x.js` written for `x.ts`. Workspace packages (`workspaces` of `package.json`, `pnpm-workspace.yaml`) resolve to their directory even before an install (a fresh clone, CI, the gate's worktrees); an installed package of the same name wins |
 | Go | `go.mod` / `go.work` (nested modules, `use`, `replace`) |
 | Python | the import system over the repository's package roots (the repo root, `src/`, `pyproject.toml` / `setup.cfg` package dirs); a directory without `__init__.py` is a namespace package and does not shadow the standard library |
 

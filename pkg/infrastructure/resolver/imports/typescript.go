@@ -2,6 +2,7 @@ package imports
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -16,6 +17,9 @@ import (
 // (paths, baseUrl, extends) from the importer's directory upwards, package.json
 // (exports, imports, main / module) and node_modules, and follows symlinks, so
 // a workspace package linked into node_modules resolves to its real directory.
+// Workspace packages that are not linked (no install yet: a fresh clone, CI,
+// the gate's worktrees) resolve through links depgraph makes itself (see
+// linkWorkspace).
 //
 // Imports resolved into node_modules are External, keyed by package name.
 type TypeScript struct {
@@ -29,6 +33,10 @@ type tsRoot struct {
 	ctx     api.BuildContext
 	resolve func(string, api.ResolveOptions) api.ResolveResult
 	err     string
+	// links: the temporary directory of links to the workspace packages
+	// ("" when none); workspace: their names.
+	links     string
+	workspace map[string]bool
 }
 
 // NewTypeScript returns a TypeScript / JavaScript resolver. Call Close when done.
@@ -39,7 +47,16 @@ func NewTypeScript() *TypeScript { return &TypeScript{} }
 var tsExtensions = []string{".tsx", ".ts", ".mts", ".cts", ".jsx", ".js", ".mjs", ".cjs", ".css", ".json"}
 
 func loadTS(root string) *tsRoot {
-	r := &tsRoot{real: realRoot(root)}
+	r := &tsRoot{real: realRoot(root), workspace: map[string]bool{}}
+	pkgs := workspacePackages(r.real)
+	for _, p := range pkgs {
+		r.workspace[p.Name] = true
+	}
+	r.links = linkWorkspace(r.real, pkgs)
+	var nodePaths []string
+	if r.links != "" {
+		nodePaths = []string{r.links}
+	}
 	plugin := api.Plugin{
 		Name: "depgraph-resolve",
 		Setup: func(b api.PluginBuild) {
@@ -51,6 +68,7 @@ func loadTS(root string) *tsRoot {
 		Bundle:            true, // resolve like the bundler does (node builtins external, ...)
 		Platform:          api.PlatformNode,
 		ResolveExtensions: tsExtensions,
+		NodePaths:         nodePaths,
 		LogLevel:          api.LogLevelSilent,
 		Write:             false,
 		Plugins:           []api.Plugin{plugin},
@@ -65,8 +83,14 @@ func loadTS(root string) *tsRoot {
 }
 
 func (r *tsRoot) dispose() {
-	if r != nil && r.ctx != nil {
+	if r == nil {
+		return
+	}
+	if r.ctx != nil {
 		r.ctx.Dispose()
+	}
+	if r.links != "" {
+		_ = os.RemoveAll(r.links)
 	}
 }
 
@@ -88,6 +112,10 @@ func (t *TypeScript) Resolve(ctx context.Context, root, fromFile, spec string) R
 	}
 	res := r.resolve(spec, opts)
 	if len(res.Errors) > 0 || res.Path == "" {
+		if r.workspace[packageName(spec)] {
+			// a package of the repository: a subpath it does not export
+			return unresolvedf(messagesText(res.Errors))
+		}
 		return tsFailure(spec, messagesText(res.Errors))
 	}
 	return tsResolved(r.real, spec, res.Path, res.External, res.Namespace)

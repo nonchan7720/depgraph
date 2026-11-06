@@ -237,7 +237,7 @@ func (m *Multi) Close() { m.TS.Close() }
 func IsConfigFile(rel string) bool {
 	base := path.Base(filepath.ToSlash(rel))
 	switch base {
-	case "go.mod", "go.work", "package.json", "jsconfig.json",
+	case "go.mod", "go.work", "package.json", "pnpm-workspace.yaml", "jsconfig.json",
 		"pyproject.toml", "setup.cfg", "__init__.py":
 		return true
 	}

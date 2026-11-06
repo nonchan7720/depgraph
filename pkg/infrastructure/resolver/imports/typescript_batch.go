@@ -30,7 +30,12 @@ func (t *TypeScript) ResolveBatch(ctx context.Context, root string, reqs []Reque
 		}
 		return out
 	}
-	real := realRoot(root)
+	ws := t.cache.Get(root, loadTS) // the workspace links of root
+	real := ws.real
+	var nodePaths []string
+	if ws.links != "" {
+		nodePaths = []string{ws.links}
+	}
 
 	// importer (repo-relative) -> specs, deduplicated, in first-seen order
 	specs := map[string][]string{}
@@ -65,7 +70,7 @@ func (t *TypeScript) ResolveBatch(ctx context.Context, root string, reqs []Reque
 	// pass 1 usually succeeds; each failing pass removes the imports it
 	// reported, so a later pass only fails on errors it cannot attribute
 	for pass := 0; pass < 4 && len(importers) > 0; pass++ {
-		br, err := tsBuild(ctx, real, importers, specs, failed)
+		br, err := tsBuild(ctx, real, nodePaths, importers, specs, failed)
 		if err != nil {
 			fillMissing(reqs, results, failed, unresolvedf(err.Error()))
 			break
@@ -81,6 +86,10 @@ func (t *TypeScript) ResolveBatch(ctx context.Context, root string, reqs []Reque
 		}
 	}
 	for rq, reason := range failed {
+		if ws.workspace[packageName(rq.Spec)] {
+			results[rq] = unresolvedf(reason) // a subpath a package of the repository does not export
+			continue
+		}
 		results[rq] = tsFailure(rq.Spec, reason)
 	}
 	for i, rq := range reqs {
@@ -129,7 +138,7 @@ var probeLineRe = regexp.MustCompile(`^import ("(?:[^"\\]|\\.)*");$`)
 
 // tsBuild runs one build and returns the resolutions (when the build
 // succeeded) or the errors (when it did not).
-func tsBuild(ctx context.Context, real string, importers []string, specs map[string][]string, skip map[Request]string) (tsBuildResult, error) {
+func tsBuild(ctx context.Context, real string, nodePaths []string, importers []string, specs map[string][]string, skip map[Request]string) (tsBuildResult, error) {
 	contents := map[string]string{} // absolute importer path -> synthetic source
 	relOf := map[string]string{}
 	var entries []string
@@ -166,6 +175,7 @@ func tsBuild(ctx context.Context, real string, importers []string, specs map[str
 		Bundle:            true,
 		Platform:          api.PlatformNode,
 		ResolveExtensions: tsExtensions,
+		NodePaths:         nodePaths,
 		Metafile:          true,
 		Write:             false,
 		Outdir:            filepath.Join(real, ".depgraph-esbuild-out"), // never written

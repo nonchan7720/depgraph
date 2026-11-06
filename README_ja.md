@@ -403,7 +403,7 @@ import は各エコシステム自身の解決方法で、プロジェクトの�
 
 | 言語 | 方法 |
 |---|---|
-| TypeScript / JavaScript | esbuild の resolver: `tsconfig.json` / `jsconfig.json`（`paths`・`baseUrl`・`extends`）、`package.json`（`exports`・`imports`・workspaces）、`node_modules`、`x.ts` を指す ESM の `./x.js` |
+| TypeScript / JavaScript | esbuild の resolver: `tsconfig.json` / `jsconfig.json`（`paths`・`baseUrl`・`extends`）、`package.json`（`exports`・`imports`・workspaces）、`node_modules`、`x.ts` を指す ESM の `./x.js`。ワークスペースのパッケージ（`package.json` の `workspaces`、`pnpm-workspace.yaml`）は、インストール前（clone 直後・CI・gate の worktree）でもそのディレクトリに解決します。同名のパッケージがインストールされていればそちらを優先します |
 | Go | `go.mod` / `go.work`（入れ子モジュール・`use`・`replace`） |
 | Python | リポジトリのパッケージルート（ルート・`src/`・`pyproject.toml` / `setup.cfg` のパッケージディレクトリ）上の import システム。`__init__.py` の無いディレクトリは名前空間パッケージで、標準ライブラリを隠しません |
 

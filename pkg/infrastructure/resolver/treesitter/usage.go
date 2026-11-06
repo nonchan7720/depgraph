@@ -183,9 +183,11 @@ func (r *Resolver) finishUsage(ctx context.Context, root string, fg *graph.FileG
 	}
 	us = append(us, u.tsPrefixUses(root)...)
 
+	entry := m.entry(fg.Path, fg.Language, u)
 	fg.Usage = &graph.Usage{
 		Scope:     m.scope(fg.Path, fg.Language),
-		Entry:     m.entry(fg.Path, fg.Language, u),
+		Entry:     entry,
+		Internal:  m.internalAPI(fg.Path, fg.Language, entry),
 		Generated: generated(u.x.src) || m.isVendored(fg.Path),
 		Uses:      dedupUses(us),
 		Exports:   u.exports,

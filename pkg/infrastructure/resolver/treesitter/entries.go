@@ -51,6 +51,7 @@ type manifests struct {
 	django   map[string]bool              // Python scope -> uses Django
 	vendored map[string]string            // dir/ -> tool that copied a code kit there (shadcn/ui)
 	deps     map[string]map[string]bool   // package.json dir -> declared dependencies
+	internal map[string]bool              // package.json dirs of packages only the repository uses
 	sources  []string                     // every source file (for names in templates)
 }
 
@@ -138,6 +139,8 @@ var conventionDirDeps = map[string][2]string{
 }
 
 type packageJSON struct {
+	Name     string            `json:"name"`
+	Private  bool              `json:"private"`
 	Main     any               `json:"main"`
 	Module   any               `json:"module"`
 	Browser  any               `json:"browser"`
@@ -158,7 +161,7 @@ func loadManifests(ctx context.Context, root string, imp *imports.Multi) *manife
 		tsScopes: map[string]bool{}, pyScopes: map[string]bool{}, goScopes: map[string]bool{},
 		files: map[string]string{}, prefixes: map[string]string{}, opaque: map[string]string{},
 		routing: map[string]string{}, dirs: map[string]map[string]string{}, django: map[string]bool{},
-		vendored: map[string]string{}, deps: map[string]map[string]bool{},
+		vendored: map[string]string{}, deps: map[string]map[string]bool{}, internal: map[string]bool{},
 	}
 	var pkgs, htmls, commands, pyManifests, mdxs, kits []string
 	opaqueFiles := map[string]string{} // dir -> framework
@@ -220,8 +223,20 @@ func loadManifests(ctx context.Context, root string, imp *imports.Multi) *manife
 			m.opaque[s] = fw + " components (not parsed)"
 		}
 	}
+	private := map[string]string{} // package name -> dir, of private packages
 	for _, rel := range pkgs {
-		m.loadPackageJSON(root, rel)
+		if pj, ok := m.loadPackageJSON(root, rel); ok && pj.Private && pj.Name != "" {
+			private[pj.Name] = path.Dir(rel)
+		}
+	}
+	// a private package another package of the repository depends on is a
+	// library only the repository uses: it is never published
+	for dir, deps := range m.deps {
+		for name := range deps {
+			if d, ok := private[name]; ok && d != dir {
+				m.internal[d] = true
+			}
+		}
 	}
 	for _, rel := range htmls {
 		m.loadHTML(root, rel)
@@ -277,14 +292,14 @@ func (m *manifests) addFile(rel, why string) {
 	}
 }
 
-func (m *manifests) loadPackageJSON(root, rel string) {
+func (m *manifests) loadPackageJSON(root, rel string) (packageJSON, bool) {
 	b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
 	if err != nil {
-		return
+		return packageJSON{}, false
 	}
 	var pj packageJSON
 	if json.Unmarshal(b, &pj) != nil {
-		return
+		return packageJSON{}, false
 	}
 	dir := path.Dir(rel)
 	out := tsOutDirs(root, dir)
@@ -350,6 +365,23 @@ func (m *manifests) loadPackageJSON(root, rel string) {
 			}
 		}
 	}
+	return pj, true
+}
+
+// internalAPI reports whether the entry of TS/JS file rel (why it is one)
+// is only the API of a package the repository alone uses: its main /
+// exports / types or conventional entry name, not a bin, a script or
+// anything that runs it.
+func (m *manifests) internalAPI(rel string, lang graph.Language, why string) bool {
+	if why == "" || lang == graph.Go || lang == graph.Python || !m.internal[m.scope(rel, lang)] {
+		return false
+	}
+	switch why {
+	case "package entry name", "package.json (implicit main)", "package.json main", "package.json module",
+		"package.json browser", "package.json types", "package.json typings", "package.json source", "package.json exports":
+		return true
+	}
+	return false
 }
 
 // addPrefix makes every file under the directory part of an exports pattern

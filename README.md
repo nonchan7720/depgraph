@@ -401,7 +401,7 @@ that supports [MCP Apps](https://modelcontextprotocol.io/extensions/apps) (Claud
 (Project {key, name, root, origin, base, worktree, lastScanAt})
 (Package {project, key, name, external})
 (File    {project, path, language, lines, updatedAt,
-          scope, entry, generated, uses, exports, keep})   # usage, for the unused-code rules
+          scope, entry, internal, generated, uses, exports, keep})   # usage, for the unused-code rules
 (Symbol  {project, name, kind, exported, line, endLine, language, file})
 
 (Package)-[:CONTAINS]->(File)-[:DECLARES]->(Symbol)
@@ -471,6 +471,11 @@ something outside the import graph loads it:
   matched against the project's paths instead of being dropped. A package that uses Vue, Svelte,
   Astro, Qwik, Marko, Ember or auto-imports is skipped: its component files are not parsed.
   shadcn/ui's copied component kit is vendored code and not reported.
+  In a monorepo, a `private` workspace package another package of the repository depends on is never
+  published, so only the repository uses it: its `main` / `exports` / `types` and `index` files stay
+  entry points for reachability, but their exports are reported when no other package uses them
+  (`bin` and `scripts` files are still run from outside). Published packages and private apps nothing
+  depends on keep their entries' exports.
 - Python: `__main__.py`, a `__main__` guard, `conftest.py`, `test_*.py`, `tests/`, migrations,
   `setup.py` / `manage.py` / `wsgi.py` / `asgi.py`, the targets of `pyproject.toml` / `setup.cfg`
   scripts and entry points, and in a Django project its autodiscovered modules (`models`, `admin`,

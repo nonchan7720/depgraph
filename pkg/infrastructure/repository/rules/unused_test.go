@@ -55,7 +55,7 @@ func toUnusedFiles(fgs []*graph.FileGraph) []unusedFile {
 		f := unusedFile{Path: fg.Path, Lang: string(fg.Language)}
 		if u := fg.Usage; u != nil {
 			f.HasUsage = true
-			f.Scope, f.Entry, f.Generated = u.Scope, u.Entry, u.Generated
+			f.Scope, f.Entry, f.Internal, f.Generated = u.Scope, u.Entry, u.Internal, u.Generated
 			f.Uses, f.Exports, f.Keep, f.Mentions = u.Uses, u.Exports, u.Keep, u.Mentions
 		}
 		for _, s := range fg.Symbols {
@@ -349,4 +349,44 @@ func TestEvaluateUnusedFromStore(t *testing.T) {
 		}
 	}
 	wantFindings(t, got, "unused-export|src/lib.ts#b", "unreachable-file|src/old.ts")
+}
+
+// In a monorepo a private workspace package other workspace packages depend
+// on is a library only the repository uses (it is never published): its
+// entry files stay reachable, but their exports are used only where the
+// repository uses them. An app (a private package nothing depends on) and a
+// published package keep their entries' exports.
+func TestUnusedInternalWorkspacePackage(t *testing.T) {
+	root := writeRepo(t, map[string]string{
+		"package.json": `{"name": "mono", "private": true, "workspaces": ["packages/*"]}`,
+		// internal libraries
+		"packages/ui/package.json":  `{"name": "@mono/ui", "private": true, "main": "src/index.ts", "bin": {"ui-gen": "src/gen.ts"}}`,
+		"packages/ui/src/index.ts":  "export { Button } from './button';\nexport { Card } from './card';\nexport function uiUnused() {}\n",
+		"packages/ui/src/button.ts": "export function Button() {}\n",
+		"packages/ui/src/card.ts":   "export function Card() {}\n",
+		"packages/ui/src/gen.ts":    "export function genMain() {}\n", // bin: run, an entry
+		"packages/kit/package.json": `{"name": "@mono/kit", "private": true, "exports": {".": "./src/index.ts"}, "dependencies": {"@mono/ui": "workspace:*"}}`,
+		"packages/kit/src/index.ts": "import { Card } from '@mono/ui';\nexport function fmt() { return Card(); }\nexport function kitUnused() {}\n",
+		// published: its API is used outside the repository
+		"packages/pub/package.json": `{"name": "@mono/pub", "version": "1.0.0", "main": "src/index.ts"}`,
+		"packages/pub/src/index.ts": "export function pubApi() {}\n",
+		// the app: private, nothing depends on it
+		"packages/web/package.json": `{"name": "@mono/web", "private": true, "main": "src/main.ts", "dependencies": {"@mono/ui": "workspace:*", "@mono/kit": "workspace:*", "@mono/pub": "workspace:*"}}`,
+		"packages/web/src/main.ts":  "import { Button } from '@mono/ui';\nimport { fmt } from '@mono/kit';\nButton(); fmt();\nexport function webMainExport() {}\n",
+	})
+	fgs := parseRepo(t, root)
+	internal := map[string]bool{}
+	for _, fg := range fgs {
+		if fg.Usage != nil && fg.Usage.Internal {
+			internal[fg.Path] = true
+		}
+	}
+	if want := map[string]bool{"packages/ui/src/index.ts": true, "packages/kit/src/index.ts": true}; fmt.Sprint(internal) != fmt.Sprint(want) {
+		t.Errorf("internal entries = %v, want %v", internal, want)
+	}
+	got := evalUnused(toUnusedFiles(fgs), rules.DefaultConfig())
+	wantFindings(t, got,
+		"unused-export|packages/ui/src/index.ts#uiUnused",
+		"unused-export|packages/kit/src/index.ts#kitUnused",
+	)
 }

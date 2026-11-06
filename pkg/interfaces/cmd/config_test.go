@@ -166,3 +166,93 @@ func TestWatchReloadsConfig(t *testing.T) {
 		t.Fatalf("removed: %+v", svc.cfgs)
 	}
 }
+
+// A .depgraph.yml below the root (a package of a monorepo) reloads the rules
+// too, and settings it cannot apply are reported.
+func TestWatchReloadsNestedConfig(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	svc := &fakeService{}
+	var out bytes.Buffer
+	b := watchBatch{root: root, svc: svc, out: &out}
+
+	nested := "lib/auth/" + config.FileName
+	writeTree(t, root, map[string]string{nested: "layers: {domain: [\"domain/**\"], adapter: [\"adapter/**\"]}\nforbidden: {domain: [adapter]}\nrules: {god-package: {fanIn: 3}}\n"})
+	b.handle(ctx, []string{nested})
+	if len(svc.cfgs) != 1 || len(svc.cfgs[0].Components) != 1 || svc.cfgs[0].Components[0].Dir != "lib/auth" || svc.evals != 1 {
+		t.Fatalf("reload: cfgs=%+v evals=%d", svc.cfgs, svc.evals)
+	}
+	if !strings.Contains(out.String(), "rules.god-package.fanIn applies only where lib/auth is the root") {
+		t.Errorf("warning not printed:\n%s", out.String())
+	}
+	if !watchedConfig(nested) || !watchedConfig(config.FileName) || watchedConfig("lib/auth/x.yml") {
+		t.Error("watchedConfig")
+	}
+}
+
+// End to end on Neo4j: a monorepo of a Go pkg/ under the default layers, a
+// Go library with its own .depgraph.yml and TypeScript packages/* declared by
+// components: of the root's file.
+func TestScanMonorepo(t *testing.T) {
+	t.Setenv("NEO4J_URI", env("NEO4J_URI", "bolt://localhost:7687"))
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	t.Cleanup(cancel)
+	st, err := graphrepo.New(ctx, env("NEO4J_URI", "bolt://localhost:7687"), env("NEO4J_USER", "neo4j"), env("NEO4J_PASSWORD", "depgraph123"), env("NEO4J_DATABASE", "neo4j"))
+	if err != nil {
+		t.Skipf("neo4j not available: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close(context.Background()) })
+	key := fmt.Sprintf("zz_test_%d_monorepo", time.Now().UnixNano())
+	root := t.TempDir()
+	writeTree(t, root, map[string]string{
+		config.FileName: fmt.Sprintf(`project: %s
+components:
+  "packages/*":
+    layers: {api: ["src/api/**"], ui: ["src/components/**"]}
+    forbidden: {api: [ui]}
+`, key),
+		"go.mod":                      "module example.com/mono\n\ngo 1.22\n",
+		"pkg/handler/h.go":            "package handler\n\nimport _ \"example.com/mono/pkg/repository\"\n",
+		"pkg/repository/r.go":         "package repository\n",
+		"lib/auth/" + config.FileName: "layers: {domain: [\"domain/**\"], adapter: [\"adapter/**\"]}\nforbidden: {domain: [adapter]}\n",
+		"lib/auth/domain/d.go":        "package domain\n\nimport _ \"example.com/mono/lib/auth/adapter\"\n",
+		"lib/auth/adapter/a.go":       "package adapter\n",
+		// a handler and a repository segment, but lib/auth has layers of its own
+		"lib/auth/handler/h.go":                 "package handler\n\nimport _ \"example.com/mono/lib/auth/repository\"\n",
+		"lib/auth/repository/r.go":              "package repository\n",
+		"packages/web/package.json":             `{"name": "@mono/web", "main": "src/index.ts"}`,
+		"packages/web/src/index.ts":             "export * from './api/client';\n",
+		"packages/web/src/api/client.ts":        "import { Button } from '../components/button';\nexport const client = () => Button;\n",
+		"packages/web/src/components/button.ts": "export const Button = 1;\n",
+		"packages/kit/package.json":             `{"name": "@mono/kit", "main": "src/index.ts"}`,
+		"packages/kit/src/index.ts":             "export * from './components/card';\n",
+		"packages/kit/src/components/card.ts":   "export const Card = 1;\n",
+	})
+	run := func(args ...string) (string, error) {
+		var out bytes.Buffer
+		c := newRootCommand(&options{})
+		c.SetOut(&out)
+		c.SetErr(&out)
+		c.SetArgs(args)
+		err := c.ExecuteContext(ctx)
+		return out.String(), err
+	}
+	t.Cleanup(func() { _, _ = run("projects", "rm", key) })
+
+	out, err := run("scan", "--root", root, "--claude-md", "")
+	if err != nil {
+		t.Fatalf("scan: %v\n%s", err, out)
+	}
+	for _, want := range []string{
+		"layer-violation: pkg/handler -> pkg/repository (handler must not import repository)",
+		"layer-violation: lib/auth/domain -> lib/auth/adapter (lib/auth: domain must not import adapter)",
+		"layer-violation: packages/web/src/api -> packages/web/src/components (packages/web: api must not import ui)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q:\n%s", want, out)
+		}
+	}
+	if n := strings.Count(out, "layer-violation:"); n != 3 {
+		t.Errorf("%d layer violations, want 3:\n%s", n, out)
+	}
+}

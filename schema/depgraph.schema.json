@@ -2,8 +2,38 @@
   "$id": "https://raw.githubusercontent.com/nonchan7720/depgraph/main/schema/depgraph.schema.json",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "additionalProperties": false,
-  "description": "depgraph settings at the scanned root. Every key is optional; unknown keys, rules, options and layer names are errors.",
+  "description": "depgraph settings at the scanned root, or of a directory below it (a package of a monorepo: its layers, forbidden, components, ignore and unused-code paths are relative to that directory). Every key is optional; unknown keys, rules, options and layer names are errors.",
   "properties": {
+    "components": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "forbidden": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": "Layer -\u003e layers it must not import, within one component directory. Names must be defined in layers (or be default layers).",
+            "type": "object"
+          },
+          "layers": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": "Layer name -\u003e package path globs relative to the component's directory. Replaces the default layers and their forbidden pairs.",
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "description": "Parts of a monorepo with layers of their own: directory (relative to this file) or a pattern over directories (packages/*: one component per directory, * and ? but no **) -\u003e its layers and forbidden pairs, with package globs relative to that directory. The default layers are not applied inside a component; layers declared at the root apply everywhere. A directory's own .depgraph.yml does the same.",
+      "type": "object"
+    },
     "forbidden": {
       "additionalProperties": {
         "items": {

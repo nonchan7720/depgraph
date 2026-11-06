@@ -80,7 +80,7 @@ func Schema() []byte {
 		"$schema":              "http://json-schema.org/draft-07/schema#",
 		"$id":                  SchemaID,
 		"title":                FileName,
-		"description":          "depgraph settings at the scanned root. Every key is optional; unknown keys, rules, options and layer names are errors.",
+		"description":          "depgraph settings at the scanned root, or of a directory below it (a package of a monorepo: its layers, forbidden, components, ignore and unused-code paths are relative to that directory). Every key is optional; unknown keys, rules, options and layer names are errors.",
 		"type":                 "object",
 		"additionalProperties": false,
 		"properties": jsonObj{
@@ -91,6 +91,13 @@ func Schema() []byte {
 			"rules": jsonObj{"type": "object", "additionalProperties": false,
 				"description": "Per rule: enabled, severity and the rule's options.", "properties": rs},
 			"ignore": stringList("Package globs excluded from every rule (they are still scanned and shown in the UI)."),
+			"components": jsonObj{"type": "object",
+				"description": "Parts of a monorepo with layers of their own: directory (relative to this file) or a pattern over directories (packages/*: one component per directory, * and ? but no **) -> its layers and forbidden pairs, with package globs relative to that directory. The default layers are not applied inside a component; layers declared at the root apply everywhere. A directory's own .depgraph.yml does the same.",
+				"additionalProperties": jsonObj{"type": "object", "additionalProperties": false,
+					"properties": jsonObj{
+						"layers":    globMap("Layer name -> package path globs relative to the component's directory. Replaces the default layers and their forbidden pairs."),
+						"forbidden": globMap("Layer -> layers it must not import, within one component directory. Names must be defined in layers (or be default layers)."),
+					}}},
 			"store": jsonObj{"type": "object", "additionalProperties": false,
 				"description": "How Neo4j is provided. Flags and environment variables take precedence.",
 				"properties": jsonObj{

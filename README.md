@@ -565,6 +565,54 @@ pairs `handler → repository / infra / db`, `controller → repository / db`,
 `domain → infra / handler / repository` and `usecase → handler`.
 This repository's own [`.depgraph.yml`](.depgraph.yml) is an example.
 
+### Monorepos (`components`)
+
+In a monorepo each part has its own architecture, often in another language: `pkg/` in Go,
+`lib/auth` in Go and `lib/ui` in TypeScript, an npm package per directory under `packages/`.
+Declare each part as a **component**, with layers relative to its directory, in one of two ways:
+
+```yaml
+# .depgraph.yml at the root
+components:
+  "packages/*":             # a pattern: one component per directory (packages/web, packages/kit, ...)
+    layers:
+      api: ["src/api/**"]
+      ui: ["src/components/**"]
+    forbidden:
+      api: [ui]
+  lib/ui:
+    forbidden:              # forbidden alone: the default layers, inside lib/ui
+      handler: [repository]
+```
+
+```yaml
+# lib/auth/.depgraph.yml: the same file works with --root lib/auth
+layers:
+  domain: ["domain/**"]
+  adapter: ["adapter/**"]
+forbidden:
+  domain: [adapter]
+ignore: ["**/testdata/**"]                 # lib/auth/**/testdata/**
+rules:
+  unused-export: {ignore: ["api/**"]}       # lib/auth/api/**
+```
+
+- A component's forbidden pairs apply to imports between two packages of the same directory:
+  `packages/web/src/api -> packages/web/src/components` is reported as
+  `(packages/web: api must not import ui)`, an import from `packages/web` into `packages/kit` is not.
+  The language does not matter: the layers are directories.
+- The default layers are a guess from directory names, so they are not applied inside a component
+  (nor to an import into one). Layers the root declares (`layers:`) are the repository's own
+  architecture and apply everywhere, across components too (`apps` must not import each other).
+- A `.depgraph.yml` below the root is read with the root's (`scan`, `check`, `watch`, `hook`, `gate`;
+  `watch` reloads it when it changes). Its `layers`, `forbidden`, `components`, `ignore` and the
+  `ignore` / `entries` of the unused-code rules are relative to its directory. A directory's own file
+  takes precedence over a pattern of `components:` that matches it; declaring a directory both in
+  `components:` and in its own file is an error. `project` and `store` apply only where it is the
+  root, and so do rule switches, severities and thresholds: those are printed as a warning, not applied.
+  Files in directories the scan skips (`node_modules`, `.git`, `.depgraphignore`, ...) are not read.
+- A component directory is a path below the root or a pattern with `*` and `?` (no `**`).
+
 ### Duplicated code
 
 For every function, method and class, depgraph keeps the shape of its body: the syntax tokens with
@@ -599,7 +647,7 @@ pkg/services/analysis/               scan, apply changes, evaluate rules, LSP re
 pkg/infrastructure/repository/graph/ Neo4j writes and queries
 pkg/infrastructure/repository/rules/ rule evaluation in Cypher
 pkg/infrastructure/repository/project/ Project nodes
-pkg/infrastructure/config/           .depgraph.yml (project key, rule configuration, store settings)
+pkg/infrastructure/config/           .depgraph.yml (project key, rule configuration, store settings; nested files of a monorepo)
 pkg/infrastructure/neo4jprovider/    how Neo4j is provided: Provider contract, selection, external
   container/                         Neo4j in a docker / podman / nerdctl container (lifecycle, labels, cleanup)
 pkg/infrastructure/workspace/        project identity of a root (.depgraph.yml, git origin / worktree)
@@ -626,6 +674,7 @@ The analysis backend is pluggable through `graph.Resolver`. Priority: treesitter
 - [ ] SCIP index import (batch precise analysis for CI)
 - [x] Multiple projects in one database (`--project`, `.depgraph.yml` `project:`, `depgraph projects`)
 - [x] Rule configuration in `.depgraph.yml` (layers, forbidden imports, severities, ignore)
+- [x] Monorepos: layers per component (`components:`, a `.depgraph.yml` per directory)
 - [x] MCP server showing the browser UI as an MCP App (`depgraph mcp`)
 - [ ] MCP tools to query the graph directly (dependents, unused code, duplicates) from Claude Code / Cursor
 - [x] depgraph provides Neo4j itself in a container (docker / podman / nerdctl), ephemeral or persistent

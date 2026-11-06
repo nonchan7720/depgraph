@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -104,13 +106,24 @@ func runWatch(cmd *cobra.Command, o *options) error {
 		rescan: a.fullScan,
 	}
 	watched := func(rel string) bool {
-		return rel == config.FileName || a.resolver.Supports(rel) || a.resolver.IsConfigFile(rel)
+		return watchedConfig(rel) || a.resolver.Supports(rel) || a.resolver.IsConfigFile(rel)
 	}
 	return watch.Run(ctx, o.root, watched, o.debounce, func(changed []string) {
 		sort.Strings(changed)
 		_, _ = fmt.Fprintf(out, "\n%s changed %d file(s)\n", time.Now().Format("15:04:05"), len(changed))
 		b.handle(ctx, changed)
 	})
+}
+
+// watchedConfig reports whether rel is a .depgraph.yml: the root's or one
+// of a directory below it (a component of a monorepo).
+func watchedConfig(rel string) bool { return path.Base(filepath.ToSlash(rel)) == config.FileName }
+
+// printWarnings prints the settings of f that are not applied.
+func printWarnings(out io.Writer, f config.File) {
+	for _, w := range f.Warnings {
+		_, _ = fmt.Fprintf(out, "  warning: %s\n", w)
+	}
 }
 
 // watchBatch applies one debounced batch of changed paths.
@@ -135,19 +148,25 @@ type watchBatch struct {
 func (b watchBatch) handle(ctx context.Context, changed []string) {
 	files := make([]string, 0, len(changed))
 	reloaded := false
+	var settings []string
 	for _, rel := range changed {
-		if rel != config.FileName {
+		if watchedConfig(rel) {
+			settings = append(settings, rel)
+		} else {
 			files = append(files, rel)
-			continue
 		}
+	}
+	if len(settings) > 0 {
+		// the root's file and the nested ones make one configuration
 		f, err := config.Load(b.root)
 		if err != nil {
 			_, _ = fmt.Fprintf(b.out, "  %v (keeping the previous rules)\n", err)
-			continue
+		} else {
+			b.svc.SetConfig(f.Rules)
+			reloaded = true
+			printWarnings(b.out, f)
+			_, _ = fmt.Fprintf(b.out, "  %s: rules reloaded\n", strings.Join(settings, ", "))
 		}
-		b.svc.SetConfig(f.Rules)
-		reloaded = true
-		_, _ = fmt.Fprintf(b.out, "  %s: rules reloaded\n", config.FileName)
 	}
 	isConfig, supports := b.isImportConfig, b.supports
 	if isConfig == nil {

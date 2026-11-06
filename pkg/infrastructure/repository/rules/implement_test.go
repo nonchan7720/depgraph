@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -453,5 +455,59 @@ func TestDuplicateSymbolIgnorePatterns(t *testing.T) {
 	want := []string{"FetchUserByID", "GetXY", "Handlers", "MyTest", "NewClient", "aXb", "useStates", "xuseState"}
 	if fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("reported %v, want %v", got, want)
+	}
+}
+
+// A monorepo: pkg/ (Go, default layers), lib/<name> (Go or TS) and
+// packages/* (TS), each with layers of its own relative to its directory.
+// Every matched directory is its own scope, and the default layers are not
+// applied inside a component that declares layers.
+func TestEvaluateMonorepoComponents(t *testing.T) {
+	ctx, st := connect(t)
+	key := fmt.Sprintf("zz_test_%d_monorepo", time.Now().UnixNano())
+	seed(ctx, t, st, key, map[string][]string{
+		"pkg/handler":    {"pkg/repository"}, // default layers: violation
+		"pkg/repository": nil,
+		// lib/auth (Go): domain must not import adapter
+		"lib/auth/domain":  {"lib/auth/adapter"},
+		"lib/auth/adapter": nil,
+		// lib/ui (TS): a handler and a repository segment, but its own layers
+		"lib/ui/src/handler":    {"lib/ui/src/repository"},
+		"lib/ui/src/repository": nil,
+		// packages/*: api must not import components, within one package
+		"packages/web/src/api":        {"packages/web/src/components", "packages/kit/src/components"},
+		"packages/web/src/components": nil,
+		"packages/kit/src/components": nil,
+	})
+	cfg := rules.DefaultConfig()
+	cfg.Components = []rules.Component{
+		{Dir: "lib/auth", Layers: []rules.Layer{{Name: "domain", Packages: []string{"domain/**"}}, {Name: "adapter", Packages: []string{"adapter/**"}}},
+			ForbiddenLayers: [][2]string{{"domain", "adapter"}}},
+		{Dir: "lib/ui", Layers: []rules.Layer{{Name: "view", Packages: []string{"src/view/**"}}, {Name: "store", Packages: []string{"src/store/**"}}},
+			ForbiddenLayers: [][2]string{{"store", "view"}}},
+		{Dir: "packages/*", Layers: []rules.Layer{{Name: "api", Packages: []string{"src/api/**"}}, {Name: "ui", Packages: []string{"src/components/**"}}},
+			ForbiddenLayers: [][2]string{{"api", "ui"}}},
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	fs, err := New(st, key).Evaluate(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, f := range fs {
+		if f.Rule == rules.RuleLayerViolation {
+			got = append(got, f.Message)
+		}
+	}
+	want := []string{
+		"lib/auth/domain -> lib/auth/adapter (lib/auth: domain must not import adapter)",
+		"packages/web/src/api -> packages/web/src/components (packages/web: api must not import ui)",
+		"pkg/handler -> pkg/repository (handler must not import repository)",
+	}
+	slices.Sort(got)
+	if !slices.Equal(got, want) {
+		t.Errorf("layer violations =\n  %s\nwant\n  %s", strings.Join(got, "\n  "), strings.Join(want, "\n  "))
 	}
 }

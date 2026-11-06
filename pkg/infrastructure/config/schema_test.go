@@ -82,6 +82,14 @@ func TestSchemaMatchesTheDecoder(t *testing.T) {
 	if got, want := keys(store), yamlKeys(StoreSettings{}); !slices.Equal(got, want) {
 		t.Errorf("store keys = %v, want %v", got, want)
 	}
+	comps := obj(t, props["components"], "components")
+	comp := obj(t, comps["additionalProperties"], "components.additionalProperties")
+	if comp["additionalProperties"] != false {
+		t.Error("a component must not allow unknown keys")
+	}
+	if got, want := keys(obj(t, comp["properties"], "components.*.properties")), yamlKeys(componentYAML{}); !slices.Equal(got, want) {
+		t.Errorf("component keys = %v, want %v", got, want)
+	}
 
 	rs := obj(t, props["rules"], "rules")
 	if rs["additionalProperties"] != false {

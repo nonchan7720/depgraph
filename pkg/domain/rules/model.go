@@ -135,6 +135,13 @@ type Config struct {
 	UnusedIgnore []string
 	// Clones tunes duplicate-code.
 	Clones CloneOptions
+	// DefaultLayers: Layers are the built-in defaults, a guess from
+	// directory names that is not applied inside Components with layers of
+	// their own. Layers the root declares apply to every package.
+	DefaultLayers bool
+	// Components: parts of a monorepo with layers of their own (a
+	// .depgraph.yml in their directory, or components: of the root's).
+	Components []Component
 }
 
 // segmentLayer is a default layer: the name (and its other spellings) as a
@@ -165,6 +172,7 @@ func DefaultConfig() Config {
 			{"domain", "infra"}, {"domain", "handler"}, {"domain", "repository"},
 			{"usecase", "handler"},
 		},
+		DefaultLayers:    true,
 		GodPackageFanIn:  10,
 		GodPackageFanOut: 3,
 		Clones:           DefaultCloneOptions(),
@@ -267,19 +275,11 @@ func (c Config) Validate() error {
 	if c.Clones.MinSimilarity < 0 || c.Clones.MinSimilarity > 1 {
 		return fmt.Errorf("rule %s: similarity %g (want 0 < similarity <= 1)", RuleDuplicateCode, c.Clones.MinSimilarity)
 	}
-	layers, err := c.LayerGlobs()
-	if err != nil {
+	if err := validateLayers(c.Layers, c.ForbiddenLayers); err != nil {
 		return err
 	}
-	for _, p := range c.ForbiddenLayers {
-		for _, l := range p {
-			if _, ok := layers[l]; !ok {
-				return fmt.Errorf("forbidden %s -> %s: unknown layer %q (defined: %s)", p[0], p[1], l, layerNames(c.Layers))
-			}
-		}
-		if p[0] == p[1] {
-			return fmt.Errorf("forbidden: layer %q cannot forbid itself", p[0])
-		}
+	if err := c.validateComponents(); err != nil {
+		return err
 	}
 	if _, err := c.IgnoreGlobs(); err != nil {
 		return err

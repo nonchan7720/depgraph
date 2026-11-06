@@ -8,7 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -17,6 +19,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/nonchan7720/depgraph/pkg/domain/rules"
+	"github.com/nonchan7720/depgraph/pkg/infrastructure/resolver"
 )
 
 // FileName is the settings file, looked up directly under the root.
@@ -30,6 +33,9 @@ type File struct {
 	Rules rules.Config
 	// Store is how Neo4j is provided (the store: section).
 	Store StoreSettings
+	// Warnings: settings of nested files that are not applied (they apply
+	// only where that directory is scanned as the root).
+	Warnings []string
 }
 
 // StoreSettings is the store: section. Every field is optional; flags and
@@ -58,6 +64,15 @@ type fileYAML struct {
 	Rules     map[string]yaml.Node `yaml:"rules"`
 	// Ignore: package globs excluded from every rule.
 	Ignore []string `yaml:"ignore"`
+	// Components: directory (or pattern such as packages/*) -> its layers.
+	Components map[string]componentYAML `yaml:"components"`
+}
+
+// componentYAML is one entry under components:; its globs are relative to
+// the component's directory.
+type componentYAML struct {
+	Layers    map[string][]string `yaml:"layers"`
+	Forbidden map[string][]string `yaml:"forbidden"`
 }
 
 // ruleYAML is one entry under rules:. Which of the rule-specific options a
@@ -74,56 +89,37 @@ type ruleYAML struct {
 	Similarity *float64 `yaml:"similarity"`
 }
 
-// Load reads root/.depgraph.yml. A missing file is the defaults.
+// Load reads root/.depgraph.yml and the .depgraph.yml files below it (a
+// monorepo's packages, see loadNested). A missing file is the defaults.
 func Load(root string) (File, error) {
 	p := filepath.Join(root, FileName)
 	b, err := os.ReadFile(p)
-	if errors.Is(err, os.ErrNotExist) {
-		return File{Rules: rules.DefaultConfig()}, nil
-	}
-	if err != nil {
+	var f File
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		f = File{Rules: rules.DefaultConfig()}
+	case err != nil:
 		return File{}, err
+	default:
+		if f, err = Parse(b); err != nil {
+			return File{}, fmt.Errorf("%s: %w", p, err)
+		}
 	}
-	f, err := Parse(b)
-	if err != nil {
-		return File{}, fmt.Errorf("%s: %w", p, err)
+	if err := loadNested(root, &f); err != nil {
+		return File{}, err
 	}
 	return f, nil
 }
 
 // Parse decodes the content of a .depgraph.yml and applies it to the defaults.
 func Parse(b []byte) (File, error) {
-	var y fileYAML
-	dec := yaml.NewDecoder(bytes.NewReader(b))
-	dec.KnownFields(true)
-	if err := dec.Decode(&y); err != nil && !errors.Is(err, io.EOF) {
-		return File{}, fmt.Errorf("yaml: %w", err)
+	y, err := decode(b)
+	if err != nil {
+		return File{}, err
 	}
-	var extra yaml.Node
-	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
-		return File{}, errors.New("want one YAML document")
-	}
-
 	c := rules.DefaultConfig()
-	if y.Layers != nil {
-		c.Layers = make([]rules.Layer, 0, len(y.Layers))
-		for _, name := range sortedKeys(y.Layers) {
-			c.Layers = append(c.Layers, rules.Layer{Name: name, Packages: y.Layers[name]})
-		}
-		c.ForbiddenLayers = nil // the default pairs name the default layers
-	}
-	if y.Forbidden != nil {
-		c.ForbiddenLayers = nil
-		seen := map[[2]string]bool{}
-		for _, from := range sortedKeys(y.Forbidden) {
-			for _, to := range y.Forbidden[from] {
-				p := [2]string{from, to}
-				if !seen[p] {
-					seen[p] = true
-					c.ForbiddenLayers = append(c.ForbiddenLayers, p)
-				}
-			}
-		}
+	if y.Layers != nil || y.Forbidden != nil {
+		c.Layers, c.ForbiddenLayers, c.DefaultLayers = layersOf(y.Layers, y.Forbidden)
 	}
 	if y.Ignore != nil {
 		c.Ignore = y.Ignore
@@ -133,10 +129,164 @@ func Parse(b []byte) (File, error) {
 			return File{}, err
 		}
 	}
+	addComponents(&c, ".", y.Components)
 	if err := c.Validate(); err != nil {
 		return File{}, err
 	}
 	return File{Project: y.Project, Rules: c, Store: y.Store}, nil
+}
+
+// decode reads one strict YAML document.
+func decode(b []byte) (fileYAML, error) {
+	var y fileYAML
+	dec := yaml.NewDecoder(bytes.NewReader(b))
+	dec.KnownFields(true)
+	if err := dec.Decode(&y); err != nil && !errors.Is(err, io.EOF) {
+		return fileYAML{}, fmt.Errorf("yaml: %w", err)
+	}
+	var extra yaml.Node
+	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+		return fileYAML{}, errors.New("want one YAML document")
+	}
+	return y, nil
+}
+
+// layersOf returns the layers and forbidden pairs a file declares. layers
+// replaces the default layers and their forbidden pairs; forbidden alone
+// refers to the default layers (defaults is then true).
+func layersOf(layers, forbidden map[string][]string) (ls []rules.Layer, pairs [][2]string, defaults bool) {
+	def := rules.DefaultConfig()
+	ls, pairs, defaults = def.Layers, def.ForbiddenLayers, true
+	if layers != nil {
+		ls = make([]rules.Layer, 0, len(layers))
+		for _, name := range sortedKeys(layers) {
+			ls = append(ls, rules.Layer{Name: name, Packages: layers[name]})
+		}
+		pairs, defaults = nil, false // the default pairs name the default layers
+	}
+	if forbidden != nil {
+		pairs = nil
+		seen := map[[2]string]bool{}
+		for _, from := range sortedKeys(forbidden) {
+			for _, to := range forbidden[from] {
+				p := [2]string{from, to}
+				if !seen[p] {
+					seen[p] = true
+					pairs = append(pairs, p)
+				}
+			}
+		}
+	}
+	return ls, pairs, defaults
+}
+
+// addComponents adds the components: of the file in directory dir.
+func addComponents(c *rules.Config, dir string, comps map[string]componentYAML) {
+	for _, key := range sortedKeys(comps) {
+		y := comps[key]
+		comp := rules.Component{Dir: rules.PrefixGlob(dir, key)}
+		comp.Layers, comp.ForbiddenLayers, comp.DefaultLayers = layersOf(y.Layers, y.Forbidden)
+		c.Components = append(c.Components, comp)
+	}
+}
+
+// loadNested applies the .depgraph.yml files below root to f. Each one is
+// the configuration of its directory as a component of a monorepo: its
+// layers, forbidden pairs, components and ignore are relative to it, and so
+// are the paths of the unused-code rules. What only the root decides (rule
+// switches, severities, thresholds) is not applied and reported in
+// f.Warnings; project and store apply where the directory is the root.
+// Directories the scan skips (node_modules, .git, .claude, --exclude, ...)
+// are not read.
+func loadNested(root string, f *File) error {
+	var dirs []string
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			if d != nil && d.IsDir() && p != root {
+				return filepath.SkipDir // unreadable: the scan skips it too
+			}
+			return nil
+		}
+		rel, rerr := filepath.Rel(root, p)
+		if rerr != nil {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		if d.IsDir() {
+			if rel != "." && resolver.ShouldSkipDir(rel, d.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.Name() == FileName && path.Dir(rel) != "." {
+			dirs = append(dirs, path.Dir(rel))
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if len(dirs) == 0 {
+		return nil
+	}
+	c := &f.Rules
+	for _, dir := range dirs {
+		p := filepath.Join(root, filepath.FromSlash(dir), FileName)
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		warnings, err := applyNested(c, dir, b)
+		if err != nil {
+			return fmt.Errorf("%s: %w", p, err)
+		}
+		f.Warnings = append(f.Warnings, warnings...)
+	}
+	if err := c.Validate(); err != nil {
+		return fmt.Errorf("%s: %w", filepath.Join(root, FileName), err)
+	}
+	return nil
+}
+
+// applyNested applies the .depgraph.yml of directory dir (below the root).
+func applyNested(c *rules.Config, dir string, b []byte) ([]string, error) {
+	y, err := decode(b)
+	if err != nil {
+		return nil, err
+	}
+	// validated as a root file first: the same file must work as --root
+	own, err := Parse(b)
+	if err != nil {
+		return nil, err
+	}
+	if y.Layers != nil || y.Forbidden != nil {
+		comp := rules.Component{Dir: dir}
+		comp.Layers, comp.ForbiddenLayers, comp.DefaultLayers = layersOf(y.Layers, y.Forbidden)
+		c.Components = append(c.Components, comp)
+	}
+	addComponents(c, dir, y.Components)
+	for _, g := range y.Ignore {
+		c.Ignore = append(c.Ignore, rules.PrefixGlob(dir, g))
+	}
+	var warnings []string
+	for _, name := range sortedKeys(y.Rules) {
+		n := y.Rules[name]
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			key := n.Content[i].Value
+			if rules.IsUnusedRule(name) && (key == "ignore" || key == "entries") {
+				continue
+			}
+			warnings = append(warnings, fmt.Sprintf("%s/%s: rules.%s.%s applies only where %s is the root (--root %s); the root's setting is used",
+				dir, FileName, name, key, dir, dir))
+		}
+	}
+	for _, g := range own.Rules.UnusedIgnore {
+		c.UnusedIgnore = append(c.UnusedIgnore, rules.PrefixGlob(dir, g))
+	}
+	for _, g := range own.Rules.UnusedEntries {
+		c.UnusedEntries = append(c.UnusedEntries, rules.PrefixGlob(dir, g))
+	}
+	return warnings, nil
 }
 
 func applyRule(c *rules.Config, name string, n yaml.Node) error {

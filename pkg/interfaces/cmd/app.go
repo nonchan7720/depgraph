@@ -60,6 +60,7 @@ func buildApp(ctx context.Context, st *graphrepo.Store, o *options, report analy
 	if err != nil {
 		return nil, err
 	}
+	printWarnings(out, settings)
 	if err := st.EnsureSchema(ctx); err != nil {
 		return nil, err
 	}

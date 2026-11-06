@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strings"
 
@@ -26,6 +27,42 @@ var _ rules.Repository = (*Repository)(nil)
 
 // New returns a rules repository over q (the graph store) bound to project.
 func New(q Querier, project string) *Repository { return &Repository{q: q, project: project} }
+
+// layerPairs compiles cfg's forbidden pairs for the query; components whose
+// directory is a pattern are expanded over the project's packages first.
+func (r *Repository) layerPairs(ctx context.Context, cfg rules.Config) ([]map[string]any, error) {
+	if slices.ContainsFunc(cfg.Components, func(c rules.Component) bool { return strings.ContainsAny(c.Dir, "*?") }) {
+		rows, err := r.query(ctx, `
+			MATCH (p:Package {project: $project}) WHERE p.external = false RETURN p.key AS key
+		`, nil, nil)
+		if err != nil {
+			return nil, fmt.Errorf("layers: %w", err)
+		}
+		keys := make([]string, 0, len(rows))
+		for _, row := range rows {
+			if k, ok := row["key"].(string); ok {
+				keys = append(keys, k)
+			}
+		}
+		cfg = cfg.ExpandComponents(keys)
+	}
+	lp, err := cfg.LayerPairs()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]map[string]any, 0, len(lp))
+	for _, p := range lp {
+		except := p.ExceptRx
+		if except == nil {
+			except = []string{}
+		}
+		out = append(out, map[string]any{
+			"component": p.Component, "from": p.From, "to": p.To,
+			"fromRx": p.FromRx, "toRx": p.ToRx, "exceptRx": except,
+		})
+	}
+	return out, nil
+}
 
 // query runs cypher with $project and $ignore set.
 func (r *Repository) query(ctx context.Context, cypher string, ignore []string, p map[string]any) ([]map[string]any, error) {
@@ -85,37 +122,40 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 	}
 
 	// 2. Layer violations: a in from, b in to, and the edge crosses the pair
-	// (a is not also in to, b is not also in from).
-	if cfg.Enabled(rules.RuleLayerViolation) && len(cfg.ForbiddenLayers) > 0 {
-		layers, err := cfg.LayerGlobs()
+	// (a is not also in to, b is not also in from). The pairs of the root
+	// and of every component (components: packages/* expanded over the
+	// stored packages) run in one query.
+	if cfg.Enabled(rules.RuleLayerViolation) {
+		pairs, err := r.layerPairs(ctx, cfg)
 		if err != nil {
 			return nil, err
 		}
-		pairs := make([]map[string]any, 0, len(cfg.ForbiddenLayers))
-		for _, p := range cfg.ForbiddenLayers {
-			pairs = append(pairs, map[string]any{
-				"from": p[0], "to": p[1],
-				"fromRx": rules.Regexes(layers[p[0]]), "toRx": rules.Regexes(layers[p[1]]),
-			})
-		}
-		rows, err := r.query(ctx, `
-			UNWIND $pairs AS pr
-			MATCH (a:Package {project: $project})-[:IMPORTS]->(b:Package)
-			WHERE a.external = false AND b.external = false
-			  AND any(rx IN pr.fromRx WHERE a.key =~ rx) AND any(rx IN pr.toRx WHERE b.key =~ rx)
-			  AND NOT any(rx IN pr.toRx WHERE a.key =~ rx) AND NOT any(rx IN pr.fromRx WHERE b.key =~ rx)
-			  AND NOT any(rx IN $ignore WHERE a.key =~ rx OR b.key =~ rx)
-			RETURN DISTINCT a.key AS from, b.key AS to, pr.from AS fromLayer, pr.to AS toLayer
-		`, ignore, map[string]any{"pairs": pairs})
-		if err != nil {
-			return nil, fmt.Errorf("layers: %w", err)
-		}
-		for _, row := range rows {
-			out = append(out, rules.Finding{
-				Rule: rules.RuleLayerViolation, Severity: sev(rules.RuleLayerViolation),
-				Message: fmt.Sprintf("%s -> %s (%s must not import %s)", row["from"], row["to"], row["fromLayer"], row["toLayer"]),
-				Data:    row,
-			})
+		if len(pairs) > 0 {
+			rows, err := r.query(ctx, `
+				UNWIND $pairs AS pr
+				MATCH (a:Package {project: $project})-[:IMPORTS]->(b:Package)
+				WHERE a.external = false AND b.external = false
+				  AND any(rx IN pr.fromRx WHERE a.key =~ rx) AND any(rx IN pr.toRx WHERE b.key =~ rx)
+				  AND NOT any(rx IN pr.toRx WHERE a.key =~ rx) AND NOT any(rx IN pr.fromRx WHERE b.key =~ rx)
+				  AND NOT any(rx IN pr.exceptRx WHERE a.key =~ rx OR b.key =~ rx)
+				  AND NOT any(rx IN $ignore WHERE a.key =~ rx OR b.key =~ rx)
+				RETURN DISTINCT a.key AS from, b.key AS to, pr.from AS fromLayer, pr.to AS toLayer, pr.component AS component
+			`, ignore, map[string]any{"pairs": pairs})
+			if err != nil {
+				return nil, fmt.Errorf("layers: %w", err)
+			}
+			for _, row := range rows {
+				msg := fmt.Sprintf("%s -> %s (%s must not import %s)", row["from"], row["to"], row["fromLayer"], row["toLayer"])
+				if c, _ := row["component"].(string); c != "" {
+					msg = fmt.Sprintf("%s -> %s (%s: %s must not import %s)", row["from"], row["to"], c, row["fromLayer"], row["toLayer"])
+				} else {
+					delete(row, "component")
+				}
+				out = append(out, rules.Finding{
+					Rule: rules.RuleLayerViolation, Severity: sev(rules.RuleLayerViolation),
+					Message: msg, Data: row,
+				})
+			}
 		}
 	}
 

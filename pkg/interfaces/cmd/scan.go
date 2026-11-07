@@ -7,6 +7,7 @@ import (
 )
 
 func newScanCommand(o *options) *cobra.Command {
+	var failOn string
 	c := &cobra.Command{
 		Use:   "scan",
 		Short: "Full scan of --root into Neo4j, run rules, update CLAUDE.md",
@@ -16,8 +17,13 @@ when none runs, one is started for this scan (10-20 s; ephemeral unless
 --persist / store.persist).`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			floor, err := parseFailOn(failOn)
+			if err != nil {
+				return err
+			}
 			ctx := cmd.Context()
-			a, err := newApp(ctx, o, neo4jprovider.Start, reportWriter(o), cmd.ErrOrStderr())
+			report := newFailOnRecorder(o)
+			a, err := newApp(ctx, o, neo4jprovider.Start, report, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
@@ -25,12 +31,16 @@ when none runs, one is started for this scan (10-20 s; ephemeral unless
 			if err := a.fullScan(ctx); err != nil {
 				return err
 			}
-			return a.svc.Evaluate(ctx)
+			if err := a.svc.Evaluate(ctx); err != nil {
+				return err
+			}
+			return report.result(floor)
 		},
 	}
 	addNeo4jFlags(c.Flags(), o)
 	addPersistFlag(c.Flags(), o)
 	addClaudeMDFlag(c.Flags(), o)
+	addFailOnFlag(c.Flags(), &failOn)
 	addResetFlag(c.Flags(), o)
 	addWorkersFlag(c.Flags(), o)
 	return c

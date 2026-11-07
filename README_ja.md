@@ -174,9 +174,9 @@ depgraph projects prune [--dry-run]  # root が存在しなくなったプロジ
 
 | command | 説明 |
 |---|---|
-| `scan --root DIR [--reset]` | フルスキャン → ルール評価 → CLAUDE.md 更新 |
+| `scan --root DIR [--reset] [--fail-on warn]` | フルスキャン → ルール評価 → CLAUDE.md 更新（`--fail-on` を付けると Findings があれば exit 1。[CI](#ci) を参照） |
 | `watch --root DIR [--no-lsp] [--no-ui]` | scan 後、fsnotify で監視して差分更新（tree-sitter → LSP で CALLS/REFERENCES を追加） |
-| `check --root DIR` | 投入済みグラフに対してルール評価だけ実行（CLAUDE.md 更新） |
+| `check --root DIR [--fail-on warn]` | 投入済みグラフに対してルール評価だけ実行（CLAUDE.md 更新） |
 | `serve --root DIR [--addr 127.0.0.1:7777]` | 投入済みグラフをブラウザ UI で表示（監視なし、CLAUDE.md は更新しない） |
 | `mcp --root DIR` | ブラウザ UI を [MCP App](#mcp-app) として表示する stdio の MCP サーバー（投入済みグラフを読む、CLAUDE.md は更新しない） |
 | `parse --root DIR [files...]` | Neo4j なしで tree-sitter の解析結果を JSON（1 行 1 ファイル）で出力（デバッグ用） |
@@ -206,7 +206,20 @@ depgraph projects prune [--dry-run]  # root が存在しなくなったプロジ
 | `--debounce` | watch | `400ms` |
 | `--no-ui` / `--no-lsp` | watch | false |
 | `--timeout` / `--debug` / `--format` | hook | `3s` / false / `json`（`text`: 文脈そのものを出力。claude-hook-gate の `session_start` 用） |
+| `--fail-on` | scan / check | なし（`error` / `warn` / `info` 以上の Findings があれば exit 1） |
 | `--fail-on` / `--timeout` | gate | `warn` / `60s` |
+
+### CI
+
+`scan` と `check` は、何が見つかっても exit 0 です。`--fail-on <error|warn|info>` を付けると、その重大度以上の
+Findings があれば exit 1 になります（増えた分だけでなくすべて。セッションで増えた分を見るのは gate です）。
+Docker のあるランナーなら、container プロバイダーで CI のジョブにできます:
+
+```bash
+depgraph scan --root . --claude-md "" --fail-on warn   # --claude-md "": CLAUDE.md を書き換えない
+```
+
+`--fail-on error` にすると、循環 import とレイヤー違反でだけ失敗します。
 
 ## Claude Code プラグイン
 

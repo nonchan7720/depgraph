@@ -275,6 +275,17 @@ func TestEvaluateExternalUnclassified(t *testing.T) {
 		t.Errorf("python: %+v", got[1])
 	}
 
+	// a package the importing layer names itself does not cross the pair
+	c.Layers[0].Packages = append(c.Layers[0].Packages, "ext:github.com/x/y")
+	fs, err = New(st, key).Evaluate(ctx, c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range byRule(fs, rules.RuleExternalUnclassified) {
+		if f.ID == "go" {
+			t.Errorf("listed although the domain layer names it: %+v", f)
+		}
+	}
 	c.Layers[1].Packages = []string{"ext:sqlalchemy"} // no wildcard: nothing to classify
 	if fs, err := New(st, key).Evaluate(ctx, c); err != nil || len(byRule(fs, rules.RuleExternalUnclassified)) != 0 {
 		t.Errorf("without a wildcard: %v, %v", byRule(fs, rules.RuleExternalUnclassified), err)

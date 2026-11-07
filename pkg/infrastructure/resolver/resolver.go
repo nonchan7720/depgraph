@@ -19,6 +19,7 @@ import (
 	"sync"
 
 	"github.com/nonchan7720/depgraph/pkg/domain/graph"
+	"github.com/nonchan7720/depgraph/pkg/internal/safefile"
 )
 
 // ErrUnsupported is graph.ErrUnsupported (kept for callers of this package).
@@ -77,9 +78,9 @@ func LoadIgnoreFile(path string) error {
 	if path == "" {
 		return nil
 	}
-	b, err := os.ReadFile(path)
+	b, err := safefile.ReadPath(path, safefile.Manifest)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, os.ErrNotExist) {
 			return nil
 		}
 		return err

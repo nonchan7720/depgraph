@@ -57,7 +57,14 @@ func (t *TypeScript) ResolveBatch(ctx context.Context, root string, reqs []Reque
 	failed := map[Request]string{}
 	// an importer that does not exist would fail the whole build
 	existing := importers[:0]
+	safe := map[string]string{}
 	for _, imp := range importers {
+		if bad := tsUnsafe(real, imp, safe); bad != "" {
+			for _, s := range specs[imp] {
+				results[Request{FromFile: imp, Spec: s}] = unresolvedf(bad + " is not a regular file (esbuild would block on it)")
+			}
+			continue
+		}
 		if isFileAt(real, imp) {
 			existing = append(existing, imp)
 			continue

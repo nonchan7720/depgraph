@@ -3,6 +3,7 @@ package imports
 import (
 	"context"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -103,6 +104,9 @@ func (t *TypeScript) Resolve(ctx context.Context, root, fromFile, spec string) R
 	if r.resolve == nil {
 		return unresolvedf(r.err)
 	}
+	if bad := tsUnsafe(r.real, fromFile, map[string]string{}); bad != "" {
+		return unresolvedf(bad + " is not a regular file (esbuild would block on it)")
+	}
 	importer := filepath.Join(r.real, filepath.FromSlash(fromFile))
 	opts := api.ResolveOptions{
 		Importer:   importer,
@@ -119,6 +123,42 @@ func (t *TypeScript) Resolve(ctx context.Context, root, fromFile, spec string) R
 		return tsFailure(spec, messagesText(res.Errors))
 	}
 	return tsResolved(r.real, spec, res.Path, res.External, res.Namespace)
+}
+
+// tsConfigNames are the files esbuild reads in the importer's directory
+// and in every directory above it.
+var tsConfigNames = []string{"package.json", "tsconfig.json", "jsconfig.json"}
+
+// tsUnsafe returns the first of the importer and the configuration files
+// esbuild reads for it (repo-relative) that exists but is not a regular
+// file: esbuild reads them with a plain open, which blocks on a FIFO a pull
+// request can add. seen caches the answer per directory.
+func tsUnsafe(real, fromFile string, seen map[string]string) string {
+	regular := func(rel string) bool {
+		st, err := os.Stat(filepath.Join(real, filepath.FromSlash(rel)))
+		return err != nil || st.Mode().IsRegular() // missing is fine
+	}
+	if !regular(fromFile) {
+		return fromFile
+	}
+	for d := path.Dir(fromFile); ; d = path.Dir(d) {
+		bad, ok := seen[d]
+		if !ok {
+			for _, name := range tsConfigNames {
+				if rel := path.Join(d, name); !regular(rel) {
+					bad = rel
+					break
+				}
+			}
+			seen[d] = bad
+		}
+		if bad != "" {
+			return bad
+		}
+		if d == "." || d == "/" || d == "" {
+			return ""
+		}
+	}
 }
 
 // tsFailure classifies a spec esbuild could not resolve.

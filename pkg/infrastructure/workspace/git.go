@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/nonchan7720/depgraph/pkg/domain/project"
+	"github.com/nonchan7720/depgraph/pkg/internal/safefile"
 )
 
 // Checkout is where a directory sits in git: the working tree that contains
@@ -310,9 +311,9 @@ func CopyFile(root, dst, rel string) error {
 // FileHash identifies the content of root/rel ("-" when it does not exist),
 // to tell whether a file changed since it was last applied.
 func FileHash(root, rel string) string {
-	b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+	b, err := safefile.ReadSource(root, rel)
 	if err != nil {
-		return "-"
+		return "-" // missing, or not a regular file
 	}
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:16])

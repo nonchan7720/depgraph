@@ -10,7 +10,6 @@ package treesitter
 import (
 	"bytes"
 	"context"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -28,6 +27,7 @@ import (
 	"github.com/nonchan7720/depgraph/pkg/domain/graph"
 	"github.com/nonchan7720/depgraph/pkg/infrastructure/resolver"
 	"github.com/nonchan7720/depgraph/pkg/infrastructure/resolver/imports"
+	"github.com/nonchan7720/depgraph/pkg/internal/safefile"
 )
 
 // Resolver implements resolver.Resolver. Imports are resolved by the
@@ -148,7 +148,7 @@ func (r *Resolver) ResolveFile(ctx context.Context, root, rel string) (*graph.Fi
 	if !ok {
 		return nil, resolver.ErrUnsupported
 	}
-	src, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+	src, err := safefile.ReadSource(root, rel)
 	if err != nil {
 		return nil, err
 	}

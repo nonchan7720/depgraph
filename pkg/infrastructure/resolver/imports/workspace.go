@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/nonchan7720/depgraph/pkg/internal/safefile"
 )
 
 // WorkspacePackage is an npm package of the repository's workspace.
@@ -23,7 +25,7 @@ type WorkspacePackage struct {
 // "packages" of pnpm-workspace.yaml. "!" patterns exclude.
 func workspaceGlobs(root string) []string {
 	var out []string
-	if b, err := os.ReadFile(filepath.Join(root, "package.json")); err == nil {
+	if b, err := safefile.ReadManifest(root, "package.json"); err == nil {
 		var pj struct {
 			Workspaces json.RawMessage `json:"workspaces"`
 		}
@@ -39,7 +41,7 @@ func workspaceGlobs(root string) []string {
 			}
 		}
 	}
-	if b, err := os.ReadFile(filepath.Join(root, "pnpm-workspace.yaml")); err == nil {
+	if b, err := safefile.ReadManifest(root, "pnpm-workspace.yaml"); err == nil {
 		var pw struct {
 			Packages []string `yaml:"packages"`
 		}
@@ -85,7 +87,7 @@ func workspacePackages(root string) []WorkspacePackage {
 		if !matchesAny(include, rel) || matchesAny(exclude, rel) {
 			return nil
 		}
-		b, err := os.ReadFile(filepath.Join(p, "package.json"))
+		b, err := safefile.ReadManifest(root, path.Join(rel, "package.json"))
 		if err != nil {
 			return nil
 		}

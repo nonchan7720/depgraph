@@ -73,10 +73,11 @@ func (u *usageCollector) rbRequire(spec string) {
 }
 
 var (
-	rbConstRe       = regexp.MustCompile(`^(::)?[A-Z]\w*(::[A-Z]\w*)*$`)
-	rbConstPrefixRe = regexp.MustCompile(`^(::)?([A-Z]\w*::)+$`)
-	rbIdentRe       = regexp.MustCompile(`^\w*$`)
-	rbParentConstRe = regexp.MustCompile(`^"#\{[^}]*module_parent(_name)?[^}]*\}::`)
+	rbConstRe        = regexp.MustCompile(`^(::)?[A-Z]\w*(::[A-Z]\w*)*$`)
+	rbConstPrefixRe  = regexp.MustCompile(`^(::)?([A-Z]\w*::)+$`)
+	rbIdentRe        = regexp.MustCompile(`^\w*$`)
+	rbValidatorKeyRe = regexp.MustCompile(`^[a-z_][\w/]*$`)
+	rbParentConstRe  = regexp.MustCompile(`^"#\{[^}]*module_parent(_name)?[^}]*\}::`)
 	// the base of an application's models: subclassed, never named elsewhere
 	// in a new application
 	rbAbstractRe  = regexp.MustCompile(`(?m)^\s*(primary_abstract_class|self\.abstract_class\s*=\s*true)\b`)
@@ -468,8 +469,16 @@ func (u *usageCollector) rbCall(n *gts.Node, levels []string) bool {
 			if x.typ(a) != "pair" {
 				continue
 			}
-			k := x.rbSymbolName(x.field(a, "key"))
-			if k != "" && !rbBuiltinValidators[k] {
+			key := x.field(a, "key")
+			k := x.rbSymbolName(key)
+			if k == "" && key != nil {
+				// 'gitlab/emoji_name': true -> Gitlab::EmojiNameValidator
+				k, _ = x.stringContent(key)
+				if k == "" {
+					k = strings.Trim(x.text(key), `"':`)
+				}
+			}
+			if k != "" && !rbBuiltinValidators[k] && rbValidatorKeyRe.MatchString(k) {
 				u.rbConst(levels, rbCamelize(k)+"Validator")
 			}
 		}

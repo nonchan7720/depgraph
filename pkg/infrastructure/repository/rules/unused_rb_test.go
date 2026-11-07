@@ -296,6 +296,10 @@ end
 		"app/services/dispatch.rb":               "class Dispatch\n  def self.call(kind) = \"#{kind.camelize}Service\".constantize\nend\n",
 		"app/controllers/dispatch_controller.rb": "class DispatchController < ApplicationController\n  def index = Dispatch.call(:x)\nend\n",
 		"app/services/forgotten_service.rb":      "class ForgottenService\nend\n",
+		// a namespaced validator named by a quoted key
+		"app/models/award_emoji.rb":                     "class AwardEmoji < ApplicationRecord\n  validates :name, presence: true, 'gitlab/emoji_name': true\nend\n",
+		"app/validators/gitlab/emoji_name_validator.rb": "module Gitlab\n  class EmojiNameValidator < ActiveModel::EachValidator\n  end\nend\n",
+		"app/controllers/awards_controller.rb":          "class AwardsController < ApplicationController\n  def index = AwardEmoji.all\nend\n",
 		// a test that scans files from another project does not load them
 		"gems/distiller/distiller.gemspec":     "",
 		"gems/distiller/spec/manifest_spec.rb": "RSpec.describe 1 do\n  it { Dir.glob(\"app/**/*.rb\") }\nend\n",

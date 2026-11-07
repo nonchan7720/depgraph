@@ -315,3 +315,15 @@ components:
 		t.Errorf("unknown layer: %v", err)
 	}
 }
+
+// The upgrade note of README: `abstract: {}` turns the default abstract
+// pairs off while the default layers stay.
+func TestEmptyAbstractClearsTheDefaultPairs(t *testing.T) {
+	f, err := Parse([]byte("abstract: {}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Rules.AbstractLayers) != 0 || !f.Rules.DefaultLayers {
+		t.Errorf("abstract pairs = %v, default layers = %v", f.Rules.AbstractLayers, f.Rules.DefaultLayers)
+	}
+}

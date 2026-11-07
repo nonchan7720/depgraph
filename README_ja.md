@@ -651,6 +651,8 @@ depgraph はすべての型と関数のメンバーを読みます（Go・TypeSc
 
 コンポーネントでも `forbidden` と同じく、ディレクトリ内で `abstract` を書けます。
 
+**アップグレード時の注意**: この 2 つのルールはデフォルトで有効（warn）で、`.depgraph.yml` に `layers:` がない場合（設定なし、または `forbidden:` だけ）は abstract ペア `usecase → infra / db` も有効です。デフォルトのレイヤーに当てはまるプロジェクトでは、アップグレード後にレポート・`CLAUDE.md`・フックに新しい指摘が出ます。以前の動作のままにするには `abstract: {}` を書くか、ルールを無効にします（`rules: {concrete-dependency: {enabled: false}}`）。
+
 ### モノレポ（`components`）
 
 モノレポでは部分ごとにアーキテクチャが違い、言語も違うことがよくあります。`pkg/` は Go、

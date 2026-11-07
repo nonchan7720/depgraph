@@ -243,11 +243,13 @@ func TestUnusedRubyGlobOfNestedGem(t *testing.T) {
 // application's classes in it.
 func TestUnusedRubyOwnNamespaceNamedLikeAGem(t *testing.T) {
 	root := writeRepo(t, map[string]string{
-		"Gemfile":                            "gem 'rails'\ngem 'gitlab', require: false\ngem 'dry-types'\ngem 'kt-paperclip'\n",
-		"Gemfile.lock":                       "GEM\n  specs:\n    gitlab (6.1.0)\n    dry-types (1.8.3)\n    kt-paperclip (8.0.0)\n",
-		"config/application.rb":              "",
-		"lib/gitlab.rb":                      "module Gitlab\n  def self.com? = true\nend\n",
-		"lib/gitlab/orphan_helper.rb":        "module Gitlab\n  class OrphanHelper\n  end\nend\n",
+		"Gemfile":                     "gem 'rails'\ngem 'gitlab', require: false\ngem 'dry-types'\ngem 'kt-paperclip'\n",
+		"Gemfile.lock":                "GEM\n  specs:\n    gitlab (6.1.0)\n    dry-types (1.8.3)\n    kt-paperclip (8.0.0)\n",
+		"config/application.rb":       "",
+		"lib/gitlab.rb":               "module Gitlab\n  def self.com? = true\nend\n",
+		"lib/gitlab/orphan_helper.rb": "module Gitlab\n  class OrphanHelper\n  end\nend\n",
+		// a script naming the namespace does not use every class nested in it
+		"bin/feature-flag":                   "#!/usr/bin/env ruby\nputs Gitlab.com?\n",
 		"app/graphql/types/orphan_type.rb":   "module Types\n  class OrphanType < BaseObject\n  end\nend\n",
 		"app/controllers/home_controller.rb": "class HomeController < ApplicationController\n  def index = Gitlab.com?\nend\n",
 		// still a library's namespace: Paperclip loads its processors by name

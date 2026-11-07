@@ -104,7 +104,9 @@ func (m *manifests) rbEntry(rel string, u *usageCollector) string {
 		return why
 	}
 	for _, s := range u.x.fg.Symbols {
-		if s.Kind == "class" || s.Kind == "module" {
+		// not a module reopened as a namespace: a script naming Gitlab does
+		// not use every class of lib/gitlab/
+		if (s.Kind == "class" || s.Kind == "module") && s.Exported {
 			if f, ok := m.rbYAML[s.Name]; ok {
 				return "named in " + f
 			}

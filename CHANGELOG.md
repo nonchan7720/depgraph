@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.6](https://github.com/nonchan7720/depgraph/compare/v0.1.5...v0.1.6) (2026-11-07)
+
+
+### Features
+
+* **cli:** add --fail-on to scan and check for CI ([#43](https://github.com/nonchan7720/depgraph/issues/43)) ([dac4adf](https://github.com/nonchan7720/depgraph/commit/dac4adf0b1d0a6e55b801fcf84d97f010e673dd5))
+
 ## [0.1.5](https://github.com/nonchan7720/depgraph/compare/v0.1.4...v0.1.5) (2026-11-06)
 
 

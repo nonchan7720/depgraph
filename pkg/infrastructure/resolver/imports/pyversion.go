@@ -152,7 +152,7 @@ func parsePythonPin(kind string, b []byte) (string, error) {
 			case strings.HasPrefix(v, "["):
 				return one(quoted(v))
 			case strings.HasPrefix(v, "{"):
-				for _, kv := range tomlEntries([]byte(strings.ReplaceAll(strings.Trim(v, "{}"), ",", "\n"))) {
+				for _, kv := range tomlEntries([]byte(splitInlineTable(strings.Trim(v, "{}")))) {
 					if kv.key == "version" {
 						return one(quoted(kv.value))
 					}
@@ -308,7 +308,8 @@ func (p *PythonPins) pins(d string) []pin {
 		case errors.Is(err, os.ErrNotExist), errors.Is(err, errNoPin):
 			continue
 		case err != nil:
-			ps = append(ps, pin{rel: rel, err: errors.Unwrap(err)})
+			// the reason without the file name the message names again
+			ps = append(ps, pin{rel: rel, err: errors.New(strings.TrimPrefix(err.Error(), rel+": "))})
 		default:
 			minor, _ := rules.MinorVersion(full)
 			ps = append(ps, pin{rel: rel, version: minor})
@@ -326,4 +327,26 @@ func (p *PythonPins) pins(d string) []pin {
 	}
 	p.dirs[d] = ps
 	return ps
+}
+
+// splitInlineTable puts each key of a TOML inline table's body on a line of
+// its own: commas inside quoted strings are kept.
+func splitInlineTable(body string) string {
+	var b strings.Builder
+	var quote rune
+	for _, r := range body {
+		switch {
+		case quote != 0:
+			if r == quote {
+				quote = 0
+			}
+		case r == '"' || r == '\'':
+			quote = r
+		case r == ',':
+			b.WriteByte('\n')
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }

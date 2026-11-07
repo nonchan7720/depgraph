@@ -29,6 +29,7 @@ func TestReadPythonVersionFile(t *testing.T) {
 		{"mise prefix", "mise.toml", "[tools]\npython = \"prefix:3.12\"\n", "error: not an exact CPython version"},
 		{"mise major", "mise.toml", "[tools]\npython = \"3\"\n", "error: not an exact CPython version"},
 		{"mise dotted key", "mise.toml", "[tools]\n\"python\" = \"3.12\"\n", "3.12"},
+		{"mise table with a comma in a string", "mise.toml", "[tools]\npython = { postinstall = \"a, b\", version = \"3.11\" }\n", "3.11"},
 		{"pyproject pyright", "pyproject.toml", "[project]\nrequires-python = \">=3.10\"\n[tool.pyright]\npythonVersion = \"3.12\"\n", "3.12"},
 		{"pyproject mypy", "pyproject.toml", "[tool.mypy]\npython_version = \"3.11\"\n", "3.11"},
 		{"pyproject disagree", "pyproject.toml", "[tool.pyright]\npythonVersion = \"3.12\"\n[tool.mypy]\npython_version = \"3.11\"\n", "error: disagree"},
@@ -94,6 +95,8 @@ func TestPythonVersionConflict(t *testing.T) {
 		"lib/bar/mise.toml":         "[tools]\npython = \"3.12.1\"\n", // same version
 		"lib/bar/bar.py":            "",
 		"lib/env/mise.staging.toml": "[tools]\npython = \"3.12\"\n", // an environment's config
+		"lib/sys/.python-version":   "system\n",                     // not exact
+		"lib/sys/s.py":              "",
 		"lib/env/e.py":              "",
 		"docs/pyproject.toml":       "[project]\nrequires-python = \">=3.8\"\n", // a range is no pin
 		"docs/conf.py":              "",
@@ -109,6 +112,7 @@ func TestPythonVersionConflict(t *testing.T) {
 		"lib/bar/bar.py":      "",
 		"lib/env/e.py":        "lib/env/mise.staging.toml",
 		"docs/conf.py":        "",
+		"lib/sys/s.py":        "lib/sys/.python-version does not pin an exact version (not an exact CPython version)",
 	} {
 		got := PythonVersionConflict(root, s, v, file)
 		if (want == "") != (got == "") || !strings.Contains(got, want) {

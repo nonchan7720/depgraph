@@ -148,7 +148,7 @@ func (r *Graph) UpsertFile(ctx context.Context, fg *graph.FileGraph) error {
 			"tokens": nonZero(sym.Tokens), "cloneHash": nonEmpty(sym.CloneHash), "fingerprints": nonEmptyList(sym.Fingerprints),
 			// members (null when unset, so not stored)
 			"receiver": nonEmpty(sym.Receiver), "methods": nonEmptyStrings(sym.Methods), "abstract": nonFalse(sym.Abstract),
-			"data": nonFalse(sym.Data), "implements": nonEmptyStrings(sym.Implements),
+			"data": nonFalse(sym.Data), "implements": nonEmptyStrings(sym.Implements), "embeds": nonFalse(sym.Embeds),
 		})
 	}
 	imports := make([]map[string]any, 0, len(fg.Imports))
@@ -198,7 +198,8 @@ func (r *Graph) UpsertFile(ctx context.Context, fg *graph.FileGraph) error {
 					project: $project, name: s.name, kind: s.kind, exported: s.exported,
 					line: s.line, endLine: s.endLine, language: $lang, file: $path,
 					tokens: s.tokens, cloneHash: s.cloneHash, fingerprints: s.fingerprints,
-					receiver: s.receiver, methods: s.methods, abstract: s.abstract, data: s.data, implements: s.implements
+					receiver: s.receiver, methods: s.methods, abstract: s.abstract, data: s.data, implements: s.implements,
+					embeds: s.embeds
 				})
 				CREATE (f)-[:DECLARES]->(sym)
 			`, r.params(map[string]any{"path": fg.Path, "symbols": symbols, "lang": string(fg.Language)})); err != nil {

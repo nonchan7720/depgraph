@@ -308,18 +308,19 @@ func (x *extractor) goDecl(n *gts.Node) {
 			case "type_spec":
 				kind := "type"
 				var methods []string
+				embeds := false
 				if t := x.field(ts, "type"); t != nil {
 					switch x.typ(t) {
 					case "struct_type":
 						kind = "struct"
 					case "interface_type":
 						kind = "interface"
-						methods = x.goInterfaceMethods(t)
+						methods, embeds = x.goInterfaceMethods(t)
 					}
 				}
 				name := x.fieldText(ts, "name")
 				if s := x.addSym(ts, kind, name, goExported(name)); s != nil {
-					s.Methods = methods
+					s.Methods, s.Embeds = methods, embeds
 				}
 			case "type_alias":
 				name := x.fieldText(ts, "name")

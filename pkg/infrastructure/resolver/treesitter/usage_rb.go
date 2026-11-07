@@ -259,8 +259,8 @@ func (x *extractor) rbStringTail(n *gts.Node) string {
 
 // rbGlob records the directory of a file glob (Dir["lib/patches/*.rb"],
 // Dir.glob("#{__dir__}/handlers/*.rb")): every file under it is loaded.
-// The directory is taken from the repository root and from the file's
-// directory.
+// The directory is taken from the file's directory and from its project's
+// (rbGlobUses), never from the repository root of another project.
 func (u *usageCollector) rbGlob(s string) {
 	i := strings.IndexByte(s, '*')
 	// only a glob of Ruby files is loaded: "components/*" in a path
@@ -272,9 +272,17 @@ func (u *usageCollector) rbGlob(s string) {
 	if dir == "." {
 		return // the whole repository or directory: too broad to mean anything
 	}
-	for _, d := range []string{path.Clean(dir), path.Join(path.Dir(u.rel), dir)} {
-		if d != "." && d != ".." && !strings.HasPrefix(d, "../") {
-			u.tsPrefixes = append(u.tsPrefixes, d)
+	u.rbGlobs = append(u.rbGlobs, path.Clean(dir))
+}
+
+// rbGlobUses turns the globs into directory prefixes, relative to the file
+// and to its project (scope: the directory of its Gemfile / *.gemspec).
+func (u *usageCollector) rbGlobUses(scope string) {
+	for _, dir := range u.rbGlobs {
+		for _, d := range []string{path.Join(scope, dir), path.Join(path.Dir(u.rel), dir)} {
+			if d != "." && d != ".." && !strings.HasPrefix(d, "../") {
+				u.tsPrefixes = append(u.tsPrefixes, d)
+			}
 		}
 	}
 }

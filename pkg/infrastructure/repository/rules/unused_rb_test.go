@@ -222,3 +222,18 @@ end
 	got := evalUnused(toUnusedFiles(parseRepo(t, root)), rules.DefaultConfig())
 	wantFindings(t, got, "unreachable-file|plugins/chat/app/models/chat/orphan.rb")
 }
+
+// A glob is relative to the file and its own project: a nested gem's
+// `require_rel "lib/**/*.rb"` does not load the application's lib/.
+func TestUnusedRubyGlobOfNestedGem(t *testing.T) {
+	root := writeRepo(t, map[string]string{
+		"Gemfile":               "gem 'rails'\n",
+		"config/application.rb": "",
+		"lib/gitlab/orphan.rb":  "module Gitlab\n  class Orphan\n  end\nend\n",
+		"qa/gems/orchestrator/orchestrator.gemspec":       "",
+		"qa/gems/orchestrator/lib/orchestrator/cli.rb":    "require_rel \"lib/**/*.rb\"\nmodule Orchestrator\n  class Cli; end\nend\n",
+		"qa/gems/orchestrator/lib/orchestrator/helper.rb": "module Orchestrator\n  class Helper; end\nend\n",
+	})
+	wantFindings(t, evalUnused(toUnusedFiles(parseRepo(t, root)), rules.DefaultConfig()),
+		"unreachable-file|lib/gitlab/orphan.rb")
+}

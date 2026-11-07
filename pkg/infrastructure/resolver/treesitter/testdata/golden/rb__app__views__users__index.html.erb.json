@@ -1,0 +1,18 @@
+{
+  "path": "rb/app/views/users/index.html.erb",
+  "package": "rb/app/views/users",
+  "language": "ruby",
+  "lines": 4,
+  "symbols": null,
+  "imports": null,
+  "usage": {
+    "scope": "rb",
+    "entry": "view template",
+    "uses": [
+      {
+        "target": "::",
+        "name": "UserCard"
+      }
+    ]
+  }
+}

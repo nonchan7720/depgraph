@@ -262,10 +262,11 @@ func loadNested(root string, f *File) error {
 // of the repository (the units of module-cycle).
 func IsModuleManifest(name string) bool {
 	switch name {
-	case "go.mod", "package.json", "pyproject.toml", "setup.py", "setup.cfg":
+	case "go.mod", "package.json", "pyproject.toml", "setup.py", "setup.cfg",
+		"Gemfile", "package.yml": // package.yml: a packwerk pack
 		return true
 	}
-	return false
+	return strings.HasSuffix(name, ".gemspec")
 }
 
 // applyNested applies the .depgraph.yml of directory dir (below the root).

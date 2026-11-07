@@ -197,10 +197,11 @@ func IsTestFile(p string) bool {
 	case strings.HasSuffix(base, "_test.go"),
 		strings.Contains(base, ".test."), strings.Contains(base, ".spec."),
 		strings.HasPrefix(base, "test_") && strings.HasSuffix(base, ".py"),
-		strings.HasSuffix(base, "_test.py"), base == "conftest.py":
+		strings.HasSuffix(base, "_test.py"), base == "conftest.py",
+		strings.HasSuffix(base, "_spec.rb"), strings.HasSuffix(base, "_test.rb"):
 		return true
 	}
-	for _, dir := range []string{"__tests__/", "tests/", "test/", "testdata/"} {
+	for _, dir := range []string{"__tests__/", "tests/", "test/", "testdata/", "spec/"} {
 		if strings.HasPrefix(p, dir) || strings.Contains(p, "/"+dir) {
 			return true
 		}

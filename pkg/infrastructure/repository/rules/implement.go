@@ -264,7 +264,7 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 		}
 		rows, err := r.query(ctx, `
 			MATCH (p:Package {project: $project})-[:CONTAINS]->(f:File)-[:DECLARES]->(s:Symbol)
-			WHERE s.exported AND s.kind IN ['function', 'class', 'struct']
+			WHERE s.exported AND s.kind IN ['function', 'class', 'struct'] AND f.language <> 'ruby'
 			  AND NOT any(rx IN $names WHERE s.name =~ rx)
 			  AND NOT any(rx IN $ignore WHERE p.key =~ rx)
 			WITH s.name AS name, s.kind AS kind,
@@ -276,7 +276,9 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 		// A Go name declared in several files of ONE package compiles only
 		// because build constraints separate the files (x_unix.go /
 		// x_windows.go): one declaration per build, so a Go package counts
-		// as one place. Other languages have no such variants.
+		// as one place. Other languages have no such variants. Ruby is left
+		// out: reopening a class in another file is how Ruby extends it
+		// (duplicate-code still finds re-implemented methods).
 		if err != nil {
 			return nil, fmt.Errorf("duplicates: %w", err)
 		}

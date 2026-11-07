@@ -312,6 +312,11 @@ func walkRepo(ctx context.Context, r Resolver, root string, emit func(rel string
 		if ShouldSkipPath(rel) || !r.Supports(rel) {
 			return nil
 		}
+		if d.Type()&fs.ModeSymlink != 0 {
+			if st, err := os.Stat(p); err != nil || st.IsDir() {
+				return nil // dangling (a build output not built yet), or a directory
+			}
+		}
 		return emit(rel)
 	})
 }

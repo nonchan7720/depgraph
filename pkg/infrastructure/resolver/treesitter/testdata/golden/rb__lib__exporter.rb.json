@@ -1,0 +1,30 @@
+{
+  "path": "rb/lib/exporter.rb",
+  "package": "rb/lib",
+  "language": "ruby",
+  "lines": 4,
+  "symbols": [
+    {
+      "name": "Exporter",
+      "kind": "module",
+      "exported": true,
+      "line": 1,
+      "endLine": 3,
+      "nameLine": 1,
+      "col": 7
+    },
+    {
+      "name": "Exporter.call",
+      "kind": "method",
+      "exported": true,
+      "line": 2,
+      "endLine": 2,
+      "nameLine": 2,
+      "col": 11
+    }
+  ],
+  "imports": null,
+  "usage": {
+    "scope": "rb"
+  }
+}

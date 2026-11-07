@@ -56,7 +56,12 @@ type usageCollector struct {
 
 	// facts for entry detection
 	goMain    bool
-	mainGuard bool // Python: if __name__ == "__main__"
+	mainGuard bool // Python: if __name__ == "__main__"; Ruby: if __FILE__ == $0
+	shebang   bool // Ruby: the file starts with #!
+	template  bool // Ruby: a view template (ERB, Haml, Slim)
+
+	rbRefs  []rbRef // Ruby constant references
+	rbEntry string  // Ruby: why a class of the file is loaded by Rails itself
 
 	goImports   []goImport
 	goSelectors []goSelector
@@ -103,6 +108,7 @@ func (u *usageCollector) requests() []imports.Request {
 	for _, gi := range u.goImports {
 		add(gi.spec)
 	}
+	u.rbRequests(add)
 	return out
 }
 
@@ -116,13 +122,15 @@ func (x *extractor) collectUsage(lang graph.Language, root *gts.Node) *usageColl
 		u.tsFile(root)
 	case graph.Python:
 		u.pyFile(root)
+	case graph.Ruby:
+		u.rbFile(root)
 	}
 	u.collectMentions(root)
 	return u
 }
 
 // mentionRe: a string that names a source file ("render.js", "./a/b.py").
-var mentionRe = regexp.MustCompile(`^[\w@.-][\w@./-]*\.(js|jsx|mjs|cjs|ts|tsx|mts|cts|py)$`)
+var mentionRe = regexp.MustCompile(`^[\w@.-][\w@./-]*\.(js|jsx|mjs|cjs|ts|tsx|mts|cts|py|rb)$`)
 
 // collectMentions records the source file names in the file's strings.
 func (u *usageCollector) collectMentions(root *gts.Node) {
@@ -164,7 +172,11 @@ func (r *Resolver) finishUsage(ctx context.Context, root string, fg *graph.FileG
 			continue
 		}
 		if res.Kind != imports.InRepo || res.File == "" {
-			if !p.prefix && m.unknownTarget(fg, p.spec, res) {
+			switch {
+			case p.prefix && (fg.Language == graph.TypeScript || fg.Language == graph.JavaScript) && m.unknownTarget(fg, p.spec, res):
+				// a directory under an alias the resolver cannot place
+				us = append(us, graph.Use{Target: UnknownPrefix + strings.TrimSuffix(p.spec, "/") + "/", Name: "*"})
+			case !p.prefix && m.unknownTarget(fg, p.spec, res):
 				us = append(us, graph.Use{Target: UnknownPrefix + p.spec, Name: p.name, ReExport: p.reexport, As: p.as})
 			}
 			continue
@@ -180,6 +192,9 @@ func (r *Resolver) finishUsage(ctx context.Context, root string, fg *graph.FileG
 	}
 	if fg.Language == graph.Go {
 		us = append(us, u.goUses(root, bySpec)...)
+	}
+	if fg.Language == graph.Ruby {
+		fg.Imports = append(fg.Imports, u.rbConstImports(bySpec)...)
 	}
 	us = append(us, u.tsPrefixUses(root)...)
 

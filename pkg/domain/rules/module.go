@@ -6,13 +6,14 @@ import (
 )
 
 // RuleModuleCycle: an import cycle between the modules of a monorepo (Go
-// modules, npm packages, Python projects, components), which import-cycle
+// modules, npm packages, Python projects, Ruby applications / gems /
+// packwerk packs, components), which import-cycle
 // does not see when the directories involved do not form a cycle.
 const RuleModuleCycle = "module-cycle"
 
 func init() {
 	builtin = append(builtin, Rule{Name: RuleModuleCycle, Severity: SeverityError,
-		Description: "import cycle between the modules of a monorepo (Go modules, npm packages, Python projects, components)"})
+		Description: "import cycle between the modules of a monorepo (Go modules, npm packages, Python projects, Ruby gems / packwerk packs, components)"})
 }
 
 // ModuleOf returns the deepest of units (module directories) that contains

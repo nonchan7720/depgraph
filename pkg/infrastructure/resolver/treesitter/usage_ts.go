@@ -328,10 +328,16 @@ func (u *usageCollector) tsCall(n *gts.Node) {
 	}
 }
 
-// tsPrefix records every file under the directory part of a relative path
-// pattern ("./locales/" of "./locales/*.json", "./pages/" of `./pages/${p}`).
+// tsPrefix records every file under the directory part of a path pattern
+// ("./locales/" of "./locales/*.json", "./pages/" of `./pages/${p}`,
+// "@/widgets" of `@/widgets/${w}.tsx`).
 func (u *usageCollector) tsPrefix(p string) {
 	if !isRelPath(p) {
+		// under an alias or a package (`@/widgets/${name}`): the directory
+		// is resolved like an import
+		if i := strings.LastIndex(p, "/"); i > 0 && !strings.ContainsAny(p[:i], "*{") {
+			u.usePrefix(p[:i])
+		}
 		return
 	}
 	if i := strings.IndexAny(p, "*{"); i >= 0 {

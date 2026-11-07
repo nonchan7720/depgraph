@@ -1,0 +1,41 @@
+{
+  "path": "rb/packs/pay/app/public/pay/gateway.rb",
+  "package": "rb/packs/pay/app/public/pay",
+  "language": "ruby",
+  "lines": 6,
+  "symbols": [
+    {
+      "name": "Pay",
+      "kind": "module",
+      "exported": false,
+      "line": 1,
+      "endLine": 5,
+      "nameLine": 1,
+      "col": 7
+    },
+    {
+      "name": "Pay::Gateway",
+      "kind": "class",
+      "exported": true,
+      "line": 2,
+      "endLine": 4,
+      "nameLine": 2,
+      "col": 8
+    },
+    {
+      "name": "Pay::Gateway.charge",
+      "kind": "method",
+      "exported": true,
+      "line": 3,
+      "endLine": 3,
+      "nameLine": 3,
+      "col": 13
+    }
+  ],
+  "imports": null,
+  "usage": {
+    "scope": "rb",
+    "entry": "packwerk public API",
+    "internal": true
+  }
+}

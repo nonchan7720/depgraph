@@ -138,6 +138,11 @@ func tsResolved(realRoot, spec, p string, isExternal bool, namespace string) Res
 		// node builtins ("fs", "node:fs"), URLs
 		return external(packageName(spec))
 	}
+	// a bundler query ("worker.ts?worker&inline", Vite) is not part of the
+	// file: esbuild's metafile keeps it as the path's suffix
+	if i := strings.IndexByte(p, '?'); i > 0 {
+		p = p[:i]
+	}
 	if real, err := filepath.EvalSymlinks(p); err == nil {
 		p = real
 	}

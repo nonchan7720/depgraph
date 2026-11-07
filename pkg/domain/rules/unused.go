@@ -11,7 +11,7 @@ import (
 const (
 	// RuleUnusedExport: an exported declaration nothing in the repository uses.
 	RuleUnusedExport = "unused-export"
-	// RuleUnreachableFile: a TS/JS/Python file no entry point reaches through imports.
+	// RuleUnreachableFile: a TS/JS/Python/Ruby file no entry point reaches through imports.
 	RuleUnreachableFile = "unreachable-file"
 	// RuleUnreachablePackage: a Go package no main package, test or public
 	// package of a library module reaches through imports.
@@ -84,7 +84,7 @@ func init() {
 	opts := []string{"entries", "ignore"}
 	builtin = append(builtin,
 		Rule{Name: RuleUnusedExport, Severity: SeverityWarn, Description: "an exported declaration nothing in the project uses", Options: opts},
-		Rule{Name: RuleUnreachableFile, Severity: SeverityWarn, Description: "a TS/JS/Python file no entry point reaches", Options: opts},
+		Rule{Name: RuleUnreachableFile, Severity: SeverityWarn, Description: "a TS/JS/Python/Ruby file no entry point reaches", Options: opts},
 		Rule{Name: RuleUnreachablePackage, Severity: SeverityWarn, Description: "a Go package no entry point reaches", Options: opts},
 	)
 }

@@ -209,7 +209,7 @@
         },
         "module-cycle": {
           "additionalProperties": false,
-          "description": "import cycle between the modules of a monorepo (Go modules, npm packages, Python projects, components)",
+          "description": "import cycle between the modules of a monorepo (Go modules, npm packages, Python projects, Ruby gems / packwerk packs, components)",
           "properties": {
             "enabled": {
               "default": true,
@@ -230,7 +230,7 @@
         },
         "unreachable-file": {
           "additionalProperties": false,
-          "description": "a TS/JS/Python file no entry point reaches",
+          "description": "a TS/JS/Python/Ruby file no entry point reaches",
           "properties": {
             "enabled": {
               "default": true,

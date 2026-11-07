@@ -257,3 +257,28 @@ func TestScanRepoSkipsUnsupported(t *testing.T) {
 		t.Errorf("delivered %v, want %v", got, want)
 	}
 }
+
+// A symlink whose target is missing (public/sw.js -> packs/sw.js before a
+// build) is not a file of the repository: it is skipped, not a scan error.
+func TestScanRepoSkipsDanglingSymlinks(t *testing.T) {
+	root, rels := scanTree(t, 2)
+	if err := os.Symlink("missing/target.go", filepath.Join(root, "dangling.go")); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	r := &fakeResolver{resolve: func(_ context.Context, rel string) (*graph.FileGraph, error) {
+		if _, err := os.ReadFile(filepath.Join(root, rel)); err != nil {
+			return nil, err
+		}
+		return &graph.FileGraph{Path: rel}, nil
+	}}
+	var got []string
+	if err := ScanRepo(context.Background(), r, root, func(fg *graph.FileGraph) error {
+		got = append(got, fg.Path)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(got, rels) {
+		t.Errorf("scanned %v, want %v", got, rels)
+	}
+}

@@ -1,0 +1,63 @@
+{
+  "path": "rb/app/models/user.rb",
+  "package": "rb/app/models",
+  "language": "ruby",
+  "lines": 14,
+  "symbols": [
+    {
+      "name": "User",
+      "kind": "class",
+      "exported": true,
+      "line": 1,
+      "endLine": 13,
+      "nameLine": 1,
+      "col": 6
+    },
+    {
+      "name": "User#display_name",
+      "kind": "method",
+      "exported": true,
+      "line": 6,
+      "endLine": 8,
+      "nameLine": 6,
+      "col": 6
+    },
+    {
+      "name": "User#secret",
+      "kind": "method",
+      "exported": false,
+      "line": 12,
+      "endLine": 12,
+      "nameLine": 12,
+      "col": 6
+    }
+  ],
+  "imports": [
+    {
+      "spec": "Taggable",
+      "target": "rb/app/models/concerns",
+      "external": false
+    }
+  ],
+  "usage": {
+    "scope": "rb",
+    "uses": [
+      {
+        "target": "::",
+        "name": "ApplicationRecord"
+      },
+      {
+        "target": "::",
+        "name": "Org::Team"
+      },
+      {
+        "target": "::User",
+        "name": "Comment"
+      },
+      {
+        "target": "::User",
+        "name": "Taggable"
+      }
+    ]
+  }
+}

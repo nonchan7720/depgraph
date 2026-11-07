@@ -8,12 +8,11 @@ import (
 
 	gts "github.com/odvcencio/gotreesitter"
 	"github.com/odvcencio/gotreesitter/grammars/kotlin"
-	"github.com/odvcencio/gotreesitter/grammars/ruby"
 	"github.com/odvcencio/gotreesitter/grammars/rust"
 )
 
-// 将来対応予定の言語(Ruby / Rust / Kotlin)の文法が gotreesitter で実用になるかの
-// 確認。Resolver にはまだ組み込まない。エラーの無い木が得られ、トップレベルの宣言と
+// 将来対応予定の言語(Rust / Kotlin)の文法が gotreesitter で実用になるかの
+// 確認。Resolver にはまだ組み込まない(Ruby は組み込み済みで usage_rb_test.go が見る)。エラーの無い木が得られ、トップレベルの宣言と
 // import 相当のノードが期待どおりの型・名前で取れることだけを見る。
 func TestGrammarSmoke(t *testing.T) {
 	cases := []struct {
@@ -26,34 +25,6 @@ func TestGrammarSmoke(t *testing.T) {
 		importType string
 		imports    []string
 	}{
-		{
-			name: "ruby",
-			lang: ruby.Language(),
-			src: `require "json"
-require_relative "models/user"
-
-module App
-  class UserService < Base
-    def find(id)
-      User.find(id)
-    end
-  end
-end
-
-class Admin; end
-
-def helper(x)
-  x
-end
-`,
-			decls: map[string][]string{
-				"module": {"App"},
-				"class":  {"Admin"},
-				"method": {"helper"},
-			},
-			importType: "call",
-			imports:    []string{"json", "models/user"},
-		},
 		{
 			name: "rust",
 			lang: rust.Language(),
@@ -174,7 +145,6 @@ func TestGrammarSmokeDetectsErrors(t *testing.T) {
 		lang *gts.Language
 		src  string
 	}{
-		"ruby":   {ruby.Language(), "class Foo\n  def bar(\nend\n"},
 		"rust":   {rust.Language(), "fn main( {\n    let x = ;\n}\n"},
 		"kotlin": {kotlin.Language(), "class Foo {\n    fun bar( {\n}\n"},
 	}
@@ -211,17 +181,6 @@ func smokeDeclName(n *gts.Node, lang *gts.Language, src []byte) string {
 // smokeImportSpec は import 相当のノードから参照先を取り出す。
 func smokeImportSpec(n *gts.Node, lang *gts.Language, src []byte) string {
 	switch n.Type(lang) {
-	case "call": // Ruby: require / require_relative "x"
-		switch n.ChildByFieldName("method", lang).Text(src) {
-		case "require", "require_relative":
-		default:
-			return ""
-		}
-		args := n.ChildByFieldName("arguments", lang)
-		if args == nil || args.NamedChildCount() == 0 {
-			return ""
-		}
-		return unquote(args.NamedChild(0).Text(src))
 	case "use_declaration": // Rust: use a::b;
 		return n.ChildByFieldName("argument", lang).Text(src)
 	case "import_header": // Kotlin: import a.b[.*]

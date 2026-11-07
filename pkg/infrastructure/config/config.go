@@ -61,8 +61,10 @@ type fileYAML struct {
 	// their forbidden pairs) when present.
 	Layers map[string][]string `yaml:"layers"`
 	// Forbidden: from layer -> layers it must not import.
-	Forbidden map[string][]string  `yaml:"forbidden"`
-	Rules     map[string]yaml.Node `yaml:"rules"`
+	Forbidden map[string][]string `yaml:"forbidden"`
+	// Abstract: from layer -> layers it may use only through interfaces.
+	Abstract map[string][]string  `yaml:"abstract"`
+	Rules    map[string]yaml.Node `yaml:"rules"`
 	// Ignore: package globs excluded from every rule.
 	Ignore []string `yaml:"ignore"`
 	// Components: directory (or pattern such as packages/*) -> its layers.
@@ -94,6 +96,7 @@ func languagesOf(dir string, m map[string]languageYAML) []rules.LanguageSetting 
 type componentYAML struct {
 	Layers    map[string][]string     `yaml:"layers"`
 	Forbidden map[string][]string     `yaml:"forbidden"`
+	Abstract  map[string][]string     `yaml:"abstract"`
 	Languages map[string]languageYAML `yaml:"languages"`
 }
 
@@ -142,6 +145,12 @@ func Parse(b []byte) (File, error) {
 	c := rules.DefaultConfig()
 	if y.Layers != nil || y.Forbidden != nil {
 		c.Layers, c.ForbiddenLayers, c.DefaultLayers = layersOf(y.Layers, y.Forbidden)
+		if y.Layers != nil {
+			c.AbstractLayers = nil // the default pairs name the default layers
+		}
+	}
+	if y.Abstract != nil {
+		c.AbstractLayers = pairsOf(y.Abstract)
 	}
 	if y.Ignore != nil {
 		c.Ignore = y.Ignore
@@ -203,17 +212,46 @@ func layersOf(layers, forbidden map[string][]string) (ls []rules.Layer, pairs []
 	return ls, pairs, defaults
 }
 
+// pairsOf flattens from layer -> layers into distinct [from, to] pairs.
+func pairsOf(m map[string][]string) [][2]string {
+	pairs := [][2]string{}
+	seen := map[[2]string]bool{}
+	for _, from := range sortedKeys(m) {
+		for _, to := range m[from] {
+			p := [2]string{from, to}
+			if !seen[p] {
+				seen[p] = true
+				pairs = append(pairs, p)
+			}
+		}
+	}
+	return pairs
+}
+
+// componentAbstract: the abstract pairs of a component: its own, else the
+// default ones over the default layers (none with layers of its own).
+func componentAbstract(layers, abstract map[string][]string) [][2]string {
+	switch {
+	case abstract != nil:
+		return pairsOf(abstract)
+	case layers != nil:
+		return nil
+	}
+	return rules.DefaultConfig().AbstractLayers
+}
+
 // addComponents adds the components: of the file in directory dir.
 func addComponents(c *rules.Config, dir string, comps map[string]componentYAML) {
 	for _, key := range sortedKeys(comps) {
 		y := comps[key]
 		at := rules.PrefixGlob(dir, key)
 		c.Languages = append(c.Languages, languagesOf(at, y.Languages)...)
-		if y.Languages != nil && y.Layers == nil && y.Forbidden == nil {
+		if y.Languages != nil && y.Layers == nil && y.Forbidden == nil && y.Abstract == nil {
 			continue // languages only: not a part with an architecture of its own
 		}
 		comp := rules.Component{Dir: at}
 		comp.Layers, comp.ForbiddenLayers, comp.DefaultLayers = layersOf(y.Layers, y.Forbidden)
+		comp.AbstractLayers = componentAbstract(y.Layers, y.Abstract)
 		c.Components = append(c.Components, comp)
 	}
 }
@@ -308,9 +346,10 @@ func applyNested(c *rules.Config, dir string, b []byte) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	if y.Layers != nil || y.Forbidden != nil {
+	if y.Layers != nil || y.Forbidden != nil || y.Abstract != nil {
 		comp := rules.Component{Dir: dir}
 		comp.Layers, comp.ForbiddenLayers, comp.DefaultLayers = layersOf(y.Layers, y.Forbidden)
+		comp.AbstractLayers = componentAbstract(y.Layers, y.Abstract)
 		c.Components = append(c.Components, comp)
 	}
 	addComponents(c, dir, y.Components)

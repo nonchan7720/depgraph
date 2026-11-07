@@ -20,6 +20,9 @@ func stringList(desc string) jsonObj {
 	return o
 }
 
+// abstractDesc describes abstract: (rules.Config.AbstractLayers).
+const abstractDesc = "Layer -> layers it may use only through interfaces (imports stay allowed): holding or building an implementation of one although an interface it implements exists (concrete-dependency), or exposing its concrete types in the layer's API (type-leak), is reported. Names must be defined in layers (or be default layers)."
+
 // layersDesc describes the patterns of a layer (rules.LayerSet).
 const layersDesc = "Layer name -> package patterns: path globs (path segments; ** any number of segments); ext:<name> for an external package and what is under it (ext:gorm.io/gorm, ext:net/http: the standard library too); ext:<pattern> with * / ? for third-party packages (ext:* is every one, never the standard library); !<pattern> leaves packages out (\"!ext:github.com/google/uuid\")."
 
@@ -113,6 +116,7 @@ func Schema() []byte {
 				"description": "Project key in the database (default: the directory name of the root; @<worktree> is added in a linked git worktree)."},
 			"layers":    globMap(layersDesc + " Replaces the default layers and their forbidden pairs."),
 			"forbidden": globMap("Layer -> layers it must not import. Names must be defined in layers (or be default layers)."),
+			"abstract":  globMap(abstractDesc),
 			"languages": languagesSchema("this file's directory"),
 			"rules": jsonObj{"type": "object", "additionalProperties": false,
 				"description": "Per rule: enabled, severity and the rule's options.", "properties": rs},
@@ -123,6 +127,7 @@ func Schema() []byte {
 					"properties": jsonObj{
 						"layers":    globMap(layersDesc + " Package globs are relative to the component's directory. Replaces the default layers and their forbidden pairs."),
 						"forbidden": globMap("Layer -> layers it must not import, within one component directory. Names must be defined in layers (or be default layers)."),
+						"abstract":  globMap(abstractDesc + " Within one component directory."),
 						"languages": languagesSchema("the component's directory"),
 					}}},
 			"store": jsonObj{"type": "object", "additionalProperties": false,

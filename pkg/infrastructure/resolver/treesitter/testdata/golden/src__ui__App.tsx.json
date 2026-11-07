@@ -29,7 +29,10 @@
       "line": 20,
       "endLine": 24,
       "nameLine": 20,
-      "col": 21
+      "col": 21,
+      "methods": [
+        "render"
+      ]
     },
     {
       "name": "Inner",

@@ -277,3 +277,41 @@ forbidden:
 		t.Errorf("= %+v", f.Rules)
 	}
 }
+
+// abstract: names the pairs a layer may use only through interfaces; like
+// forbidden, own layers drop the default pairs and abstract alone refers to
+// the default layers.
+func TestParseAbstract(t *testing.T) {
+	f, err := Parse([]byte(`
+layers:
+  usecase: [app/usecase/**]
+  adapter: [app/adapter/**]
+abstract:
+  usecase: [adapter]
+components:
+  lib/x:
+    abstract:
+      usecase: [repository]
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(f.Rules.AbstractLayers, [][2]string{{"usecase", "adapter"}}) {
+		t.Errorf("abstract = %v", f.Rules.AbstractLayers)
+	}
+	if len(f.Rules.Components) != 1 || !reflect.DeepEqual(f.Rules.Components[0].AbstractLayers, [][2]string{{"usecase", "repository"}}) {
+		t.Errorf("component = %+v", f.Rules.Components)
+	}
+	f, err = Parse([]byte("layers:\n  core: [core/**]\n"))
+	if err != nil || len(f.Rules.AbstractLayers) != 0 {
+		t.Errorf("own layers keep the default abstract pairs: %v, %v", f.Rules.AbstractLayers, err)
+	}
+	f, err = Parse([]byte("abstract:\n  handler: [usecase]\n"))
+	if err != nil || !reflect.DeepEqual(f.Rules.AbstractLayers, [][2]string{{"handler", "usecase"}}) ||
+		!reflect.DeepEqual(f.Rules.ForbiddenLayers, rules.DefaultConfig().ForbiddenLayers) {
+		t.Errorf("abstract alone: %+v, %v", f.Rules, err)
+	}
+	if _, err := Parse([]byte("abstract:\n  nope: [db]\n")); err == nil || !strings.Contains(err.Error(), `unknown layer "nope"`) {
+		t.Errorf("unknown layer: %v", err)
+	}
+}

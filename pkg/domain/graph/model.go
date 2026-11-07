@@ -46,6 +46,24 @@ type Symbol struct {
 	Tokens       int     `json:"-"`
 	CloneHash    string  `json:"-"`
 	Fingerprints []int64 `json:"-"`
+	// Receiver is the type a Go method is declared on ("Repo" of
+	// `func (r *Repo) Find()`).
+	Receiver string `json:"receiver,omitempty"`
+	// Methods are the methods a class or interface declares (a Go
+	// interface's, a TypeScript / Python class's; Go struct methods are the
+	// method symbols with it as Receiver): constructors, accessors, static
+	// and dunder methods left out.
+	Methods []string `json:"methods,omitempty"`
+	// Abstract: a class that is an abstraction (a TypeScript abstract class,
+	// a Python Protocol / ABC or a class with an @abstractmethod).
+	Abstract bool `json:"abstract,omitempty"`
+	// Data: a class declared as a record (a Python dataclass / attrs class /
+	// pydantic model / Enum / NamedTuple): data, whatever helpers it has.
+	Data bool `json:"data,omitempty"`
+	// Implements are the types of the repository a class says it
+	// implements or extends (TypeScript implements / extends, Python bases),
+	// as TypeRef.String.
+	Implements []string `json:"implements,omitempty"`
 }
 
 // Import is one import statement in a file.
@@ -98,6 +116,11 @@ type FileGraph struct {
 	Refs     []Reference `json:"refs,omitempty"`
 	// Usage feeds the unused-code rules (nil: not extracted).
 	Usage *Usage `json:"usage,omitempty"`
+	// TypeUses are the types of the repository the file's members name
+	// (members.go).
+	TypeUses []TypeUse `json:"typeUses,omitempty"`
+	// Constructs are the types of the repository the file instantiates.
+	Constructs []Construct `json:"constructs,omitempty"`
 }
 
 // StalePaths returns the stored file paths that were not seen by the latest

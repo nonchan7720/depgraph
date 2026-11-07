@@ -95,6 +95,7 @@ a browser UI.`,
 
 	root.AddCommand(
 		newParseCommand(o),
+		newInitCommand(o),
 		newScanCommand(o),
 		newCheckCommand(o),
 		newWatchCommand(o),

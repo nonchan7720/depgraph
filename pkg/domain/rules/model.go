@@ -142,6 +142,9 @@ type Config struct {
 	// Components: parts of a monorepo with layers of their own (a
 	// .depgraph.yml in their directory, or components: of the root's).
 	Components []Component
+	// Languages: the version settings of the languages whose imports are
+	// classified from a version (see LanguageSetting).
+	Languages []LanguageSetting
 	// Modules: the directories below the root of the repository's modules
 	// (go.mod, package.json, pyproject.toml, ...), the units of module-cycle
 	// together with the Components.
@@ -278,6 +281,9 @@ func (c Config) Validate() error {
 		return fmt.Errorf("rule %s: similarity %g (want 0 < similarity <= 1)", RuleDuplicateCode, c.Clones.MinSimilarity)
 	}
 	if err := validateLayers(c.Layers, c.ForbiddenLayers); err != nil {
+		return err
+	}
+	if err := validateLanguages(c.Languages); err != nil {
 		return err
 	}
 	if err := c.validateComponents(); err != nil {

@@ -67,13 +67,34 @@ type fileYAML struct {
 	Ignore []string `yaml:"ignore"`
 	// Components: directory (or pattern such as packages/*) -> its layers.
 	Components map[string]componentYAML `yaml:"components"`
+	// Languages: language -> the version it runs (rules.LanguageSetting).
+	Languages map[string]languageYAML `yaml:"languages"`
+}
+
+// languageYAML is one entry under languages:; paths are relative to the
+// directory of the file (or of the component).
+type languageYAML struct {
+	VersionFile string `yaml:"versionFile"`
+	Version     string `yaml:"version"`
+	Stdlib      string `yaml:"stdlib"`
+}
+
+// languagesOf turns languages: of directory (or pattern) dir into settings.
+func languagesOf(dir string, m map[string]languageYAML) []rules.LanguageSetting {
+	out := make([]rules.LanguageSetting, 0, len(m))
+	for _, lang := range sortedKeys(m) {
+		y := m[lang]
+		out = append(out, rules.LanguageSetting{Dir: dir, Lang: lang, VersionFile: y.VersionFile, Version: y.Version, Stdlib: y.Stdlib})
+	}
+	return out
 }
 
 // componentYAML is one entry under components:; its globs are relative to
 // the component's directory.
 type componentYAML struct {
-	Layers    map[string][]string `yaml:"layers"`
-	Forbidden map[string][]string `yaml:"forbidden"`
+	Layers    map[string][]string     `yaml:"layers"`
+	Forbidden map[string][]string     `yaml:"forbidden"`
+	Languages map[string]languageYAML `yaml:"languages"`
 }
 
 // ruleYAML is one entry under rules:. Which of the rule-specific options a
@@ -131,6 +152,7 @@ func Parse(b []byte) (File, error) {
 		}
 	}
 	addComponents(&c, ".", y.Components)
+	c.Languages = append(c.Languages, languagesOf(".", y.Languages)...)
 	if err := c.Validate(); err != nil {
 		return File{}, err
 	}
@@ -185,7 +207,12 @@ func layersOf(layers, forbidden map[string][]string) (ls []rules.Layer, pairs []
 func addComponents(c *rules.Config, dir string, comps map[string]componentYAML) {
 	for _, key := range sortedKeys(comps) {
 		y := comps[key]
-		comp := rules.Component{Dir: rules.PrefixGlob(dir, key)}
+		at := rules.PrefixGlob(dir, key)
+		c.Languages = append(c.Languages, languagesOf(at, y.Languages)...)
+		if y.Languages != nil && y.Layers == nil && y.Forbidden == nil {
+			continue // languages only: not a part with an architecture of its own
+		}
+		comp := rules.Component{Dir: at}
 		comp.Layers, comp.ForbiddenLayers, comp.DefaultLayers = layersOf(y.Layers, y.Forbidden)
 		c.Components = append(c.Components, comp)
 	}
@@ -287,6 +314,7 @@ func applyNested(c *rules.Config, dir string, b []byte) ([]string, error) {
 		c.Components = append(c.Components, comp)
 	}
 	addComponents(c, dir, y.Components)
+	c.Languages = append(c.Languages, languagesOf(dir, y.Languages)...)
 	for _, g := range y.Ignore {
 		c.Ignore = append(c.Ignore, rules.PrefixGlob(dir, g))
 	}

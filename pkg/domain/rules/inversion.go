@@ -71,6 +71,10 @@ var goDataMethods = map[string]bool{
 	"Len": true, "Less": true, "Swap": true, "Equal": true, "Clone": true, "Validate": true,
 }
 
+// IsDataMethod reports whether a method is one values implement for the
+// standard library (String, MarshalJSON, Scan, ...), not behaviour.
+func IsDataMethod(name string) bool { return goDataMethods[name] }
+
 // behaviour are the methods of a type that are not data methods.
 func (t TypeInfo) behaviour() []string {
 	var out []string

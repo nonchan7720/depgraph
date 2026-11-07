@@ -31,6 +31,14 @@
         "name": "default",
         "local": "Shared"
       }
+    ],
+    "declRefs": [
+      {
+        "name": "named"
+      },
+      {
+        "name": "Shared"
+      }
     ]
   }
 }

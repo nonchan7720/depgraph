@@ -16,6 +16,14 @@
   ],
   "imports": null,
   "usage": {
-    "scope": "."
+    "scope": ".",
+    "declRefs": [
+      {
+        "name": "thing"
+      },
+      {
+        "name": "h"
+      }
+    ]
   }
 }

@@ -39,3 +39,16 @@ func TestTypeRefString(t *testing.T) {
 		t.Error("accepted a ref without #")
 	}
 }
+
+func TestDeclRefEncode(t *testing.T) {
+	d := DeclRef{Name: "parse", Refs: []string{"lex", "Token"}}
+	if got, ok := DecodeDeclRef(d.Encode()); !ok || got.Name != d.Name || len(got.Refs) != 2 || got.Refs[1] != "Token" {
+		t.Errorf("round trip = %+v, %v", got, ok)
+	}
+	if got, ok := DecodeDeclRef(DeclRef{Name: "x"}.Encode()); !ok || got.Name != "x" || len(got.Refs) != 0 {
+		t.Errorf("no refs = %+v, %v", got, ok)
+	}
+	if _, ok := DecodeDeclRef(""); ok {
+		t.Error("accepted an empty string")
+	}
+}

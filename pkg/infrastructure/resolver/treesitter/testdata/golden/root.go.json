@@ -6,6 +6,12 @@
   "symbols": null,
   "imports": null,
   "usage": {
-    "scope": "."
+    "scope": ".",
+    "decls": [
+      "X"
+    ],
+    "idents": [
+      "X"
+    ]
   }
 }

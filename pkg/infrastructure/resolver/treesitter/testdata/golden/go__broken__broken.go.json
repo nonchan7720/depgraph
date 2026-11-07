@@ -51,6 +51,19 @@
     }
   ],
   "usage": {
-    "scope": "."
+    "scope": ".",
+    "decls": [
+      "After",
+      "AlsoGood",
+      "Bad",
+      "Good"
+    ],
+    "idents": [
+      "After",
+      "AlsoGood",
+      "Bad",
+      "Good",
+      "fmt"
+    ]
   }
 }

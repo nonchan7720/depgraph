@@ -69,6 +69,9 @@ type usageCollector struct {
 	dirPrefixes []string                   // repo-relative directories every file of which is used
 	members     []memberRef                // members.go
 	memberCalls map[string]map[string]bool // members.go: owner + "\x00" + member -> methods called
+	goDecls     []string                   // cohesion.go
+	goIdents    []string                   // cohesion.go
+	declRefList []graph.DeclRef            // cohesion.go
 	tsBind      map[string]tsBinding       // TS/JS: local names bound by imports
 	pyBind      map[string]*pyBinding      // Python: local names bound by imports
 }
@@ -125,12 +128,15 @@ func (x *extractor) collectUsage(lang graph.Language, root *gts.Node) *usageColl
 	case graph.Go:
 		u.goFile(root)
 		u.goMembers(root)
+		u.goCohesion(root)
 	case graph.TypeScript, graph.JavaScript:
 		u.tsFile(root)
 		u.tsMembers(root)
+		u.declRefs(root)
 	case graph.Python:
 		u.pyFile(root)
 		u.pyMembers(root)
+		u.declRefs(root)
 	case graph.Ruby:
 		u.rbFile(root)
 	}
@@ -236,6 +242,9 @@ func (r *Resolver) finishUsage(ctx context.Context, root string, fg *graph.FileG
 		Exports:   u.exports,
 		Keep:      dedupStrings(u.keep),
 		Mentions:  dedupStrings(u.mentions),
+		Decls:     u.goDecls,
+		Idents:    u.goIdents,
+		DeclRefs:  u.declRefList,
 	}
 }
 

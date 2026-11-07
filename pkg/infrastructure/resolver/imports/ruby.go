@@ -89,12 +89,39 @@ func (r *Ruby) Note(root, rel string) {
 	rr := r.cache.Get(root, loadRuby)
 	rr.mu.Lock()
 	defer rr.mu.Unlock()
+	rr.addRootOf(root, rel)
 	for _, a := range rr.autoload {
 		if sub, ok := strings.CutPrefix(rel, a.dir+"/"); ok && rr.owner(rel) == a.dir {
 			if !slices.Contains(rr.byRel[sub], rel) {
 				rr.byRel[sub] = append(rr.byRel[sub], rel)
 			}
 		}
+	}
+}
+
+// addRootOf adds the autoload root of rel when rel is in a directory of an
+// application's app/ created after the index was built (app/forms/x.rb).
+// The caller holds rr.mu.
+func (rr *rbRoot) addRootOf(root, rel string) {
+	for _, app := range rr.apps {
+		in, ok := strings.CutPrefix(rel, path.Join(app, "app")+"/")
+		if app == "." {
+			in, ok = strings.CutPrefix(rel, "app/")
+		}
+		sub, _, nested := strings.Cut(in, "/")
+		if !ok || !nested || rbNotAutoloaded[sub] || skipRbDir(sub) {
+			continue
+		}
+		dir := path.Join(app, "app", sub)
+		for _, a := range rr.autoload {
+			if a.dir == dir {
+				return
+			}
+		}
+		if isDirAt(root, dir) {
+			rr.autoload = append(rr.autoload, rbAutoload{dir: dir, app: app})
+		}
+		return
 	}
 }
 
@@ -145,7 +172,11 @@ func (rr *rbRoot) require(root, fromFile, spec string) Result {
 	bases = append(bases, rr.gemLibs...)
 	bases = append(bases, "lib")
 	for _, b := range bases {
-		if f := path.Join(b, withExt(spec)); isFileAt(root, f) {
+		f := path.Join(b, withExt(spec))
+		if f == ".." || strings.HasPrefix(f, "../") {
+			continue // "x/../../y" never leaves the repository
+		}
+		if isFileAt(root, f) {
 			return inRepoFile(f)
 		}
 	}
@@ -165,17 +196,22 @@ func (rr *rbRoot) constant(root, fromFile, c string) Result {
 		lower[i] = strings.ToLower(s)
 	}
 	app := nearestDir(rr.apps, path.Dir(fromFile))
-	rr.mu.Lock()
-	defer rr.mu.Unlock()
 	for _, rel := range dedup(strings.Join(under, "/"), strings.Join(lower, "/")) {
-		if f := rr.pick(root, rr.byRel[rel+".rb"], fromFile, app, false); f != "" {
+		if f := rr.pick(root, rr.lookup(rel+".rb"), fromFile, app, false); f != "" {
 			return inRepoFile(f)
 		}
-		if d := rr.pick(root, rr.byRel[rel], fromFile, app, true); d != "" {
+		if d := rr.pick(root, rr.lookup(rel), fromFile, app, true); d != "" {
 			return inRepoDir(d)
 		}
 	}
 	return external(segs[0])
+}
+
+// lookup copies the index entry of sub (the files are stat'ed unlocked).
+func (rr *rbRoot) lookup(sub string) []string {
+	rr.mu.Lock()
+	defer rr.mu.Unlock()
+	return slices.Clone(rr.byRel[sub])
 }
 
 func dedup(a, b string) []string {
@@ -255,7 +291,7 @@ var rbNotAutoloaded = map[string]bool{"assets": true, "javascript": true, "javas
 
 func skipRbDir(name string) bool {
 	switch name {
-	case "node_modules", "vendor", "tmp", "log", "coverage", "__pycache__":
+	case "node_modules", "vendor", "tmp", "log", "coverage", "__pycache__", "dist", "build":
 		return true
 	}
 	return strings.HasPrefix(name, ".")
@@ -401,16 +437,20 @@ func readDirNames(root, rel string) ([]string, error) {
 }
 
 // IsRubyFile reports whether rel is Ruby source (.rb, .rake, config.ru,
-// Rakefile, Jbuilder / Builder / .ruby templates) or a Ruby view template (ERB,
-// Haml, Slim; see IsRubyTemplate).
+// Rakefile; Jbuilder / Builder / .ruby templates under views/) or a Ruby view
+// template (ERB, Haml, Slim; see IsRubyTemplate).
 func IsRubyFile(rel string) bool {
-	base := path.Base(filepath.ToSlash(rel))
-	if base == "Rakefile" {
+	rel = filepath.ToSlash(rel)
+	base := path.Base(rel)
+	if base == "Rakefile" || base == "config.ru" {
 		return true
 	}
 	switch strings.ToLower(path.Ext(base)) {
-	case ".rb", ".rake", ".ru", ".jbuilder", ".builder", ".ruby": // .ruby: the Ruby template handler
+	case ".rb", ".rake":
 		return true
+	case ".jbuilder", ".builder", ".ruby": // view templates (.ruby: the Ruby template handler)
+		// only in views/: Dockerfile.builder is no Ruby
+		return strings.HasPrefix(rel, "views/") || strings.Contains(rel, "/views/")
 	}
 	return IsRubyTemplate(rel)
 }

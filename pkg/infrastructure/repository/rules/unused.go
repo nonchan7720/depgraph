@@ -129,6 +129,7 @@ type unusedIndex struct {
 	rbDefs   map[string][]string
 	rbOnly   map[string][]string // files whose only constant it is (module Vacuum; end)
 	rbNames  []string            // sorted keys of rbConsts
+	rbLower  map[string][]string // lower-cased name -> names (acronym inflections)
 }
 
 func goKey(dir string) string { return "go:" + dir }
@@ -773,10 +774,14 @@ func (ix *unusedIndex) indexRuby() {
 			add(ix.rbOnly, only, p)
 		}
 	}
+	ix.rbLower = map[string][]string{}
 	for n := range ix.rbConsts {
 		ix.rbNames = append(ix.rbNames, n)
 	}
 	sort.Strings(ix.rbNames)
+	for _, n := range ix.rbNames {
+		ix.rbLower[strings.ToLower(n)] = append(ix.rbLower[strings.ToLower(n)], n)
+	}
 }
 
 // resolveRuby applies a use of the Ruby constant written in the lexical
@@ -819,15 +824,27 @@ func (ix *unusedIndex) resolveRuby(from string, levels []string, written string)
 			return
 		}
 	}
-	suffix := "::" + strings.TrimPrefix(written, "::")
+	// a name derived from a symbol (has_many :api_keys, url: true) camelized
+	// without the application's acronyms (APIKey, URLValidator)
+	for _, c := range cands {
+		if ns := ix.rbLower[strings.ToLower(c)]; len(ns) > 0 {
+			for _, n := range ns {
+				ix.rbUse(from, n)
+			}
+			return
+		}
+	}
+	suffix := strings.ToLower("::" + strings.TrimPrefix(written, "::"))
 	for _, n := range ix.rbNames {
-		if strings.HasSuffix(n, suffix) {
+		if strings.HasSuffix(strings.ToLower(n), suffix) {
 			ix.rbUse(from, n)
 		}
 	}
 }
 
-// rbUse marks the constant name (and its namespaces) used by from.
+// rbUse marks the constant name (and its namespaces) used by from: in the
+// declarations that have something to use (every class; a module with more
+// than other classes in it) and the files that declare nothing else.
 func (ix *unusedIndex) rbUse(from, name string) {
 	for n := name; n != ""; {
 		for _, p := range ix.rbDefs[n] {

@@ -282,3 +282,35 @@ func TestScanRepoSkipsDanglingSymlinks(t *testing.T) {
 		t.Errorf("scanned %v, want %v", got, rels)
 	}
 }
+
+// A file symlink to something outside the repository is not parsed: the
+// scan never reads outside root.
+func TestScanRepoSkipsSymlinksOutsideRoot(t *testing.T) {
+	outside := filepath.Join(t.TempDir(), "secret.go")
+	if err := os.WriteFile(outside, []byte("package x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root, rels := scanTree(t, 2)
+	if err := os.Symlink(outside, filepath.Join(root, "linked.go")); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	if err := os.Symlink("d0/s0/f000.go", filepath.Join(root, "inside.go")); err != nil {
+		t.Fatal(err)
+	}
+	r := &fakeResolver{resolve: func(_ context.Context, rel string) (*graph.FileGraph, error) {
+		return &graph.FileGraph{Path: rel}, nil
+	}}
+	var got []string
+	if err := ScanRepo(context.Background(), r, root, func(fg *graph.FileGraph) error {
+		got = append(got, fg.Path)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	want := append([]string(nil), rels...)
+	want = append(want, "inside.go")
+	sort.Strings(want)
+	if !slices.Equal(got, want) {
+		t.Errorf("scanned %v, want %v", got, want)
+	}
+}

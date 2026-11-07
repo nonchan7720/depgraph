@@ -511,16 +511,18 @@ something outside the import graph loads it:
   `apps`, `urls`, `views`, `wagtail_hooks`, ...). `__init__.py` is never unreachable. Names in
   `__all__` and decorated definitions (routes, fixtures, tasks) are kept.
 - Ruby: a constant is used where it is named (`User`, `Admin::Role`, a superclass, `include` /
-  `extend` of a concern, `"Admin::User"` / `class_name:` strings, `"Importers::#{kind}".constantize`
-  uses everything under `Importers`), by associations (`has_many :comments` uses `Comment`,
-  singularized with ActiveSupport's rules), by `validates :email, email: true` (`EmailValidator`) and
-  by the constants the code of ERB / Haml / Slim views names; `require` makes a file reachable, and
+  `extend` of a concern, `"Admin::User"` / `class_name:` strings and symbols, `%w[CsvImporter]`,
+  `delegated_type types:`, `"Importers::#{kind}".constantize` uses everything under `Importers`), by
+  associations (`has_many :comments` uses `Comment`, singularized with ActiveSupport's rules; a name
+  derived from a symbol also matches an acronym class such as `APIKey`), by
+  `validates :email, email: true` (`EmailValidator`) and by the constants the code and attributes of
+  ERB / Haml / Slim views name (`.jbuilder`, `.builder` and `.ruby` files under `views/` are Ruby); `require` makes a file reachable, and
   Zeitwerk loads the file of a namespace (`admin.rb`, even `module Vacuum; end`) for its constants.
   What Rails loads by convention is an entry point: `app/controllers`, `jobs`, `mailers`, `channels`,
   `helpers`, `mailboxes`, `views` (also `.jbuilder`, `.rss.ruby`), `workers`, and the classes tools
   infer from a model's name (`policies`, `serializers`, `decorators`, `dashboards`, `inputs`, `admin`);
   `config/`, `db/`, `bin/`, `script/`, `lib/tasks`, `lib/generators`, `Rakefile`, `config.ru`, `*.rake`,
-  `sorbet/`, tests (`spec/`, `test/`, `*_spec.rb`, `*_test.rb`), scripts (`#!`, `if __FILE__ == $0`),
+  `sorbet/`, the application's abstract `ApplicationRecord`, tests (`spec/`, `test/`, `*_spec.rb`, `*_test.rb`), scripts (`#!`, `if __FILE__ == $0`),
   dotfiles (`.active_record_doctor.rb`) and the files RuboCop / Standard / haml-lint configurations
   `require`. Concerns are not entry points, wherever they live: one nothing includes is reported. A
   gem's `lib/` is its public API. A packwerk pack's public path (`public_path` of `package.yml`,

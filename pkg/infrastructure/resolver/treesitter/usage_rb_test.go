@@ -419,12 +419,13 @@ func TestRubyLibraryConventions(t *testing.T) {
 	keep("app/lib/mixed.rb", "Paperclip::Extra", true)
 	keep("app/lib/mixed.rb", "Mine", false)
 
-	// a class that only nests others reopens a namespace: nothing to report
+	// a class is a class even when it only nests others (Holder.new); a
+	// module that only nests others is a namespace
 	fg, err := r.ResolveFile(context.Background(), root, "lib/chewy/strategy/bypass.rb")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := symbolSet(fg); !slices.Contains(got, "class Chewy::Strategy private") {
+	if got := symbolSet(fg); !slices.Contains(got, "class Chewy::Strategy") {
 		t.Errorf("symbols = %q", got)
 	}
 }
@@ -472,6 +473,30 @@ func TestRailsJavaScriptEntries(t *testing.T) {
 	for _, rel := range []string{"app/javascript/lib/x.js", "app/javascript/orphan/y.js", "engines/shop/app/client/other.js", "engines/vite/app/frontend/entrypoints/x.ts"} {
 		if u := usage(t, r, root, rel); u.Entry != "" {
 			t.Errorf("%s: entry %q, want none", rel, u.Entry)
+		}
+	}
+}
+
+// Paths in configuration files never name anything outside the repository.
+func TestRubyConfigPathsStayInRoot(t *testing.T) {
+	parent := t.TempDir()
+	root := parent + "/repo"
+	writeFile(t, parent, "outside.rb", "class Outside; end\n")
+	writeFile(t, root, "Gemfile", "")
+	writeFile(t, root, ".rubocop.yml", "require:\n  - ../outside.rb\n")
+	writeFile(t, root, "config/vite.json", `{"all": {"sourceCodeDir": "../..", "entrypointsDir": "."}}`)
+	writeFile(t, root, "config/shakapacker.yml", "default:\n  source_path: ../../\n  source_entry_path: /\n")
+	r := New()
+	t.Cleanup(r.Close)
+	m := r.manifests(context.Background(), root)
+	for f := range m.files {
+		if strings.HasPrefix(f, "../") || f == ".." {
+			t.Errorf("entry outside the repository: %s", f)
+		}
+	}
+	for p := range m.prefixes {
+		if strings.HasPrefix(p, "../") || p == "./" || p == "../" {
+			t.Errorf("entry prefix outside the repository: %s", p)
 		}
 	}
 }

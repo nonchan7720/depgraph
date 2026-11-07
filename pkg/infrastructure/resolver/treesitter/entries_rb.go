@@ -142,9 +142,15 @@ func rbCoreRoots() map[string]bool {
 		Rails ActiveRecord ActiveSupport ActiveModel ActiveJob ActiveStorage ActionController ActionView
 		ActionDispatch ActionMailer ActionCable ActionText ActionMailbox ActiveResource Arel Rack Rake
 		Railties Sprockets Zeitwerk Concurrent Minitest RSpec Capybara FactoryBot`) {
-		m[n] = true
+		m[rbLibKey(n)] = true
 	}
 	return m
+}
+
+// rbLibKey compares a root constant with a gem name whatever their case and
+// separators: the omniauth gem is OmniAuth, rubocop RuboCop, jsonapi JSONAPI.
+func rbLibKey(s string) string {
+	return strings.ToLower(strings.NewReplacer("_", "", "-", "").Replace(s))
 }
 
 var (
@@ -153,9 +159,10 @@ var (
 )
 
 // loadGemNames records the root constants of the gems a Gemfile or its lock
-// file names ("kt-paperclip" -> KtPaperclip, Kt, Paperclip; "rspec-core" ->
-// RspecCore, Rspec). Gems of the
-// repository itself (path:) are not libraries.
+// file names: the whole name (omniauth -> OmniAuth, kt-paperclip ->
+// KtPaperclip) and the name after a short fork prefix (Paperclip) for sure,
+// the first part of a hyphenated name (twitter-text -> Twitter) as a guess.
+// Gems of the repository itself (path:) are not libraries.
 func (m *manifests) loadGemNames(root, rel string) {
 	b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
 	if err != nil {
@@ -180,13 +187,19 @@ func (m *manifests) loadGemNames(root, rel string) {
 		}
 	}
 	for _, n := range names {
-		m.rbLibs[rbCamelize(strings.ReplaceAll(n, "-", "_"))] = true
+		m.rbLibs[rbLibKey(n)] = true
 		parts := strings.Split(n, "-")
-		m.rbLibs[rbCamelize(parts[0])] = true
-		// a fork under a short prefix: kt-paperclip is Paperclip (not every
-		// part: rspec-core is not Core)
-		if len(parts) > 1 && len(parts[0]) <= 3 {
-			m.rbLibs[rbCamelize(parts[1])] = true
+		if len(parts) == 1 {
+			continue
+		}
+		// a fork under a short prefix: kt-paperclip is Paperclip
+		if len(parts[0]) <= 3 {
+			m.rbLibs[rbLibKey(parts[1])] = true
+		}
+		// twitter-text is Twitter, but api-pagination is not every Api: only
+		// a guess, which the application's own namespace overrides
+		if k := rbLibKey(parts[0]); !m.rbLibs[k] {
+			m.rbLibs[k] = false
 		}
 	}
 }
@@ -203,7 +216,7 @@ func (m *manifests) rbLibrary(u *usageCollector) string {
 		}
 		all++
 		r, _, _ := strings.Cut(s.Name, "::")
-		if m.rbLibs[r] {
+		if m.rbLibRoot(r) {
 			u.keep = append(u.keep, s.Name)
 			if lib == "" {
 				lib = r
@@ -216,6 +229,33 @@ func (m *manifests) rbLibrary(u *usageCollector) string {
 		return "extends " + lib + " (a library's namespace)"
 	}
 	return ""
+}
+
+// rbLibRoot reports whether the root constant r is a library's: a guessed
+// root (twitter-text -> Twitter) is not when the application has a directory
+// of that name (app/services/api/ for Api).
+func (m *manifests) rbLibRoot(r string) bool {
+	k := rbLibKey(r)
+	certain, ok := m.rbLibs[k]
+	if !ok {
+		return false
+	}
+	if certain {
+		return true
+	}
+	m.rbOwnOnce.Do(func() {
+		m.rbOwn = map[string]bool{}
+		for _, f := range m.sources {
+			if !strings.HasSuffix(f, ".rb") {
+				continue
+			}
+			segs := strings.Split(path.Dir(f), "/")
+			for _, s := range segs[min(len(segs), 2):] { // below app/<kind>/, lib/<x>/
+				m.rbOwn[rbLibKey(s)] = true
+			}
+		}
+	})
+	return !m.rbOwn[k]
 }
 
 // ---- tool configuration ----------------------------------------------------
@@ -232,7 +272,8 @@ func rbToolConfig(rel string) bool {
 	return strings.HasPrefix(base, ".") || strings.HasPrefix(rel, ".rubocop/") || strings.Contains(rel, "/.rubocop/")
 }
 
-var yamlListPathRe = regexp.MustCompile(`(?m)^\s*-\s*["']?(\.{1,2}/[\w./-]+)`)
+// a list item ("- ./lib/cop.rb") or a scalar ("require: ./lib/cop.rb")
+var yamlListPathRe = regexp.MustCompile(`(?m)^\s*(?:-|[\w-]+:)\s*["']?(\.{1,2}/[\w./-]+)`)
 
 // loadRubyRequires: the files a tool configuration requires
 // ("require: [./lib/linter/cop.rb]", relative to the configuration file).
@@ -243,6 +284,9 @@ func (m *manifests) loadRubyRequires(root, rel string) {
 	}
 	for _, sm := range yamlListPathRe.FindAllStringSubmatch(string(b), -1) {
 		p := path.Clean(path.Join(path.Dir(rel), sm[1]))
+		if p == ".." || strings.HasPrefix(p, "../") {
+			continue // outside the repository
+		}
 		for _, f := range []string{p, p + ".rb"} {
 			if strings.HasSuffix(f, ".rb") && isFile(root, f) {
 				m.addFile(f, "required by "+rel)
@@ -271,9 +315,13 @@ var (
 func (m *manifests) loadRailsJS(root, dir string) {
 	at := func(p string) string { return path.Clean(path.Join(dir, p)) }
 	prefix := func(p, why string) {
-		if d := at(p); isDir(root, d) {
-			m.prefixes[d+"/"] = why
+		// a directory of the application, never the repository itself or
+		// outside it ("../.." in a configuration file)
+		d := at(p)
+		if d == "." || d == dir || d == ".." || strings.HasPrefix(d, "../") || !isDir(root, d) {
+			return
 		}
+		m.prefixes[d+"/"] = why
 	}
 	prefix("app/assets", "Sprockets asset")
 	if es, err := os.ReadDir(filepath.Join(root, filepath.FromSlash(at("app/javascript")))); err == nil {

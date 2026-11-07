@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/nonchan7720/depgraph/pkg/domain/graph"
 	"github.com/nonchan7720/depgraph/pkg/infrastructure/resolver"
@@ -47,7 +48,7 @@ type manifests struct {
 	rbScopes map[string]bool   // dirs with a Gemfile / *.gemspec
 	rbGems   map[string]bool   // dirs with a *.gemspec
 	rbPacks  map[string]string // packwerk pack dir (package.yml) -> its public path
-	rbLibs   map[string]bool   // root constants of the libraries the Ruby code depends on
+	rbLibs   map[string]bool   // rbLibKey of the libraries' root constants -> certain (see loadGemNames)
 
 	files    map[string]string            // file -> why it is an entry
 	prefixes map[string]string            // dir/ -> why every file under it is an entry
@@ -59,6 +60,9 @@ type manifests struct {
 	deps     map[string]map[string]bool   // package.json dir -> declared dependencies
 	internal map[string]bool              // package.json dirs of packages only the repository uses
 	sources  []string                     // every source file (for names in templates)
+
+	rbOwnOnce sync.Once
+	rbOwn     map[string]bool // rbLibKey of the directory names of Ruby sources
 }
 
 // manifests returns the (cached) manifests of root.

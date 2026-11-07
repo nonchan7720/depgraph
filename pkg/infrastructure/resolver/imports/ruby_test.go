@@ -32,6 +32,8 @@ func TestRubyRequire(t *testing.T) {
 		{"relative", "script/run.rb", "./../lib/billing", inRepo("lib")},
 		{"relative sibling", "lib/billing.rb", "./billing/invoice", inRepo("lib/billing")},
 		{"relative missing", "lib/billing.rb", "./nope", unresolved()},
+		// ".." inside a spec never leaves the repository
+		{"escaping spec", "app/models/user.rb", "billing/../../../outside", ext("billing")},
 	})
 }
 
@@ -96,6 +98,12 @@ func TestRubyConstants(t *testing.T) {
 	r.Note(root, "app/models/order.rb")
 	if got := r.Resolve(context.Background(), root, "app/models/user.rb", "::Order"); got.File != "app/models/order.rb" {
 		t.Errorf("::Order after Note = %s %q", got.Kind, got.File)
+	}
+	// ... also in a directory of app/ that did not exist then (a new root)
+	writeFiles(t, root, map[string]string{"app/forms/signup_form.rb": ""})
+	r.Note(root, "app/forms/signup_form.rb")
+	if got := r.Resolve(context.Background(), root, "app/models/user.rb", "::SignupForm"); got.File != "app/forms/signup_form.rb" {
+		t.Errorf("::SignupForm after Note = %s %q", got.Kind, got.File)
 	}
 }
 

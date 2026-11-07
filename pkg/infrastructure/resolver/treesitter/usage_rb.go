@@ -74,7 +74,11 @@ func (u *usageCollector) rbRequire(spec string) {
 var (
 	rbConstRe       = regexp.MustCompile(`^(::)?[A-Z]\w*(::[A-Z]\w*)*$`)
 	rbConstPrefixRe = regexp.MustCompile(`^(::)?([A-Z]\w*::)+$`)
-	rbMainGuardRe   = regexp.MustCompile(`(?m)^\s*(if|unless)\s+(__FILE__\s*==\s*\$(0|PROGRAM_NAME)|\$(0|PROGRAM_NAME)\s*==\s*__FILE__)`)
+	// the base of an application's models: subclassed, never named elsewhere
+	// in a new application
+	rbAbstractRe  = regexp.MustCompile(`(?m)^\s*(primary_abstract_class|self\.abstract_class\s*=\s*true)\b`)
+	rbAppRecordRe = regexp.MustCompile(`(?m)^\s*class\s+(?:[\w:]*::)?ApplicationRecord\b`)
+	rbMainGuardRe = regexp.MustCompile(`(?m)^\s*(if|unless)\s+(__FILE__\s*==\s*\$(0|PROGRAM_NAME)|\$(0|PROGRAM_NAME)\s*==\s*__FILE__)`)
 )
 
 var rbAssociations = map[string]bool{ // true: the name is plural
@@ -107,6 +111,9 @@ func (u *usageCollector) rbFile(root *gts.Node) {
 	}
 	if strings.HasPrefix(string(u.x.src), "#!") {
 		u.shebang = true
+	}
+	if rbAbstractRe.Match(u.x.src) && rbAppRecordRe.Match(u.x.src) {
+		u.rbEntry = "the application's abstract model base class"
 	}
 	u.rbVisit(root, nil)
 }
@@ -159,6 +166,22 @@ func (u *usageCollector) rbVisit(n *gts.Node, levels []string) {
 		return
 	case "constant":
 		u.rbConst(levels, x.text(n))
+		return
+	case "bare_string": // %w[CsvImporter JsonImporter], delegated_type types:
+		literal := true
+		for i := 0; i < n.NamedChildCount(); i++ {
+			literal = literal && x.typ(n.NamedChild(i)) == "string_content"
+		}
+		if literal {
+			if s := x.text(n); rbConstRe.MatchString(s) {
+				u.rbConst(nil, s)
+			}
+			return
+		}
+	case "simple_symbol": // class_name: :Note, const_get(:Thing)
+		if s := strings.TrimPrefix(x.text(n), ":"); rbConstRe.MatchString(s) {
+			u.rbConst(nil, s)
+		}
 		return
 	case "string":
 		if s, ok := x.stringContent(n); ok {
@@ -346,8 +369,12 @@ var (
 	rbInterpRe    = regexp.MustCompile(`#\{([^}]*)\}`)
 	hamlCodeRe    = regexp.MustCompile(`^\s*(?:[=~-]|!=|&=|==)(.*)$`)
 	hamlTagCodeRe = regexp.MustCompile(`^\s*[%.#]?[\w.#:-]+(?:\([^)]*\)|\{[^}]*\}|\[[^\]]*\])*\s*(?:==|!=|&=|=|~)(.*)$`)
-	rbStringRe    = regexp.MustCompile(`"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'`)
-	rbTemplConst  = regexp.MustCompile(`(?:^|[^\w:.@$])((?:::)?[A-Z]\w*(?:::[A-Z]\w*)*)`)
+	// a Haml / Slim tag line (%a{...}, .x(...), a href=...) and what follows the tag
+	tagLineRe    = regexp.MustCompile(`^\s*(?:[%.#][\w.#-]*|[a-z][\w-]*(?:[.#][\w-]+)*)((?:\{[^}]*\}|\([^)]*\)|\[[^\]]*\]|\s+[\w-]+=\S+)+)`)
+	attrGroupRe  = regexp.MustCompile(`\{[^}]*\}|\([^)]*\)|\[[^\]]*\]`)
+	slimAttrRe   = regexp.MustCompile(`(?:^|\s)[\w-]+=(\S+)`)
+	rbStringRe   = regexp.MustCompile(`"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'`)
+	rbTemplConst = regexp.MustCompile(`(?:^|[^\w:.@$])((?:::)?[A-Z]\w*(?:::[A-Z]\w*)*)`)
 )
 
 // rbTemplateCode is the Ruby code of an ERB / Haml / Slim template.
@@ -366,6 +393,13 @@ func rbTemplateCode(rel string, src []byte) []string {
 			code = append(code, m[1])
 		} else if m := hamlTagCodeRe.FindStringSubmatch(line); m != nil {
 			code = append(code, m[1])
+		}
+		if m := tagLineRe.FindStringSubmatch(line); m != nil {
+			// attributes are code: %a{href: X.url}, %a(href=X.url), a href=X.url
+			code = append(code, attrGroupRe.FindAllString(m[1], -1)...)
+			for _, a := range slimAttrRe.FindAllStringSubmatch(m[1], -1) {
+				code = append(code, a[1])
+			}
 		}
 		for _, m := range rbInterpRe.FindAllStringSubmatch(line, -1) {
 			code = append(code, m[1])

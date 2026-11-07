@@ -14,8 +14,9 @@ import (
 // Methods are "Class#name" / "Class.name" (singleton), exported unless
 // private / protected; they are compared by duplicate-code but never
 // reported as unused (callbacks, routes, views and send call them by name).
-// A module (or a class without a superclass) that only holds other classes
-// and modules is a namespace and not exported: there is nothing in it to use.
+// A module that only holds other classes and modules is a namespace and not
+// exported: there is nothing in it to use. Declarations wrapped in a
+// condition (unless defined?(X) ... end) or begin ... end count.
 //
 // Definitions in the blocks of an ActiveSupport::Concern (included,
 // class_methods, ...) belong to the module.
@@ -55,10 +56,8 @@ func (x *extractor) rbDecl(n *gts.Node, levels []string, singleton bool, vis *st
 		body := x.field(n, "body")
 		// a module, or a class without a superclass, that only nests others
 		// reopens a namespace
-		exported := !x.rbNamespaceOnly(body)
-		if kind == "class" && (x.field(n, "superclass") != nil || body == nil) {
-			exported = true // an empty class is a class, not a namespace
-		}
+		// a class can always be instantiated or subclassed
+		exported := kind == "class" || !x.rbNamespaceOnly(body)
 		x.addSym(n, kind, fq, exported)
 		// a class is compared by its methods (duplicate-code), not as a whole
 		last := &x.fg.Symbols[len(x.fg.Symbols)-1]
@@ -66,6 +65,10 @@ func (x *extractor) rbDecl(n *gts.Node, levels []string, singleton bool, vis *st
 		x.rbDecls(body, append([]string{fq}, levels...), false)
 	case "singleton_class":
 		x.rbDecls(x.field(n, "body"), levels, true)
+	case "if", "unless", "if_modifier", "unless_modifier", "then", "else", "elsif", "begin":
+		for i := 0; i < n.NamedChildCount(); i++ {
+			x.rbDecl(n.NamedChild(i), levels, singleton, vis)
+		}
 	case "method":
 		name := x.fieldText(n, "name")
 		switch {

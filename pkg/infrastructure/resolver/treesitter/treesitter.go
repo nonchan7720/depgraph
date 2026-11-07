@@ -21,6 +21,7 @@ import (
 	golang "github.com/odvcencio/gotreesitter/grammars/go"
 	"github.com/odvcencio/gotreesitter/grammars/javascript"
 	"github.com/odvcencio/gotreesitter/grammars/python"
+	"github.com/odvcencio/gotreesitter/grammars/ruby"
 	"github.com/odvcencio/gotreesitter/grammars/tsx"
 	"github.com/odvcencio/gotreesitter/grammars/typescript"
 
@@ -86,6 +87,9 @@ func Detect(rel string) (graph.Language, *gts.Language, bool) {
 	case ".py":
 		return lang, python.Language(), true
 	}
+	if lang == graph.Ruby && !imports.IsRubyTemplate(rel) {
+		return lang, ruby.Language(), true
+	}
 	return "", nil, false
 }
 
@@ -101,6 +105,9 @@ func detectLanguage(rel string) (graph.Language, bool) {
 		return graph.JavaScript, true
 	case ".py":
 		return graph.Python, true
+	}
+	if imports.IsRubyFile(rel) {
+		return graph.Ruby, true
 	}
 	return "", false
 }
@@ -134,6 +141,9 @@ func parse(ctx context.Context, lang *gts.Language, src []byte) (*gts.Tree, erro
 
 // ResolveFile implements resolver.Resolver.
 func (r *Resolver) ResolveFile(ctx context.Context, root, rel string) (*graph.FileGraph, error) {
+	if imports.IsRubyTemplate(rel) {
+		return r.resolveRubyTemplate(ctx, root, rel)
+	}
 	lang, tsLang, ok := Detect(rel)
 	if !ok {
 		return nil, resolver.ErrUnsupported
@@ -141,6 +151,10 @@ func (r *Resolver) ResolveFile(ctx context.Context, root, rel string) (*graph.Fi
 	src, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
 	if err != nil {
 		return nil, err
+	}
+	if lang == graph.Ruby {
+		// a file created after the constant index was built
+		r.imp.Rb.Note(root, rel)
 	}
 
 	tree, err := parse(ctx, tsLang, src)
@@ -168,6 +182,9 @@ func (r *Resolver) ResolveFile(ctx context.Context, root, rel string) (*graph.Fi
 		case graph.Python:
 			x.pyDecl(n)
 		}
+	}
+	if lang == graph.Ruby {
+		x.rbDecls(rootNode, nil, false)
 	}
 
 	u := x.collectUsage(lang, rootNode)

@@ -5,7 +5,7 @@ English | [日本語](README_ja.md)
 A tool that loads the dependency graph of AI-written code into Neo4j, visualizes it, checks architectural rules and writes the results back into `CLAUDE.md`.
 During vibe coding it updates the graph every time a file is rewritten and immediately detects "a new import cycle", "a layer violation" or "a duplicated function", feeding that back into the next prompt.
 
-Supported languages (tree-sitter): Go / TypeScript / JavaScript / Python
+Supported languages (tree-sitter): Go / TypeScript / JavaScript / Python / Ruby (Rails, engines, packwerk packs)
 
 ## Install
 
@@ -446,7 +446,7 @@ nothing gets no Package and no edge (the project's compiler / type checker repor
 
 The usage properties of a File are what the file itself says: the names it uses from which file or
 package (`uses`), the names it exports under another name (`exports`), the names it keeps on purpose
-(`keep`: a Python `__all__` entry, a decorated definition), whether it is generated or vendored, and
+(`keep`: a Python `__all__` entry, a decorated definition, an STI subclass), whether it is generated or vendored, and
 why it is an entry point (`entry`). They are replaced with the file, so a `watch` update keeps them
 correct; the unused-code rules join them across the project when they run.
 
@@ -459,6 +459,7 @@ Imports are resolved the way each ecosystem resolves them, from the project's ow
 | TypeScript / JavaScript | esbuild's resolver: `tsconfig.json` / `jsconfig.json` (`paths`, `baseUrl`, `extends`), `package.json` (`exports`, `imports`, workspaces), `node_modules`, ESM `./x.js` written for `x.ts`. Workspace packages (`workspaces` of `package.json`, `pnpm-workspace.yaml`) resolve to their directory even before an install (a fresh clone, CI, the gate's worktrees); an installed package of the same name wins |
 | Go | `go.mod` / `go.work` (nested modules, `use`, `replace`) |
 | Python | the import system over the repository's package roots (the repo root, `src/`, `pyproject.toml` / `setup.cfg` package dirs); a directory without `__init__.py` is a namespace package and does not shadow the standard library |
+| Ruby | `require_relative` relative to the file; `require` over the load path the repository implies (`lib/`, `spec/`, `test/` of the file's project, `lib/` of every gem of the repository). Rails code names other files by constant, not by `require`, so constants are dependencies too, resolved the way Zeitwerk loads them: every directory under `app/` (but `assets`, `javascript`, `views`) and its `concerns/`, and `lib/`, of the application, its engines and its packwerk packs (a directory with `app/` and a `Gemfile`, `*.gemspec` or `package.yml`, or whose `app/` has Rails' layout such as a Discourse plugin); `Admin::UsersController` is `admin/users_controller.rb` under one of them, looked up in the lexical nesting it is written in (`Admin::UsersController::User`, `Admin::User`, `User`). A constant Ruby or a gem defines is no dependency |
 
 A relative path, an alias or a module of the project that points at nothing is unresolved, not
 external, so it never shows up as a dependency. `watch` rescans when one of these configuration files changes.
@@ -468,13 +469,13 @@ external, so it never shows up as a dependency. `watch` rescans when one of thes
 | rule | severity | description |
 |---|---|---|
 | `import-cycle` | error | import cycle between packages: for every import on a cycle of at most 8 packages, the shortest cycle through it (up to 50) |
-| `module-cycle` | error | import cycle between the modules of a monorepo (Go modules, npm workspace packages, Python projects: directories with `go.mod`, `package.json`, `pyproject.toml`, `setup.py` or `setup.cfg`, plus [components](#monorepos-components)) through directories that do not form a cycle themselves (`packages/web/src/a -> packages/kit/src -> packages/web/src/b`). One import is listed per hop; a cycle `import-cycle` already reports is not repeated |
+| `module-cycle` | error | import cycle between the modules of a monorepo (Go modules, npm workspace packages, Python projects, Ruby applications / gems / engines / packwerk packs: directories with `go.mod`, `package.json`, `pyproject.toml`, `setup.py`, `setup.cfg`, `Gemfile`, `*.gemspec` or `package.yml`, plus [components](#monorepos-components)) through directories that do not form a cycle themselves (`packages/web/src/a -> packages/kit/src -> packages/web/src/b`). One import is listed per hop; a cycle `import-cycle` already reports is not repeated |
 | `layer-violation` | error | a package imports a layer it must not import (`handler → repository`, ... or your own layers) |
 | `duplicate-code` | warn | the same logic in several places, whatever the names: identical, or a copy changed a little (see below) |
 | `god-package` | warn | a hub: imported by 10 or more packages and importing 3 or more in-repo packages. A package many depend on that depends on nothing in the repository (a domain model) is stable, not a god package (Stable Dependencies Principle) |
-| `duplicate-symbol` | warn | an exported function/class with the same name exists in several files (the files of one Go package count once: they can only share a name through build constraints) |
-| `unused-export` | warn | an exported declaration nothing in the project uses, not even its own file (Go: exported functions and types of non-main packages, not methods; TS/JS: `export`ed declarations, followed through re-exports and barrels; Python: public module-level functions and classes) |
-| `unreachable-file` | warn | a TS/JS/Python file no entry point reaches through imports; one finding per file nothing imports, listing the files only it leads to |
+| `duplicate-symbol` | warn | an exported function/class with the same name exists in several files (the files of one Go package count once: they can only share a name through build constraints; Ruby is left out, reopening a class is how Ruby extends it) |
+| `unused-export` | warn | an exported declaration nothing in the project uses, not even its own file (Go: exported functions and types of non-main packages, not methods; TS/JS: `export`ed declarations, followed through re-exports and barrels; Python: public module-level functions and classes; Ruby: classes, modules with something in them and `Struct.new` / `Class.new` constants, never methods) |
+| `unreachable-file` | warn | a TS/JS/Python/Ruby file no entry point reaches through imports; one finding per file nothing imports, listing the files only it leads to |
 | `unreachable-package` | warn | a Go package no `main` package, test or public package of a library module imports |
 
 ### Unused code
@@ -509,6 +510,38 @@ something outside the import graph loads it:
   scripts and entry points, and in a Django project its autodiscovered modules (`models`, `admin`,
   `apps`, `urls`, `views`, `wagtail_hooks`, ...). `__init__.py` is never unreachable. Names in
   `__all__` and decorated definitions (routes, fixtures, tasks) are kept.
+- Ruby: a constant is used where it is named (`User`, `Admin::Role`, a superclass, `include` /
+  `extend` of a concern, `"Admin::User"` / `class_name:` strings and symbols, `%w[CsvImporter]`,
+  `delegated_type types:`, `"Importers::#{kind}".constantize` uses everything under `Importers`), by
+  associations (`has_many :comments` uses `Comment`, singularized with ActiveSupport's rules; a name
+  derived from a symbol also matches an acronym class such as `APIKey`), by
+  `validates :email, email: true` (`EmailValidator`) and by the constants the code and attributes of
+  ERB / Haml / Slim views name (`.jbuilder`, `.builder` and `.ruby` files under `views/` are Ruby), by
+  the constants `config/` YAML (`validator: "ColorListValidator"`) and extensionless Ruby scripts
+  (`#!/usr/bin/env ruby`) name, `"#{module_parent_name}::#{kind}".constantize` (every constant of the
+  enclosing namespace) and `has_one :"#{name}_search_data"` (every constant ending with `SearchData`);
+  a glob of Ruby files (`Dir["lib/patches/*.rb"]`) uses every file under its directory; `require` makes a file reachable, and
+  Zeitwerk loads the file of a namespace (`admin.rb`, even `module Vacuum; end`) for its constants.
+  What Rails loads by convention is an entry point: `app/controllers`, `jobs`, `mailers`, `channels`,
+  `helpers`, `mailboxes`, `views` (also `.jbuilder`, `.rss.ruby`), `workers`, and the classes tools
+  infer from a model's name (`policies`, `serializers`, `decorators`, `dashboards`, `inputs`, `admin`);
+  `config/`, `db/`, `bin/`, `script/`, `lib/tasks`, `lib/generators`, `Rakefile`, `config.ru`, `*.rake`,
+  `sorbet/`, dot-directories (`.skills/`), `bundler/inline` scripts, Discourse plugins (`plugin.rb`, and
+  their `assets/javascripts` for the Ember resolver), the application's abstract `ApplicationRecord`, tests (`spec/`, `test/`, `*_spec.rb`, `*_test.rb`), scripts (`#!`, `if __FILE__ == $0`),
+  dotfiles (`.active_record_doctor.rb`) and the files RuboCop / Standard / haml-lint configurations
+  `require`. Concerns are not entry points, wherever they live: one nothing includes is reported. A
+  gem's `lib/` is its public API. A packwerk pack's public path (`public_path` of `package.yml`,
+  `app/public/` by default) is reachable, but packs are used by the application only, so a class of
+  it nothing uses is still reported. A class or module that reopens a library's namespace (`Paperclip`,
+  `Chewy`, `ActiveRecord`, `String`, ... : Ruby, Rails and the gems of `Gemfile` / `Gemfile.lock`) is
+  loaded by that library by name and never reported, nor are STI subclasses in `models/` (loaded from
+  the `type` column), subclasses of `Rails::Railtie` / `Rails::Engine` / generators, classes that
+  register or prepend `self`, a concern's `ClassMethods`, and modules that only hold other classes (namespaces).
+  The JavaScript of a Rails application starts where its asset tool says: `app/assets/` (Sprockets),
+  the files directly in `app/javascript/` (jsbundling, importmap), `config/importmap.rb` pins and
+  `pin_all_from`, Vite Ruby (`config/vite.json`, else `app/javascript/entrypoints`,
+  `app/frontend/entrypoints`) and Shakapacker / Webpacker (`source_path` / `source_entry_path`, else
+  `app/javascript/packs`).
 - Everywhere: files and modules that Dockerfiles, Procfiles, Makefiles, compose files, CI workflows,
   `mise.toml` and shell scripts run (`node dist/server.js`, `python -m pkg.tool`,
   `uvicorn app.main:app`), and paths or dotted module names in strings (`new URL('./worker.ts', ...)`,
@@ -687,7 +720,7 @@ pkg/infrastructure/neo4jprovider/    how Neo4j is provided: Provider contract, s
 pkg/infrastructure/workspace/        project identity of a root (.depgraph.yml, git origin / worktree)
 pkg/infrastructure/resolver/         repository walk + exclude patterns
   treesitter/                        default: structural analysis (imports / declarations, gotreesitter)
-  imports/                           import resolution per ecosystem (esbuild, go.mod / go.work, Python import system)
+  imports/                           import resolution per ecosystem (esbuild, go.mod / go.work, Python import system, Ruby require / Zeitwerk)
   lsp/                               refinement with language servers (callHierarchy / references)
 pkg/infrastructure/watch/            fsnotify + debounce
 pkg/infrastructure/claudemd/         CLAUDE.md managed section

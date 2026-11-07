@@ -233,3 +233,27 @@ func TestTypeScriptInvalidBareSpecIsUnresolved(t *testing.T) {
 		{"scoped name", "src/a.ts", "@scope/pkg/sub", ext("@scope/pkg")},
 	})
 }
+
+// Bundler queries (Vite: "./worker?worker&inline", "./icon.svg?react") name
+// the file before the "?".
+func TestTypeScriptImportQuery(t *testing.T) {
+	root := tree(t, map[string]string{
+		"tsconfig.json":       `{"compilerOptions": {"paths": {"@/*": ["./src/*"]}}}`,
+		"src/emoji/index.ts":  "",
+		"src/emoji/worker.ts": "",
+	})
+	runCases(t, newTS(t), root, []resolveCase{
+		{"relative with query", "src/emoji/index.ts", "./worker?worker&inline", inRepo("src/emoji")},
+		{"alias with query", "src/emoji/index.ts", "@/emoji/worker?worker", inRepo("src/emoji")},
+	})
+	r := newTS(t)
+	for _, spec := range []string{"./worker?worker&inline", "@/emoji/worker?worker"} {
+		if got := r.Resolve(context.Background(), root, "src/emoji/index.ts", spec); got.File != "src/emoji/worker.ts" {
+			t.Errorf("%s: file %q", spec, got.File)
+		}
+		got := r.ResolveBatch(context.Background(), root, []Request{{FromFile: "src/emoji/index.ts", Spec: spec}})
+		if got[0].File != "src/emoji/worker.ts" {
+			t.Errorf("batch %s: file %q", spec, got[0].File)
+		}
+	}
+}

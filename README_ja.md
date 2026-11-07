@@ -5,7 +5,7 @@
 AIが書いたコードの依存関係を Neo4j に入れて可視化・ルール検査し、結果を `CLAUDE.md` に自動反映するツール。
 バイブコーディング中にファイルが書き換わるたびにグラフを更新し、「循環依存が増えた」「レイヤー違反が入った」「同名関数が複製された」を即座に検出して次のプロンプトに戻します。
 
-対応言語（tree-sitter）: Go / TypeScript / JavaScript / Python
+対応言語（tree-sitter）: Go / TypeScript / JavaScript / Python / Ruby（Rails・engine・packwerk の pack）
 
 ## インストール
 
@@ -420,7 +420,7 @@ API: `GET /api/graph`（パッケージ・辺・findings・stats）、`GET /api/
 リポジトリ外への import は `ext:<パッケージ>` という key の `external=true` な Package になります（これもプロジェクトごと。`elkjs/lib/elk-api` はパッケージ `ext:elkjs`）。
 どこにも解決できない import は Package も辺も作りません（プロジェクトのコンパイラ / 型チェックが報告します）。
 
-File の usage プロパティはそのファイル自身から分かることだけです: どのファイル / パッケージのどの名前を使うか（`uses`）、別名で export している名前（`exports`）、意図して残す名前（`keep`: Python の `__all__`、デコレータ付き定義）、生成コード / vendored か、エントリポイントである理由（`entry`）。
+File の usage プロパティはそのファイル自身から分かることだけです: どのファイル / パッケージのどの名前を使うか（`uses`）、別名で export している名前（`exports`）、意図して残す名前（`keep`: Python の `__all__`、デコレータ付き定義、STI のサブクラス）、生成コード / vendored か、エントリポイントである理由（`entry`）。
 ファイルと一緒に置き換わるので `watch` の差分更新でも正しく保たれ、未使用コード系ルールが評価時にプロジェクト全体で突き合わせます。
 
 ## Import resolution
@@ -432,6 +432,7 @@ import は各エコシステム自身の解決方法で、プロジェクトの�
 | TypeScript / JavaScript | esbuild の resolver: `tsconfig.json` / `jsconfig.json`（`paths`・`baseUrl`・`extends`）、`package.json`（`exports`・`imports`・workspaces）、`node_modules`、`x.ts` を指す ESM の `./x.js`。ワークスペースのパッケージ（`package.json` の `workspaces`、`pnpm-workspace.yaml`）は、インストール前（clone 直後・CI・gate の worktree）でもそのディレクトリに解決します。同名のパッケージがインストールされていればそちらを優先します |
 | Go | `go.mod` / `go.work`（入れ子モジュール・`use`・`replace`） |
 | Python | リポジトリのパッケージルート（ルート・`src/`・`pyproject.toml` / `setup.cfg` のパッケージディレクトリ）上の import システム。`__init__.py` の無いディレクトリは名前空間パッケージで、標準ライブラリを隠しません |
+| Ruby | `require_relative` はファイルからの相対パス、`require` はリポジトリから分かるロードパス（そのファイルのプロジェクトの `lib/`・`spec/`・`test/`、リポジトリ内の全 gem の `lib/`）。Rails のコードは他のファイルを `require` ではなく定数で参照するので、定数も依存として Zeitwerk と同じ規則で解決します: アプリケーション・engine・packwerk の pack（`app/` と `Gemfile`・`*.gemspec`・`package.yml` のいずれかを持つディレクトリ、または `app/` が Rails の構成になっているディレクトリ。Discourse のプラグインなど）の `app/` 直下の各ディレクトリ（`assets`・`javascript`・`views` を除く）とその `concerns/`、および `lib/` が root で、`Admin::UsersController` はそのいずれかの下の `admin/users_controller.rb`。書かれたレキシカルスコープの順（`Admin::UsersController::User`・`Admin::User`・`User`）に探します。Ruby や gem が定義する定数は依存になりません |
 
 相対パス・エイリアス・プロジェクト内モジュールが何も指していない import は、外部ではなく未解決として扱い、依存には現れません。`watch` はこれらの設定ファイルが変わると再スキャンします。
 
@@ -440,13 +441,13 @@ import は各エコシステム自身の解決方法で、プロジェクトの�
 | rule | severity | 内容 |
 |---|---|---|
 | `import-cycle` | error | パッケージ間の循環 import。8 パッケージ以下の循環に乗る import ごとに、それを通る最短の循環（最大 50 件） |
-| `module-cycle` | error | モノレポのモジュール間の import 循環（Go モジュール・npm のワークスペースパッケージ・Python プロジェクト。`go.mod`・`package.json`・`pyproject.toml`・`setup.py`・`setup.cfg` のあるディレクトリと[コンポーネント](#モノレポcomponents)）。ディレクトリ同士では循環にならないもの（`packages/web/src/a -> packages/kit/src -> packages/web/src/b`）も検出します。1 ホップごとに import を 1 つ示し、`import-cycle` が報告済みの循環は重ねて報告しません |
+| `module-cycle` | error | モノレポのモジュール間の import 循環（Go モジュール・npm のワークスペースパッケージ・Python プロジェクト・Ruby のアプリケーション / gem / engine / packwerk の pack。`go.mod`・`package.json`・`pyproject.toml`・`setup.py`・`setup.cfg`・`Gemfile`・`*.gemspec`・`package.yml` のあるディレクトリと[コンポーネント](#モノレポcomponents)）。ディレクトリ同士では循環にならないもの（`packages/web/src/a -> packages/kit/src -> packages/web/src/b`）も検出します。1 ホップごとに import を 1 つ示し、`import-cycle` が報告済みの循環は重ねて報告しません |
 | `layer-violation` | error | import してはいけないレイヤーを import している（`handler → repository` など、または独自レイヤー） |
 | `duplicate-code` | warn | 名前に関係なく、同じロジックが複数箇所にある（完全に同じ、または少し手を加えた複製。下記） |
 | `god-package` | warn | ハブ：10 パッケージ以上から import され、かつリポジトリ内の 3 パッケージ以上を import している。多くから依存されてもリポジトリ内の何にも依存しないパッケージ（ドメインモデルなど）は安定しており、god package ではない（安定依存の原則） |
-| `duplicate-symbol` | warn | 同名の exported function/class が複数ファイルに存在（1 つの Go パッケージのファイルは 1 か所と数える。同名が両立するのは build constraint で分けたときだけのため） |
-| `unused-export` | warn | プロジェクト内の誰も（自ファイルでさえ）使っていない export（Go: main 以外のパッケージの exported な関数と型。メソッドは対象外 / TS・JS: `export` された宣言。re-export・barrel を辿る / Python: モジュール直下の public な関数とクラス） |
-| `unreachable-file` | warn | どのエントリポイントからも import で辿れない TS/JS/Python ファイル。誰も import していないファイルごとに 1 件で、そのファイル経由でしか辿れないファイルを併記 |
+| `duplicate-symbol` | warn | 同名の exported function/class が複数ファイルに存在（1 つの Go パッケージのファイルは 1 か所と数える。同名が両立するのは build constraint で分けたときだけのため。Ruby は対象外: クラスの再オープンは Ruby の拡張方法そのもの） |
+| `unused-export` | warn | プロジェクト内の誰も（自ファイルでさえ）使っていない export（Go: main 以外のパッケージの exported な関数と型。メソッドは対象外 / TS・JS: `export` された宣言。re-export・barrel を辿る / Python: モジュール直下の public な関数とクラス / Ruby: クラス、中身のあるモジュール、`Struct.new` / `Class.new` の定数。メソッドは対象外） |
+| `unreachable-file` | warn | どのエントリポイントからも import で辿れない TS/JS/Python/Ruby ファイル。誰も import していないファイルごとに 1 件で、そのファイル経由でしか辿れないファイルを併記 |
 | `unreachable-package` | warn | `main` パッケージ・テスト・ライブラリモジュールの公開パッケージのどれからも import されない Go パッケージ |
 
 ### 未使用コード
@@ -457,6 +458,8 @@ import は各エコシステム自身の解決方法で、プロジェクトの�
 - Go: `main` パッケージ、`_test.go`。`main` パッケージを持たないモジュールはライブラリで、`internal/` 以外のパッケージは公開 API。exported なメソッドは報告しません（interface が必要とする可能性があるため）。ドキュメントだけのパッケージも報告しません。`//go:embed` が埋め込むファイルは使用中です。
 - TS/JS: `package.json` の `main` / `module` / `browser` / `types` / `bin` / `exports` と `scripts` が実行するファイル（`dist/` のパスは `tsconfig.json` を見てソースに戻す）、HTML の `<script src>` とページテンプレートが名前で指すスクリプト、設定ファイル（`*.config.*`・`.*rc.*`）、テスト・stories・型テスト・`testdata/`・`.d.ts`、`scripts/` `bin/` `tools/` `docs/` `public/` `static/`、`examples/` とベンチマーク、パッケージ直下または `src/` 直下の `index` / `main` / `server` / `app` / `cli`、ファイルベースルーティング（Next.js・Remix・Gatsby・Expo Router などの `app/`・`pages/`・`routes/`）、Docusaurus の theme コンポーネント、React Email のテンプレート、MDX が import するファイル。プロジェクトが依存として宣言していないパッケージの import（`@site/...` のようなバンドラ / サイトジェネレータのエイリアス）は捨てずに、プロジェクト内のパスと突き合わせます。Vue・Svelte・Astro・Qwik・Marko・Ember・auto-import を使うパッケージはコンポーネントファイルを解析しないため対象外。shadcn/ui がコピーするコンポーネント群は vendored コードとして報告しません。モノレポで、リポジトリ内の他のパッケージが依存している `private` なワークスペースパッケージは公開されないので、使うのはリポジトリだけです。その `main` / `exports` / `types` と `index` のファイルは到達可能性の起点のままですが、export は他のパッケージが使っていなければ報告します（`bin` と `scripts` のファイルは外から実行されるので従来どおり）。公開されるパッケージと、何も依存していない private なアプリは、エントリの export を従来どおり使用済みとみなします。
 - Python: `__main__.py`、`__main__` ガード、`conftest.py`、`test_*.py`、`tests/`、マイグレーション、`setup.py` / `manage.py` / `wsgi.py` / `asgi.py`、`pyproject.toml` / `setup.cfg` の scripts・entry points の対象、Django プロジェクトでは自動検出されるモジュール（`models`・`admin`・`apps`・`urls`・`views`・`wagtail_hooks` など）。`__init__.py` は到達不能として報告しません。`__all__` の名前とデコレータ付き定義（ルート・fixture・タスク）は使用中とみなします。
+- Ruby: 定数は名前が書かれた所で使われます（`User`・`Admin::Role`・スーパークラス・Concern の `include` / `extend`・`"Admin::User"` / `class_name:` の文字列とシンボル、`%w[CsvImporter]`、`delegated_type types:`。`"Importers::#{kind}".constantize` は `Importers` 配下すべてを使う）。関連（`has_many :comments` は `Comment` を使う。単数化は ActiveSupport の規則。シンボルから作った名前は `APIKey` のような acronym のクラスにも一致）、`validates :email, email: true`（`EmailValidator`）、ERB / Haml / Slim のビューのコードと属性が書く定数も使用です（`views/` 配下の `.jbuilder`・`.builder`・`.ruby` は Ruby として読む）。`config/` の YAML（`validator: "ColorListValidator"`）や拡張子のない Ruby スクリプト（`#!/usr/bin/env ruby`）が書く定数、`"#{module_parent_name}::#{kind}".constantize`（外側の名前空間の定数すべて）、`has_one :"#{name}_search_data"`（`SearchData` で終わる定数すべて）も使用で、Ruby ファイルのグロブ（`Dir["lib/patches/*.rb"]`）はそのディレクトリ配下すべてを使います。`require` はファイルを到達可能にし、名前空間のファイル（`admin.rb`、`module Vacuum; end` だけのファイルも）は配下の定数のために Zeitwerk が読み込みます。Rails が規約で読み込むものはエントリポイントです: `app/` の `controllers`・`jobs`・`mailers`・`channels`・`helpers`・`mailboxes`・`views`（`.jbuilder`・`.rss.ruby` も）・`workers`、モデル名から推論されるクラス（`policies`・`serializers`・`decorators`・`dashboards`・`inputs`・`admin`）、`config/`・`db/`・`bin/`・`script/`・`lib/tasks`・`lib/generators`・`Rakefile`・`config.ru`・`*.rake`・`sorbet/`、ドットディレクトリ（`.skills/`）、`bundler/inline` を使うスクリプト、Discourse のプラグイン（`plugin.rb` と、Ember のリゾルバが読む `assets/javascripts`）、アプリケーションの抽象 `ApplicationRecord`、テスト（`spec/`・`test/`・`*_spec.rb`・`*_test.rb`）、スクリプト（`#!`・`if __FILE__ == $0`）、ドットファイル（`.active_record_doctor.rb`）、RuboCop / Standard / haml-lint の設定が `require` するファイル。Concern はどこにあってもエントリポイントではなく、どこからも include されない Concern は報告します。gem の `lib/` はその公開 API です。packwerk の pack の public path（`package.yml` の `public_path`、デフォルト `app/public/`）は到達可能ですが、pack を使うのはアプリケーションだけなので、誰も使わないクラスは報告します。ライブラリの名前空間を再オープンするクラス / モジュール（`Paperclip`・`Chewy`・`ActiveRecord`・`String` など。Ruby・Rails・`Gemfile` / `Gemfile.lock` の gem）はそのライブラリが名前で読み込むので報告しません。`models/` の STI サブクラス（`type` カラムから読み込まれる）、`Rails::Railtie` / `Rails::Engine` / generator のサブクラス、`self` を登録 / prepend するクラス・モジュール、Concern の `ClassMethods`、他のクラスを入れるだけのモジュール（名前空間）も同様です。
+  Rails アプリケーションの JavaScript は、アセットツールが示す所から始まります: `app/assets/`（Sprockets）、`app/javascript/` 直下のファイル（jsbundling・importmap）、`config/importmap.rb` の pin と `pin_all_from`、Vite Ruby（`config/vite.json`、無ければ `app/javascript/entrypoints`・`app/frontend/entrypoints`）、Shakapacker / Webpacker（`source_path` / `source_entry_path`、無ければ `app/javascript/packs`）。
 - 共通: Dockerfile・Procfile・Makefile・compose・CI ワークフロー・`mise.toml`・シェルスクリプトが実行するファイルやモジュール（`node dist/server.js`・`python -m pkg.tool`・`uvicorn app.main:app`）、文字列中のパスやドット区切りモジュール名（`new URL('./worker.ts', ...)`・`"app.tasks.send"`・`importlib.import_module(f"app.plugins.{name}")`・`` import(`./locales/${l}`) ``）、あらゆる言語の文字列中のソースファイル名（JS をバンドルする Go プログラムの `"render.js"`）。
 - ヘッダで生成コードと宣言しているファイルは報告しません。
 
@@ -621,7 +624,7 @@ pkg/infrastructure/neo4jprovider/    Neo4j の用意の仕方: Provider の契�
 pkg/infrastructure/workspace/        root のプロジェクト識別（.depgraph.yml、git の origin・worktree）
 pkg/infrastructure/resolver/         リポジトリ走査 + 除外パターン
   treesitter/                        デフォルト: 構造解析（import / 宣言、gotreesitter）
-  imports/                           エコシステムごとの import 解決（esbuild、go.mod / go.work、Python の import システム）
+  imports/                           エコシステムごとの import 解決（esbuild、go.mod / go.work、Python の import システム、Ruby の require / Zeitwerk）
   lsp/                               言語サーバー（callHierarchy / references）による精密化
 pkg/infrastructure/watch/            fsnotify + デバウンス
 pkg/infrastructure/claudemd/         CLAUDE.md の管理区間更新

@@ -1,0 +1,17 @@
+{
+  "path": "rb/app/models/broken.rb",
+  "package": "rb/app/models",
+  "language": "ruby",
+  "lines": 4,
+  "symbols": null,
+  "imports": null,
+  "usage": {
+    "scope": "rb",
+    "uses": [
+      {
+        "target": "::",
+        "name": "Broken"
+      }
+    ]
+  }
+}

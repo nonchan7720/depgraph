@@ -390,3 +390,33 @@ func TestUnusedInternalWorkspacePackage(t *testing.T) {
 		"unused-export|packages/kit/src/index.ts#kitUnused",
 	)
 }
+
+// A dynamic import with a computed path under an alias (Vite / tsconfig
+// paths, as Mastodon's admin entrypoint does) uses every file under the
+// aliased directory.
+func TestUnusedAliasedDynamicImport(t *testing.T) {
+	root := writeRepo(t, map[string]string{
+		"package.json":            `{"name": "app", "private": true, "main": "src/main.ts"}`,
+		"tsconfig.json":           `{"compilerOptions": {"baseUrl": ".", "paths": {"@/*": ["src/*"]}}}`,
+		"src/main.ts":             "const name = location.hash;\nexport async function load() { return import(`@/widgets/${name}.tsx`); }\n",
+		"src/widgets/Counter.tsx": "export default function Counter() {}\n",
+		"src/widgets/Trends.tsx":  "export default function Trends() {}\n",
+		"src/other/Dead.tsx":      "export default function Dead() {}\n",
+	})
+	got := evalUnused(toUnusedFiles(parseRepo(t, root)), rules.DefaultConfig())
+	wantFindings(t, got, "unreachable-file|src/other/Dead.tsx")
+}
+
+// A private workspace package other packages depend on whose files a
+// framework loads by name (an Ember app): its exports are not an API only
+// the repository uses, so they are not reported.
+func TestUnusedInternalFrameworkPackage(t *testing.T) {
+	root := writeRepo(t, map[string]string{
+		"package.json":                       `{"name": "root", "private": true, "workspaces": ["frontend/*"]}`,
+		"frontend/app/package.json":          `{"name": "app", "private": true, "exports": {"./*": "./app/*"}, "dependencies": {"ember-source": "7.3.0"}}`,
+		"frontend/app/app/adapters/group.js": "export default class GroupAdapter {}\n",
+		"frontend/kit/package.json":          `{"name": "kit", "private": true, "main": "index.js", "dependencies": {"app": "workspace:*"}}`,
+		"frontend/kit/index.js":              "import 'app/adapters/group';\n",
+	})
+	wantFindings(t, evalUnused(toUnusedFiles(parseRepo(t, root)), rules.DefaultConfig()))
+}

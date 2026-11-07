@@ -288,9 +288,29 @@ func deliver(ctx context.Context, order <-chan chan scanResult, fn func(*graph.F
 	return nil
 }
 
+// symlinkInRoot reports whether the symlink p names a file inside the
+// repository (realRoot, symlinks resolved): a dangling link (a build output
+// not built yet), a link to a directory and one to a file outside the
+// repository are not files of it, and the scan never reads outside root.
+func symlinkInRoot(realRoot, p string) bool {
+	target, err := filepath.EvalSymlinks(p)
+	if err != nil {
+		return false
+	}
+	if st, err := os.Stat(target); err != nil || st.IsDir() {
+		return false
+	}
+	rel, err := filepath.Rel(realRoot, target)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
 // walkRepo calls emit with the repo-relative path of every supported,
 // non-ignored file under root, in lexical order.
 func walkRepo(ctx context.Context, r Resolver, root string, emit func(rel string) error) error {
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		realRoot = root
+	}
 	return filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil // unreadable entries are skipped, not fatal
@@ -310,6 +330,9 @@ func walkRepo(ctx context.Context, r Resolver, root string, emit func(rel string
 			return nil
 		}
 		if ShouldSkipPath(rel) || !r.Supports(rel) {
+			return nil
+		}
+		if d.Type()&fs.ModeSymlink != 0 && !symlinkInRoot(realRoot, p) {
 			return nil
 		}
 		return emit(rel)

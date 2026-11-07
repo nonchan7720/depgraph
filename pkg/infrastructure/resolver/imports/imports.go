@@ -4,6 +4,9 @@
 //   - TypeScript / JavaScript: esbuild's resolver (tsconfig paths / baseUrl /
 //     extends, package.json exports / imports, node_modules, workspaces)
 //   - Go: go.mod / go.work (nested modules, use, replace)
+//   - Ruby: require / require_relative over the load path the repository
+//     implies, and constants by Zeitwerk's convention (Rails, engines,
+//     packwerk packs)
 //   - Python: the import system over the package roots of the repository
 //     (repo root, src/, pyproject.toml / setup.cfg package dirs, parents of
 //     top-level packages)
@@ -123,6 +126,7 @@ var (
 	_ BatchResolver = (*Go)(nil)
 	_ BatchResolver = (*Python)(nil)
 	_ BatchResolver = (*TypeScript)(nil)
+	_ BatchResolver = (*Ruby)(nil)
 	_ BatchResolver = (*Multi)(nil)
 )
 
@@ -161,13 +165,14 @@ type Multi struct {
 	TS *TypeScript
 	Go *Go
 	Py *Python
+	Rb *Ruby
 }
 
 var _ Resolver = (*Multi)(nil)
 
 // New returns resolvers for every supported language. Call Close when done.
 func New() *Multi {
-	return &Multi{TS: NewTypeScript(), Go: NewGo(), Py: NewPython()}
+	return &Multi{TS: NewTypeScript(), Go: NewGo(), Py: NewPython(), Rb: NewRuby()}
 }
 
 // Resolve implements Resolver; files of unknown languages are Unresolved.
@@ -188,6 +193,8 @@ func (m *Multi) ResolveLang(ctx context.Context, lang graph.Language, root, from
 		return m.TS.Resolve(ctx, root, fromFile, spec)
 	case graph.Python:
 		return m.Py.Resolve(ctx, root, fromFile, spec)
+	case graph.Ruby:
+		return m.Rb.Resolve(ctx, root, fromFile, spec)
 	}
 	return unresolvedf("unsupported language")
 }
@@ -208,6 +215,9 @@ func (m *Multi) forFileBatch(rel string) BatchResolver {
 	case ".py", ".pyi":
 		return m.Py
 	}
+	if IsRubyFile(rel) {
+		return m.Rb
+	}
 	return nil
 }
 
@@ -216,6 +226,7 @@ func (m *Multi) Invalidate(root string) {
 	m.TS.Invalidate(root)
 	m.Go.Invalidate(root)
 	m.Py.Invalidate(root)
+	m.Rb.Invalidate(root)
 }
 
 // InvalidateFor invalidates root when rel (repo-relative) is a configuration
@@ -238,7 +249,11 @@ func IsConfigFile(rel string) bool {
 	base := path.Base(filepath.ToSlash(rel))
 	switch base {
 	case "go.mod", "go.work", "package.json", "pnpm-workspace.yaml", "jsconfig.json",
-		"pyproject.toml", "setup.cfg", "__init__.py":
+		"pyproject.toml", "setup.cfg", "__init__.py",
+		"Gemfile", "package.yml":
+		return true
+	}
+	if strings.HasSuffix(base, ".gemspec") {
 		return true
 	}
 	return strings.HasPrefix(base, "tsconfig") && strings.HasSuffix(base, ".json")

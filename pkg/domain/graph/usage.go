@@ -9,7 +9,8 @@ import "strings"
 type Usage struct {
 	// Scope is the directory of the manifest that governs the file
 	// (package.json for TS/JS, go.mod for Go, pyproject.toml / setup.py /
-	// setup.cfg for Python; "." when there is none). Entry points and
+	// setup.cfg for Python, Gemfile / *.gemspec for Ruby; "." when there is
+	// none). Entry points and
 	// library detection are decided per scope.
 	Scope string `json:"scope"`
 	// Entry is why the file is an entry point ("" when it is not): it is
@@ -39,10 +40,10 @@ type Usage struct {
 
 // Use is one name a file uses from a target.
 //
-// Target is repo-relative and slash-separated: a file (TS/JS, Python), a
-// directory (a Go package; a Python package, Name then being resolved
-// against its modules) or a directory prefix ending in "/" (every file under
-// it: a dynamic import with a computed path).
+// Target is repo-relative and slash-separated (but see RubyConstPrefix): a
+// file (TS/JS, Python, Ruby), a directory (a Go package; a Python package,
+// Name then being resolved against its modules) or a directory prefix ending
+// in "/" (every file under it: a dynamic import with a computed path).
 //
 // Name is the name used ("default" for a default import); dotted for Python
 // ("sub.f": the attribute f of submodule sub, or of the name sub);
@@ -58,6 +59,14 @@ type Use struct {
 	ReExport bool   `json:"reexport,omitempty"`
 	As       string `json:"as,omitempty"`
 }
+
+// RubyConstPrefix starts the Target of a use of a Ruby constant: the rest
+// is the lexical nesting it is written in (full names, innermost first,
+// space-separated; empty at the top level) and Name is the constant as
+// written ("User", "Admin::Role", "::Billing"; "Importers::*" for every
+// constant under Importers). It is looked up the way Ruby does, among the
+// constants the project declares.
+const RubyConstPrefix = "::"
 
 // ExportName maps an exported name to the local declaration it exports.
 type ExportName struct {

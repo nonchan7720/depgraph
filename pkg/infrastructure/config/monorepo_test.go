@@ -168,7 +168,8 @@ func TestLoadNestedAndComponentsConflict(t *testing.T) {
 }
 
 // The directories of the repository's modules (go.mod, package.json,
-// pyproject.toml, setup.py, setup.cfg) are the units of module-cycle; the
+// pyproject.toml, setup.py, setup.cfg, Gemfile, *.gemspec, packwerk's
+// package.yml) are the units of module-cycle; the
 // root and skipped directories are not.
 func TestLoadFindsModules(t *testing.T) {
 	root := t.TempDir()
@@ -182,6 +183,9 @@ func TestLoadFindsModules(t *testing.T) {
 		"py/core/pyproject.toml":         "",
 		"py/legacy/setup.py":             "",
 		"py/old/setup.cfg":               "",
+		"packs/pay/package.yml":          "enforce_dependencies: true\n",
+		"engines/blog/blog.gemspec":      "",
+		"apps/admin/Gemfile":             "",
 		"node_modules/x/package.json":    "{}",
 		"packages/web/dist/package.json": "{}",
 		".claude/worktrees/a/go.mod":     "module x\n",
@@ -191,7 +195,8 @@ func TestLoadFindsModules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"lib/auth", "lib/ui", "packages/web", "packages/web/e2e", "py/core", "py/legacy", "py/old"}
+	want := []string{"apps/admin", "engines/blog", "lib/auth", "lib/ui", "packages/web", "packages/web/e2e",
+		"packs/pay", "py/core", "py/legacy", "py/old"}
 	if !reflect.DeepEqual(f.Rules.Modules, want) {
 		t.Errorf("modules = %v, want %v", f.Rules.Modules, want)
 	}

@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/nonchan7720/depgraph/pkg/domain/graph"
 	"github.com/nonchan7720/depgraph/pkg/infrastructure/resolver"
@@ -35,13 +36,22 @@ import (
 //   - frameworks: file-system routes of Next.js, Remix, Gatsby, Expo Router,
 //     ... (app/, pages/, routes/); Django's conventional modules; every file
 //     of a package that uses Vue, Svelte, Astro, MDX, ... (their component
-//     files are not parsed, so their imports are not seen)
+//     files are not parsed, so their imports are not seen); Rails
+//     conventions, gems, packwerk packs and the JavaScript entries of a Rails
+//     application (entries_rb.go)
 
 // manifests is what the manifests of one root say about entry points.
 type manifests struct {
-	tsScopes map[string]bool // dirs with a package.json
-	pyScopes map[string]bool // dirs with pyproject.toml / setup.py / setup.cfg
-	goScopes map[string]bool // dirs with a go.mod
+	tsScopes map[string]bool   // dirs with a package.json
+	pyScopes map[string]bool   // dirs with pyproject.toml / setup.py / setup.cfg
+	goScopes map[string]bool   // dirs with a go.mod
+	rbScopes map[string]bool   // dirs with a Gemfile / *.gemspec
+	rbGems   map[string]bool   // dirs with a *.gemspec
+	rbPacks  map[string]string // packwerk pack dir (package.yml) -> its public path
+	rbLibs   map[string]bool   // rbLibKey of the gems' root constants -> certain (see loadGemNames)
+	rbCore   map[string]bool   // rbLibKey of Ruby's, its standard library's and Rails' root constants
+	rbApps   map[string]bool   // dirs whose app/ has Rails' layout (engines, Discourse plugins)
+	rbYAML   map[string]string // constant named by a configuration file or an extensionless script -> the file
 
 	files    map[string]string            // file -> why it is an entry
 	prefixes map[string]string            // dir/ -> why every file under it is an entry
@@ -53,6 +63,10 @@ type manifests struct {
 	deps     map[string]map[string]bool   // package.json dir -> declared dependencies
 	internal map[string]bool              // package.json dirs of packages only the repository uses
 	sources  []string                     // every source file (for names in templates)
+
+	rbOwnOnce sync.Once
+	rbOwn     map[string]bool // rbLibKey of the directory names of Ruby sources
+	rbNSFile  map[string]bool // rbLibKey of the namespace files of the application (lib/gitlab.rb)
 }
 
 // manifests returns the (cached) manifests of root.
@@ -72,7 +86,10 @@ func isEntryManifest(rel string) bool {
 	}
 	return commandFile(base) || strings.HasSuffix(base, ".html") || base == "package.json" ||
 		base == "pyproject.toml" || base == "setup.cfg" || base == "setup.py" || base == "manage.py" ||
-		base == "go.mod" || base == "tsconfig.json" || base == "components.json" || isRequirements(base) || opaqueExt(base) != "" ||
+		base == "go.mod" || base == "tsconfig.json" || base == "Gemfile" || base == "package.yml" ||
+		base == "Gemfile.lock" || base == "gems.locked" || rbToolConfig(rel) ||
+		base == "vite.json" || base == "shakapacker.yml" || base == "webpacker.yml" || base == "importmap.rb" ||
+		strings.HasSuffix(base, ".gemspec") || base == "components.json" || isRequirements(base) || opaqueExt(base) != "" ||
 		strings.HasSuffix(base, ".mdx")
 }
 
@@ -159,11 +176,13 @@ type packageJSON struct {
 func loadManifests(ctx context.Context, root string, imp *imports.Multi) *manifests {
 	m := &manifests{
 		tsScopes: map[string]bool{}, pyScopes: map[string]bool{}, goScopes: map[string]bool{},
+		rbScopes: map[string]bool{}, rbGems: map[string]bool{}, rbPacks: map[string]string{}, rbLibs: map[string]bool{}, rbCore: rbCoreRoots(),
+		rbApps: map[string]bool{}, rbYAML: map[string]string{},
 		files: map[string]string{}, prefixes: map[string]string{}, opaque: map[string]string{},
 		routing: map[string]string{}, dirs: map[string]map[string]string{}, django: map[string]bool{},
 		vendored: map[string]string{}, deps: map[string]map[string]bool{}, internal: map[string]bool{},
 	}
-	var pkgs, htmls, commands, pyManifests, mdxs, kits []string
+	var pkgs, htmls, commands, pyManifests, mdxs, kits, rbConfigs, plugins, yamls, scripts []string
 	opaqueFiles := map[string]string{} // dir -> framework
 	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || ctx.Err() != nil {
@@ -194,6 +213,23 @@ func loadManifests(ctx context.Context, root string, imp *imports.Multi) *manife
 			pkgs = append(pkgs, rel)
 		case base == "go.mod":
 			m.goScopes[dir] = true
+		case base == "Gemfile":
+			m.rbScopes[dir] = true
+			m.loadGemNames(root, rel)
+		case base == "Gemfile.lock" || base == "gems.locked":
+			m.loadGemNames(root, rel)
+		case rbToolConfig(rel):
+			rbConfigs = append(rbConfigs, rel)
+		case base == "plugin.rb":
+			plugins = append(plugins, dir)
+		case rbConfigYAML(rel):
+			yamls = append(yamls, rel)
+		case path.Ext(base) == "" && !d.IsDir():
+			scripts = append(scripts, rel)
+		case strings.HasSuffix(base, ".gemspec"):
+			m.rbScopes[dir], m.rbGems[dir] = true, true
+		case base == "package.yml":
+			m.rbPacks[dir] = packPublicPath(root, rel)
 		case base == "pyproject.toml" || base == "setup.py" || base == "setup.cfg":
 			m.pyScopes[dir] = true
 			pyManifests = append(pyManifests, rel)
@@ -262,6 +298,22 @@ func loadManifests(ctx context.Context, root string, imp *imports.Multi) *manife
 	}
 	for _, rel := range commands {
 		m.loadCommands(root, rel, py)
+	}
+	for _, rel := range rbConfigs {
+		m.loadRubyRequires(root, rel)
+	}
+	for dir := range m.rbScopes {
+		m.loadRailsJS(root, dir)
+	}
+	m.findRailsApps()
+	for _, dir := range plugins {
+		m.loadDiscoursePlugin(root, dir)
+	}
+	for _, rel := range yamls {
+		m.loadConfigConstants(root, rel)
+	}
+	for _, rel := range scripts {
+		m.loadRubyScript(root, rel)
 	}
 	for _, rel := range pyManifests {
 		b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
@@ -373,8 +425,14 @@ func (m *manifests) loadPackageJSON(root, rel string) (packageJSON, bool) {
 // exports / types or conventional entry name, not a bin, a script or
 // anything that runs it.
 func (m *manifests) internalAPI(rel string, lang graph.Language, why string) bool {
+	if lang == graph.Ruby {
+		return why == rbPackPublic
+	}
 	if why == "" || lang == graph.Go || lang == graph.Python || !m.internal[m.scope(rel, lang)] {
 		return false
+	}
+	if _, ok := m.opaque[m.scope(rel, lang)]; ok {
+		return false // a framework loads its files by name (Ember, Vue, ...)
 	}
 	switch why {
 	case "package entry name", "package.json (implicit main)", "package.json main", "package.json module",
@@ -428,7 +486,7 @@ var (
 )
 
 func hasSourceExt(s string) bool {
-	return tsOutputRe.MatchString(s) || strings.HasSuffix(s, ".py")
+	return tsOutputRe.MatchString(s) || strings.HasSuffix(s, ".py") || strings.HasSuffix(s, ".rb")
 }
 
 // tsOutDirs are [outDir, rootDir] pairs (relative to the package dir) a
@@ -675,7 +733,7 @@ func (m *manifests) loadCommands(root, rel string, py func(fromDir, spec string)
 				for _, f := range tsCandidates(root, base, tok, tsOutDirs(root, scope)) {
 					m.addFile(f, why)
 				}
-				if strings.HasSuffix(tok, ".py") {
+				if strings.HasSuffix(tok, ".py") || strings.HasSuffix(tok, ".rb") {
 					if f := path.Clean(path.Join(base, strings.TrimPrefix(tok, "./"))); isFile(root, f) {
 						m.addFile(f, why)
 					}
@@ -707,6 +765,8 @@ func (m *manifests) scope(rel string, lang graph.Language) string {
 		return nearest(m.goScopes, dir)
 	case graph.Python:
 		return nearest(m.pyScopes, dir)
+	case graph.Ruby:
+		return nearest(m.rbScopes, dir)
 	}
 	return nearest(m.tsScopes, dir)
 }
@@ -748,6 +808,9 @@ func (m *manifests) entry(rel string, lang graph.Language, u *usageCollector) st
 	}
 	if lang == graph.Python {
 		return m.pyEntry(scope, inScope, base, segs, u)
+	}
+	if lang == graph.Ruby {
+		return m.rbEntry(rel, u)
 	}
 	return m.tsEntry(scope, inScope, base, segs)
 }

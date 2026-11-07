@@ -21,6 +21,7 @@ const (
 	TypeScript Language = "typescript"
 	JavaScript Language = "javascript"
 	Python     Language = "python"
+	Ruby       Language = "ruby"
 )
 
 // Symbol is a top-level declaration inside a file.

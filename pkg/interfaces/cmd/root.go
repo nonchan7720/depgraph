@@ -74,7 +74,7 @@ func newRootCommand(o *options) *cobra.Command {
 	root := &cobra.Command{
 		Use:   "depgraph",
 		Short: "Multi-language dependency graph for AI-written code, backed by Neo4j",
-		Long: `depgraph parses Go / TypeScript / JavaScript / Python repositories with
+		Long: `depgraph parses Go / TypeScript / JavaScript / Python / Ruby repositories with
 tree-sitter (optionally refined by language servers), stores the dependency
 graph in Neo4j, checks architectural rules and reports them to CLAUDE.md and
 a browser UI.`,

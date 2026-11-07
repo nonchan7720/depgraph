@@ -64,12 +64,12 @@ func (u *usageCollector) goEmbed(comment string) {
 			continue
 		}
 		if i := strings.IndexAny(f, "*?["); i >= 0 {
-			u.tsPrefixes = append(u.tsPrefixes, path.Join(dir, path.Dir(f[:i]+"x")))
+			u.dirPrefixes = append(u.dirPrefixes, path.Join(dir, path.Dir(f[:i]+"x")))
 			continue
 		}
 		p := path.Join(dir, f)
 		u.mentions = append(u.mentions, p)
-		u.tsPrefixes = append(u.tsPrefixes, p) // a directory: everything under it
+		u.dirPrefixes = append(u.dirPrefixes, p) // a directory: everything under it
 	}
 }
 

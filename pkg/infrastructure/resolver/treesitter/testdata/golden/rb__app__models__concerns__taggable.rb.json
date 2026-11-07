@@ -1,0 +1,40 @@
+{
+  "path": "rb/app/models/concerns/taggable.rb",
+  "package": "rb/app/models/concerns",
+  "language": "ruby",
+  "lines": 12,
+  "symbols": [
+    {
+      "name": "Taggable",
+      "kind": "module",
+      "exported": true,
+      "line": 1,
+      "endLine": 11,
+      "nameLine": 1,
+      "col": 7
+    },
+    {
+      "name": "Taggable.tagged",
+      "kind": "method",
+      "exported": true,
+      "line": 9,
+      "endLine": 9,
+      "nameLine": 9,
+      "col": 8
+    }
+  ],
+  "imports": null,
+  "usage": {
+    "scope": "rb",
+    "uses": [
+      {
+        "target": "::Taggable",
+        "name": "ActiveSupport::Concern"
+      },
+      {
+        "target": "::Taggable",
+        "name": "Tag"
+      }
+    ]
+  }
+}

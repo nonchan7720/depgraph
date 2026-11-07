@@ -105,6 +105,9 @@ var reportedKinds = map[string]map[string]bool{
 	"typescript": {"function": true, "class": true, "interface": true, "type": true, "enum": true, "variable": true},
 	"javascript": {"function": true, "class": true, "variable": true},
 	"python":     {"function": true, "class": true},
+	// Ruby methods are called by name from callbacks, routes, views and
+	// send: only constants are reported
+	"ruby": {"class": true, "module": true},
 }
 
 // unusedIndex is the project's files and the uses resolved onto them.
@@ -119,6 +122,15 @@ type unusedIndex struct {
 	// importers[file]: files using it
 	importers map[string]map[string]bool
 	marking   map[string]bool // re-export resolution in progress (cycles)
+	// rbConsts: the files declaring each Ruby constant (class, module,
+	// constant), by full name; rbDefs: those whose declaration has
+	// something to use (not a module reopened only as a namespace)
+	rbConsts map[string][]string
+	rbDefs   map[string][]string
+	rbOnly   map[string][]string // files whose only constant it is (module Vacuum; end)
+	rbNames  []string            // sorted keys of rbConsts
+	rbLower  map[string][]string // lower-cased name -> names (acronym inflections)
+	rbLast   map[string][]string // lower-cased last segment -> names
 }
 
 func goKey(dir string) string { return "go:" + dir }
@@ -143,6 +155,7 @@ func evalUnused(files []unusedFile, cfg rules.Config) []rules.Finding {
 		ix.dirs[d] = append(ix.dirs[d], f.Path)
 	}
 	sort.Strings(ix.paths)
+	ix.indexRuby()
 
 	extra, unusedIgnore, err := cfg.UnusedGlobs()
 	if err != nil {
@@ -285,6 +298,10 @@ func (ix *unusedIndex) edge(from, to string) {
 // resolve applies one use of file f.
 func (ix *unusedIndex) resolve(f *unusedFile, u graph.Use) {
 	t := u.Target
+	if f.Lang == "ruby" && strings.HasPrefix(t, graph.RubyConstPrefix) {
+		ix.resolveRuby(f.Path, strings.Fields(strings.TrimPrefix(t, graph.RubyConstPrefix)), u.Name)
+		return
+	}
 	if strings.HasPrefix(t, "?") {
 		ix.resolveUnknown(f, u)
 		return
@@ -333,9 +350,11 @@ func (ix *unusedIndex) resolve(f *unusedFile, u graph.Use) {
 // resolveUnknown applies a use whose import the resolver could not place
 // ("?js/helpers/index", "?@site/src/x"): every TS/JS file the spec's path
 // may name (its longest matching tail: js/helpers/index.js,
-// js/helpers/index/index.ts) is used.
+// js/helpers/index/index.ts) is used; for a directory ("?@/widgets/", a
+// dynamic import with a computed path), every file under it.
 func (ix *unusedIndex) resolveUnknown(f *unusedFile, u graph.Use) {
-	segs := strings.Split(strings.TrimPrefix(u.Target, "?"), "/")
+	dirPrefix := strings.HasSuffix(u.Target, "/")
+	segs := strings.Split(strings.TrimSuffix(strings.TrimPrefix(u.Target, "?"), "/"), "/")
 	for len(segs) > 0 && (segs[0] == "." || segs[0] == ".." || segs[0] == "" || strings.HasPrefix(segs[0], "@") || segs[0] == "~" || segs[0] == "#") {
 		segs = segs[1:]
 	}
@@ -345,6 +364,13 @@ func (ix *unusedIndex) resolveUnknown(f *unusedFile, u graph.Use) {
 		for _, p := range ix.paths {
 			q := ix.files[p]
 			if q.Lang != "typescript" && q.Lang != "javascript" {
+				continue
+			}
+			if dirPrefix {
+				// every file under a directory whose path ends with tail
+				if d := path.Dir(p); d == tail || strings.HasSuffix(d, "/"+tail) || strings.Contains(d+"/", "/"+tail+"/") || strings.HasPrefix(d+"/", tail+"/") {
+					hits = append(hits, p)
+				}
 				continue
 			}
 			stem := strings.TrimSuffix(p, path.Ext(p))
@@ -565,7 +591,7 @@ func langFamily(l string) string {
 	return l
 }
 
-// unreachableFiles reports the TS/JS/Python files no entry reaches, one
+// unreachableFiles reports the TS/JS/Python/Ruby files no entry reaches, one
 // finding per file nothing imports (with the files only it leads to).
 // Scopes without any entry point are skipped: their entry points are unknown.
 func (ix *unusedIndex) unreachableFiles(entries map[string]string, reached map[string]bool, ignored func(string, bool) bool, dead map[string]bool) []rules.Finding {
@@ -715,4 +741,149 @@ func (ix *unusedIndex) group(cand map[string]bool, next func(string) []string, i
 		}
 	}
 	return out
+}
+
+// indexRuby indexes the constants the Ruby files declare.
+func (ix *unusedIndex) indexRuby() {
+	ix.rbConsts, ix.rbDefs, ix.rbOnly = map[string][]string{}, map[string][]string{}, map[string][]string{}
+	add := func(m map[string][]string, name, p string) {
+		if fs := m[name]; len(fs) == 0 || fs[len(fs)-1] != p {
+			m[name] = append(fs, p)
+		}
+	}
+	for _, p := range ix.paths {
+		f := ix.files[p]
+		if f.Lang != "ruby" {
+			continue
+		}
+		only := ""
+		for _, s := range f.Symbols {
+			switch s.Kind {
+			case "class", "module", "constant":
+				add(ix.rbConsts, s.Name, p)
+				if s.Exported {
+					add(ix.rbDefs, s.Name, p)
+				}
+				if only == "" {
+					only = s.Name
+				} else if only != s.Name {
+					only = "\x00"
+				}
+			}
+		}
+		if only != "" && only != "\x00" {
+			add(ix.rbOnly, only, p)
+		}
+	}
+	ix.rbLower = map[string][]string{}
+	for n := range ix.rbConsts {
+		ix.rbNames = append(ix.rbNames, n)
+	}
+	sort.Strings(ix.rbNames)
+	ix.rbLast = map[string][]string{}
+	for _, n := range ix.rbNames {
+		l := strings.ToLower(n)
+		ix.rbLower[l] = append(ix.rbLower[l], n)
+		last := l[strings.LastIndex(l, ":")+1:]
+		ix.rbLast[last] = append(ix.rbLast[last], n)
+	}
+}
+
+// resolveRuby applies a use of the Ruby constant written in the lexical
+// nesting levels (innermost first), the way Ruby looks it up: levels[0]::C,
+// levels[1]::C, ..., C; "::C" is absolute, "A::*" every constant under A,
+// "*Data" every constant whose name ends with Data and "A::V*" every
+// constant of A whose name starts with V. A constant found in none of them (inherited from a superclass, or
+// reopened in an unusual place) uses every declared constant of that name
+// in any namespace: a missed use would be a false report. Every file that
+// declares the constant is used, and so are the files of its namespaces
+// (Zeitwerk loads admin.rb for Admin::Audit, and vacuum.rb that is only
+// `module Vacuum; end`), but not the files that only reopen a namespace
+// module to nest their own classes in it.
+func (ix *unusedIndex) resolveRuby(from string, levels []string, written string) {
+	if strings.Contains(written, "*") && !strings.HasSuffix(written, "::*") {
+		// a name built at run time ("*Pipeline", "Ns::V*"): every constant
+		// (of the namespace, when there is one) whose name fits
+		ns, pat := "", strings.TrimPrefix(written, "::")
+		if i := strings.LastIndex(pat, "::"); i >= 0 {
+			ns, pat = pat[:i], pat[i+2:]
+		}
+		pre, suf, _ := strings.Cut(pat, "*")
+		for _, n := range ix.rbNames {
+			last := n[strings.LastIndex(n, ":")+1:]
+			if ns != "" && n != ns+"::"+last {
+				continue
+			}
+			if len(last) > len(pre)+len(suf) && strings.HasPrefix(last, pre) && strings.HasSuffix(last, suf) {
+				ix.rbUse(from, n)
+			}
+		}
+		return
+	}
+	if p, ok := strings.CutSuffix(written, "::*"); ok {
+		p = strings.TrimPrefix(p, "::") + "::"
+		for _, l := range append(append([]string(nil), levels...), "") {
+			q := p
+			if l != "" {
+				q = l + "::" + p
+			}
+			i := sort.SearchStrings(ix.rbNames, q)
+			for ; i < len(ix.rbNames) && strings.HasPrefix(ix.rbNames[i], q); i++ {
+				ix.rbUse(from, ix.rbNames[i])
+			}
+		}
+		return
+	}
+	var cands []string
+	if a, ok := strings.CutPrefix(written, "::"); ok {
+		cands = []string{a}
+	} else {
+		for _, l := range levels {
+			cands = append(cands, l+"::"+written)
+		}
+		cands = append(cands, written)
+	}
+	for _, c := range cands {
+		if len(ix.rbConsts[c]) > 0 {
+			ix.rbUse(from, c)
+			return
+		}
+	}
+	// a name derived from a symbol (has_many :api_keys, url: true) camelized
+	// without the application's acronyms (APIKey, URLValidator)
+	for _, c := range cands {
+		if ns := ix.rbLower[strings.ToLower(c)]; len(ns) > 0 {
+			for _, n := range ns {
+				ix.rbUse(from, n)
+			}
+			return
+		}
+	}
+	w := strings.ToLower(strings.TrimPrefix(written, "::"))
+	suffix := "::" + w
+	for _, n := range ix.rbLast[w[strings.LastIndex(w, ":")+1:]] {
+		if strings.HasSuffix(strings.ToLower(n), suffix) {
+			ix.rbUse(from, n)
+		}
+	}
+}
+
+// rbUse marks the constant name (and its namespaces) used by from: in the
+// declarations that have something to use (every class; a module with more
+// than other classes in it) and the files that declare nothing else.
+func (ix *unusedIndex) rbUse(from, name string) {
+	for n := name; n != ""; {
+		for _, p := range ix.rbDefs[n] {
+			ix.edge(from, p)
+			ix.mark(p, n, from)
+		}
+		for _, p := range ix.rbOnly[n] {
+			ix.edge(from, p)
+		}
+		i := strings.LastIndex(n, "::")
+		if i < 0 {
+			break
+		}
+		n = n[:i]
+	}
 }

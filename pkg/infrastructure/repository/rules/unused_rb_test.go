@@ -260,3 +260,37 @@ func TestUnusedRubyOwnNamespaceNamedLikeAGem(t *testing.T) {
 		"unreachable-file|lib/gitlab/orphan_helper.rb",
 		"unreachable-file|app/graphql/types/orphan_type.rb")
 }
+
+// Ways GitLab names and loads code without writing the constant.
+func TestUnusedRubyGitLabCases(t *testing.T) {
+	root := writeRepo(t, map[string]string{
+		"Gemfile":               "gem 'rails'\n",
+		"config/application.rb": "",
+		"app/controllers/home_controller.rb": `class HomeController < ApplicationController
+  def index
+    Banzai::Pipeline[:label]
+    Gitlab::Database::Migration[2.4]
+    Members::ApproveService.new
+    Gitlab::Asciidoc.render
+  end
+end
+`,
+		// const_get("#{name.camelize}Pipeline"), const_get("V#{version}")
+		"lib/banzai/pipeline.rb":                "module Banzai\n  module Pipeline\n    def self.[](name)\n      const_get(\"#{name.to_s.camelize}Pipeline\", false)\n    end\n  end\nend\n",
+		"lib/banzai/pipeline/label_pipeline.rb": "module Banzai\n  module Pipeline\n    class LabelPipeline\n    end\n  end\nend\n",
+		"lib/gitlab/database/migration.rb":      "module Gitlab\n  module Database\n    class Migration\n      class V2_4 < ActiveRecord::Migration[7.0]\n      end\n      def self.[](version)\n        const_get(\"V#{version.to_s.tr('.', '_')}\", false)\n      end\n    end\n  end\nend\n",
+		// an empty module overridden elsewhere (EE) is a module
+		"app/services/members/approve_service.rb":                     "module Members\n  class ApproveService\n    include Members::MembershipLockValidation\n  end\nend\n",
+		"app/services/concerns/members/membership_lock_validation.rb": "module Members\n  module MembershipLockValidation\n    # Overridden in EE\n  end\nend\n",
+		// registered with its library by a class-body call
+		"lib/gitlab/asciidoc.rb":                       "require 'gitlab/asciidoc/html_pipeline_adapter'\nmodule Gitlab\n  module Asciidoc\n    def self.render = 1\n  end\nend\n",
+		"lib/gitlab/asciidoc/html_pipeline_adapter.rb": "module Gitlab\n  module Asciidoc\n    class HtmlPipelineAdapter < Asciidoctor::SyntaxHighlighter::Base\n      register_for 'gitlab-html-pipeline'\n    end\n  end\nend\n",
+		// gettext reads it
+		"locale/unfound_translations.rb": "N_('a')\n",
+		// a glob run from the application root (Dir.glob, not require_rel)
+		"gems/housekeeper/housekeeper.gemspec":       "",
+		"gems/housekeeper/lib/housekeeper/loader.rb": "module Housekeeper\n  class Loader\n    KEEPS_GLOB = \"keeps/*.rb\"\n    def load = Dir.glob(KEEPS_GLOB).each { |f| require File.expand_path(f) }\n  end\nend\n",
+		"keeps/remove_indexes.rb":                    "module Keeps\n  class RemoveIndexes\n  end\nend\n",
+	})
+	wantFindings(t, evalUnused(toUnusedFiles(parseRepo(t, root)), rules.DefaultConfig()))
+}

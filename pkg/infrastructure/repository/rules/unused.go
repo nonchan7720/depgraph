@@ -791,8 +791,9 @@ func (ix *unusedIndex) indexRuby() {
 
 // resolveRuby applies a use of the Ruby constant written in the lexical
 // nesting levels (innermost first), the way Ruby looks it up: levels[0]::C,
-// levels[1]::C, ..., C; "::C" is absolute, "A::*" every constant under A
-// and "*Data" every constant whose name ends with Data. A constant found in none of them (inherited from a superclass, or
+// levels[1]::C, ..., C; "::C" is absolute, "A::*" every constant under A,
+// "*Data" every constant whose name ends with Data and "A::V*" every
+// constant of A whose name starts with V. A constant found in none of them (inherited from a superclass, or
 // reopened in an unusual place) uses every declared constant of that name
 // in any namespace: a missed use would be a false report. Every file that
 // declares the constant is used, and so are the files of its namespaces
@@ -800,10 +801,20 @@ func (ix *unusedIndex) indexRuby() {
 // `module Vacuum; end`), but not the files that only reopen a namespace
 // module to nest their own classes in it.
 func (ix *unusedIndex) resolveRuby(from string, levels []string, written string) {
-	if suffix, ok := strings.CutPrefix(written, "*"); ok {
-		// a name built at run time: every constant whose name ends with it
+	if strings.Contains(written, "*") && !strings.HasSuffix(written, "::*") {
+		// a name built at run time ("*Pipeline", "Ns::V*"): every constant
+		// (of the namespace, when there is one) whose name fits
+		ns, pat := "", strings.TrimPrefix(written, "::")
+		if i := strings.LastIndex(pat, "::"); i >= 0 {
+			ns, pat = pat[:i], pat[i+2:]
+		}
+		pre, suf, _ := strings.Cut(pat, "*")
 		for _, n := range ix.rbNames {
-			if strings.HasSuffix(n[strings.LastIndex(n, ":")+1:], suffix) {
+			last := n[strings.LastIndex(n, ":")+1:]
+			if ns != "" && n != ns+"::"+last {
+				continue
+			}
+			if len(last) > len(pre)+len(suf) && strings.HasPrefix(last, pre) && strings.HasSuffix(last, suf) {
 				ix.rbUse(from, n)
 			}
 		}

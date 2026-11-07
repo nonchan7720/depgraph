@@ -150,20 +150,23 @@ func (x *extractor) rbBlockBody(b *gts.Node) *gts.Node {
 	return nil
 }
 
-// rbNamespaceOnly reports whether a module body holds nothing but classes,
-// modules and comments.
+// rbNamespaceOnly reports whether a module body holds classes or modules and
+// nothing else but comments.
 func (x *extractor) rbNamespaceOnly(body *gts.Node) bool {
 	if body == nil {
-		return true
+		return false // an empty module is a module (a hook another file overrides)
 	}
+	nested := false
 	for i := 0; i < body.NamedChildCount(); i++ {
 		switch x.typ(body.NamedChild(i)) {
-		case "class", "module", "comment":
+		case "class", "module":
+			nested = true
+		case "comment":
 		default:
 			return false
 		}
 	}
-	return true
+	return nested
 }
 
 // rbQualify is the full name of a constant written as name inside outer

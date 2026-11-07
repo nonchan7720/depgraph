@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"unicode"
 
 	gts "github.com/odvcencio/gotreesitter"
 
@@ -74,6 +75,7 @@ func (u *usageCollector) rbRequire(spec string) {
 var (
 	rbConstRe       = regexp.MustCompile(`^(::)?[A-Z]\w*(::[A-Z]\w*)*$`)
 	rbConstPrefixRe = regexp.MustCompile(`^(::)?([A-Z]\w*::)+$`)
+	rbIdentRe       = regexp.MustCompile(`^\w*$`)
 	rbParentConstRe = regexp.MustCompile(`^"#\{[^}]*module_parent(_name)?[^}]*\}::`)
 	// the base of an application's models: subclassed, never named elsewhere
 	// in a new application
@@ -153,7 +155,10 @@ func (u *usageCollector) rbVisit(n *gts.Node, levels []string) {
 		return
 	case "assignment":
 		if l := x.field(n, "left"); l != nil && x.typ(l) == "constant" {
-			u.rbVisitChildren(x.field(n, "right"), levels)
+			// the value itself: KEEPS_GLOB = "keeps/*.rb", KLASS = "Admin::User"
+			if r := x.field(n, "right"); r != nil {
+				u.rbVisit(r, levels)
+			}
 			return
 		}
 	case "scope_resolution":
@@ -202,7 +207,11 @@ func (u *usageCollector) rbVisit(n *gts.Node, levels []string) {
 				u.rbConst(nil, levels[0][:i]+"::*")
 			}
 		}
-		u.rbGlob(x.rbStringTail(n))  // "#{Rails.root}/lib/patches/*.rb"
+		u.rbGlob(x.rbStringTail(n)) // "#{Rails.root}/lib/patches/*.rb"
+		// "#{kind}Pipeline".constantize: every constant whose name fits
+		if p, ok := x.rbNamePattern(n); ok && len(p) > 4 {
+			u.rbConst(nil, p)
+		}
 		u.rbVisitChildren(n, levels) // interpolations
 		return
 	case "call":
@@ -234,6 +243,10 @@ func (x *extractor) rbRegistersSelf(body *gts.Node) bool {
 		if x.typ(c) != "call" {
 			continue
 		}
+		// register_for 'gitlab-html-pipeline': a registration DSL of the superclass
+		if x.field(c, "receiver") == nil && strings.HasPrefix(x.fieldText(c, "method"), "register") {
+			return true
+		}
 		for _, a := range x.rbArgs(c) {
 			if x.typ(a) == "self" {
 				return true
@@ -241,6 +254,40 @@ func (x *extractor) rbRegistersSelf(body *gts.Node) bool {
 		}
 	}
 	return false
+}
+
+// rbNamePattern is the constant name an interpolated string builds, as a
+// pattern ("*Pipeline" of "#{name}Pipeline", "V*" of "V#{version}"): its
+// literal parts are identifier characters and one of them starts the name
+// or ends it with a capital letter.
+func (x *extractor) rbNamePattern(n *gts.Node) (string, bool) {
+	var parts []string
+	cur, interps := "", 0
+	for i := 0; i < n.NamedChildCount(); i++ {
+		switch c := n.NamedChild(i); x.typ(c) {
+		case "string_content":
+			cur += x.text(c)
+		case "interpolation":
+			parts, cur = append(parts, cur), ""
+			interps++
+		default:
+			return "", false
+		}
+	}
+	parts = append(parts, cur)
+	if interps == 0 {
+		return "", false
+	}
+	for _, p := range parts {
+		if !rbIdentRe.MatchString(p) {
+			return "", false
+		}
+	}
+	pre, suf := parts[0], parts[len(parts)-1]
+	if (pre == "" || !unicode.IsUpper(rune(pre[0]))) && (suf == "" || !unicode.IsUpper(rune(suf[0]))) {
+		return "", false
+	}
+	return pre + "*" + suf, true
 }
 
 // rbStringTail is the literal text after the last interpolation of a string.
@@ -258,13 +305,16 @@ func (x *extractor) rbStringTail(n *gts.Node) string {
 }
 
 // rbGlob records the directory of a file glob (Dir["lib/patches/*.rb"],
-// Dir.glob("#{__dir__}/handlers/*.rb")): every file under it is loaded.
-// The directory is taken from the file's directory and from its project's
-// (rbGlobUses), never from the repository root of another project.
-func (u *usageCollector) rbGlob(s string) {
-	i := strings.IndexByte(s, '*')
+// Dir.glob("#{__dir__}/handlers/*.rb")): every file under it is loaded
+// (see rbGlobUses for where the directory is taken from).
+func (u *usageCollector) rbGlob(s string) { u.rbGlobFrom(s, false) }
+
+// rbGlobFrom records the directory of the glob s; fileOnly: s is relative to
+// the file (require_rel), not to the working directory.
+func (u *usageCollector) rbGlobFrom(s string, fileOnly bool) {
 	// only a glob of Ruby files is loaded: "components/*" in a path
 	// configuration names directories, not code
+	i := strings.IndexByte(s, '*')
 	if i < 0 || len(s) > 256 || !strings.HasSuffix(s, ".rb") {
 		return
 	}
@@ -272,14 +322,31 @@ func (u *usageCollector) rbGlob(s string) {
 	if dir == "." {
 		return // the whole repository or directory: too broad to mean anything
 	}
-	u.rbGlobs = append(u.rbGlobs, path.Clean(dir))
+	u.rbGlobs = append(u.rbGlobs, rbGlobDir{dir: path.Clean(dir), fileOnly: fileOnly})
 }
 
-// rbGlobUses turns the globs into directory prefixes, relative to the file
-// and to its project (scope: the directory of its Gemfile / *.gemspec).
-func (u *usageCollector) rbGlobUses(scope string) {
-	for _, dir := range u.rbGlobs {
-		for _, d := range []string{path.Join(scope, dir), path.Join(path.Dir(u.rel), dir)} {
+// rbGlobDir is the directory of a glob of Ruby files.
+type rbGlobDir struct {
+	dir      string
+	fileOnly bool
+}
+
+// rbGlobUses turns the globs into directory prefixes: relative to the file,
+// and (but for require_rel) to its project (scope: the directory of its
+// Gemfile / *.gemspec), or to the repository root when the project has no
+// such directory (a gem's tool run from the application root:
+// Dir.glob("keeps/*.rb")).
+func (u *usageCollector) rbGlobUses(root, scope string) {
+	for _, g := range u.rbGlobs {
+		cands := []string{path.Join(path.Dir(u.rel), g.dir)}
+		if !g.fileOnly {
+			if d := path.Join(scope, g.dir); isDir(root, d) || scope == "." {
+				cands = append(cands, d)
+			} else {
+				cands = append(cands, g.dir)
+			}
+		}
+		for _, d := range cands {
 			if d != "." && d != ".." && !strings.HasPrefix(d, "../") {
 				u.tsPrefixes = append(u.tsPrefixes, d)
 			}
@@ -364,6 +431,24 @@ func (u *usageCollector) rbCall(n *gts.Node, levels []string) bool {
 		if len(args) > 1 {
 			if s, ok := x.stringContent(args[1]); ok {
 				u.rbRequire(s)
+			}
+		}
+		return false
+	case "const_get", "const_defined?", "const_source_location":
+		// const_get("#{name.camelize}Pipeline") on self: a constant of the
+		// enclosing namespace whose name fits
+		if len(args) > 0 && x.typ(args[0]) == "string" && len(levels) > 0 {
+			if p, ok := x.rbNamePattern(args[0]); ok {
+				u.rbConst(nil, "::"+levels[0]+"::"+p)
+			}
+		}
+		return false
+	case "require_rel", "require_all":
+		// require_rel "lib/**/*.rb": relative to the file only
+		if len(args) > 0 {
+			if s, ok := x.stringContent(args[0]); ok {
+				u.rbGlobFrom(s, true)
+				return true
 			}
 		}
 		return false

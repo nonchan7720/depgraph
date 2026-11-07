@@ -60,9 +60,9 @@ type usageCollector struct {
 	shebang   bool // Ruby: the file starts with #!
 	template  bool // Ruby: a view template (ERB, Haml, Slim)
 
-	rbRefs  []rbRef  // Ruby constant references
-	rbGlobs []string // Ruby: directories of file globs (rbGlobUses)
-	rbEntry string   // Ruby: why a class of the file is loaded by Rails itself
+	rbRefs  []rbRef     // Ruby constant references
+	rbGlobs []rbGlobDir // Ruby: directories of file globs (rbGlobUses)
+	rbEntry string      // Ruby: why a class of the file is loaded by Rails itself
 
 	goImports   []goImport
 	goSelectors []goSelector
@@ -198,7 +198,7 @@ func (r *Resolver) finishUsage(ctx context.Context, root string, fg *graph.FileG
 		fg.Imports = append(fg.Imports, u.rbConstImports(bySpec)...)
 	}
 	if fg.Language == graph.Ruby {
-		u.rbGlobUses(m.scope(fg.Path, fg.Language))
+		u.rbGlobUses(root, m.scope(fg.Path, fg.Language))
 	}
 	us = append(us, u.tsPrefixUses(root)...)
 

@@ -45,6 +45,7 @@ var rbEntryDirs = map[string]string{
 	"tools": "script / tool directory", "hack": "script / tool directory", ".github": "script / tool directory",
 	"spec": "test file", "test": "test file", "features": "test file",
 	"sorbet": "Sorbet / Tapioca configuration",
+	"locale": "translation source (gettext)",
 }
 
 var rbTestDirs = map[string]bool{"spec": true, "test": true, "features": true}

@@ -117,7 +117,7 @@ func (r *Repository) typeIndex(ctx context.Context, ignore []string) (*typeIndex
 		WHERE p.external = false AND none(rx IN $ignore WHERE p.key =~ rx)
 		  AND (s.kind IN ['struct', 'class', 'interface', 'type'] OR s.receiver IS NOT NULL)
 		RETURN p.key AS pkg, f.path AS file, f.language AS lang, s.name AS name, s.kind AS kind, s.receiver AS receiver,
-		       s.methods AS methods, s.abstract AS abstract, s.data AS data, s.implements AS implements
+		       s.methods AS methods, s.abstract AS abstract, s.data AS data, s.implements AS implements, s.embeds AS embeds
 	`, ignore, nil)
 	if err != nil {
 		return nil, fmt.Errorf("types: %w", err)
@@ -139,6 +139,7 @@ func (r *Repository) typeIndex(ctx context.Context, ignore []string) (*typeIndex
 		info := &rules.TypeInfo{Package: pkg, Kind: fmt.Sprint(row["kind"]), Methods: toStrings(row["methods"])}
 		info.Abstract, _ = row["abstract"].(bool)
 		info.Data, _ = row["data"].(bool)
+		info.Embeds, _ = row["embeds"].(bool)
 		for _, s := range toStrings(row["implements"]) {
 			if ref, ok := graph.ParseTypeRef(s); ok {
 				info.Implements = append(info.Implements, ref)

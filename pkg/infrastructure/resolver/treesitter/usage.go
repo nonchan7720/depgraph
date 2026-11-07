@@ -66,14 +66,15 @@ type usageCollector struct {
 
 	goImports   []goImport
 	goSelectors []goSelector
-	dirPrefixes []string              // repo-relative directories every file of which is used
-	members     []memberRef           // members.go
-	goDecls     []string              // cohesion.go
-	goIdents    []string              // cohesion.go
-	declRefList []graph.DeclRef       // cohesion.go
-	rbExtConsts []string              // Ruby: constants the repository does not declare
-	tsBind      map[string]tsBinding  // TS/JS: local names bound by imports
-	pyBind      map[string]*pyBinding // Python: local names bound by imports
+	dirPrefixes []string                   // repo-relative directories every file of which is used
+	members     []memberRef                // members.go
+	memberCalls map[string]map[string]bool // members.go: owner + "\x00" + member -> methods called
+	goDecls     []string                   // cohesion.go
+	goIdents    []string                   // cohesion.go
+	declRefList []graph.DeclRef            // cohesion.go
+	rbExtConsts []string                   // Ruby: constants the repository does not declare
+	tsBind      map[string]tsBinding       // TS/JS: local names bound by imports
+	pyBind      map[string]*pyBinding      // Python: local names bound by imports
 }
 
 func (u *usageCollector) use(spec, name string) {

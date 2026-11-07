@@ -52,6 +52,9 @@ type TypeInfo struct {
 	// Implements: the abstractions it says it implements (TypeScript,
 	// Python).
 	Implements []graph.TypeRef
+	// Embeds: a Go interface embedding others (Methods is not its whole
+	// method set).
+	Embeds bool
 }
 
 // abstraction reports whether the type is an interface / abstract class.
@@ -67,6 +70,10 @@ var goDataMethods = map[string]bool{
 	"MarshalXML": true, "UnmarshalXML": true, "Scan": true, "Value": true, "TableName": true,
 	"Len": true, "Less": true, "Swap": true, "Equal": true, "Clone": true, "Validate": true,
 }
+
+// IsDataMethod reports whether a method is one values implement for the
+// standard library (String, MarshalJSON, Scan, ...), not behaviour.
+func IsDataMethod(name string) bool { return goDataMethods[name] }
 
 // behaviour are the methods of a type that are not data methods.
 func (t TypeInfo) behaviour() []string {
@@ -196,13 +203,21 @@ func pairFor(pairs []LayerPair, from, to string) (LayerPair, bool) {
 
 // ConcreteDependencies reports, per package and concrete type, the fields,
 // constructor parameters and constructions that an abstract pair applies
-// to, when the type implements an abstraction declared where a port
-// belongs: the holder's package, the type's package, or a package of the
-// pair's from layer. Without such an abstraction nothing is reported (that
-// the code should have one is a design call, not a fact). Severity is left
-// to the caller.
+// to, when the type implements an abstraction the holder could hold
+// instead: one that has every method the holder calls on it (the smallest
+// such, one of the holder's package first), declared in the holder's
+// package, the type's package or the pair's from layer; without recorded
+// calls, the fullest one of the holder's package. Without such an abstraction
+// nothing is reported (that the code should have one is a design call, not
+// a fact). Severity is left to the caller.
 func ConcreteDependencies(uses []MemberUse, types TypeIndex, pairs []LayerPair) []Finding {
-	groups := map[usePair]*group{}
+	type pending struct {
+		pair LayerPair
+		info TypeInfo
+		uses []MemberUse
+	}
+	byKey := map[usePair]*pending{}
+	var keys []usePair
 	for _, u := range uses {
 		if !u.Construct && (u.Collection || (u.Role != graph.RoleField && u.Role != graph.RoleCtor)) {
 			continue
@@ -212,7 +227,7 @@ func ConcreteDependencies(uses []MemberUse, types TypeIndex, pairs []LayerPair) 
 			continue
 		}
 		k := usePair{u.Package, t.Package, t.Ref.Type}
-		if g := groups[k]; g != nil {
+		if g := byKey[k]; g != nil {
 			g.uses = append(g.uses, u)
 			continue
 		}
@@ -220,11 +235,21 @@ func ConcreteDependencies(uses []MemberUse, types TypeIndex, pairs []LayerPair) 
 		if !ok {
 			continue
 		}
-		port, ok := portOf(t, types, u.Package, p)
-		if !ok {
-			continue
+		byKey[k] = &pending{pair: p, info: t, uses: []MemberUse{u}}
+		keys = append(keys, k)
+	}
+	groups := map[usePair]*group{}
+	for _, k := range keys {
+		g := byKey[k]
+		var calls []string
+		for _, u := range g.uses {
+			calls = append(calls, u.Calls...)
 		}
-		groups[k] = &group{pair: p, info: t, uses: []MemberUse{u}, extra: port}
+		slices.Sort(calls)
+		calls = slices.Compact(calls)
+		if port, ok := portOf(g.info, types, k.from, g.pair, calls); ok {
+			groups[k] = &group{pair: g.pair, info: g.info, uses: g.uses, extra: port}
+		}
 	}
 	return findings(RuleConcreteDependency, groups, func(k usePair, g *group, at string) string {
 		return fmt.Sprintf("%s depends on the concrete type %s.%s (%s) although it implements %s: hold the interface (%s)",
@@ -232,23 +257,32 @@ func ConcreteDependencies(uses []MemberUse, types TypeIndex, pairs []LayerPair) 
 	})
 }
 
-// portOf finds the abstraction t implements with the most methods among the
-// packages a port belongs in, as package.Name.
-func portOf(t TypeInfo, types TypeIndex, holder string, p LayerPair) (string, bool) {
-	best, bestN := "", -1
+// portOf finds the abstraction the holder could hold instead of t (see
+// ConcreteDependencies), as package.Name.
+func portOf(t TypeInfo, types TypeIndex, holder string, p LayerPair, calls []string) (string, bool) {
+	best, bestN, bestOwn := "", -1, false
 	seen := map[string]bool{}
 	consider := func(pkg string) {
-		if seen[pkg] {
+		if seen[pkg] || (len(calls) == 0 && pkg != holder) {
 			return
 		}
 		seen[pkg] = true
 		for _, i := range types.Interfaces(pkg) {
-			if i.Ref == t.Ref || !t.implements(i) {
+			if i.Ref == t.Ref || i.Embeds || !t.implements(i) {
 				continue
 			}
-			name := i.Package + "." + i.Ref.Type
-			if n := len(i.Methods); n > bestN || (n == bestN && name < best) {
-				best, bestN = name, n
+			if !slices.ContainsFunc(calls, func(c string) bool { return !slices.Contains(i.Methods, c) }) {
+				name, n, own := i.Package+"."+i.Ref.Type, len(i.Methods), i.Package == holder
+				// the smallest port covering the calls; without calls the
+				// fullest port of the holder's package
+				closer := n < bestN
+				if len(calls) == 0 {
+					closer = n > bestN
+				}
+				better := bestN < 0 || closer || (n == bestN && own && !bestOwn) || (n == bestN && own == bestOwn && name < best)
+				if better {
+					best, bestN, bestOwn = name, n, own
+				}
 			}
 		}
 	}

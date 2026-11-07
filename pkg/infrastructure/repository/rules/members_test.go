@@ -25,21 +25,30 @@ func TestEvaluateMembers(t *testing.T) {
 	upsertAll(ctx, t, st, key, []*graph.FileGraph{
 		{Path: "app/usecase/user.go", Package: "app/usecase", Language: graph.Go,
 			Imports: []graph.Import{{Spec: "m/app/infra", Target: "app/infra"}},
-			Symbols: []graph.Symbol{{Name: "UserRepository", Kind: "interface", Exported: true, Methods: []string{"Find", "Save"}}},
+			Symbols: []graph.Symbol{{Name: "UserRepository", Kind: "interface", Exported: true, Methods: []string{"Find", "Save"}},
+				// embeds another interface: its method set is not all here
+				{Name: "Closer", Kind: "interface", Exported: true, Methods: []string{"Find"}, Embeds: true}},
 			TypeUses: []graph.TypeUse{
-				tu("UserUsecase", "repo", graph.RoleField, 8, false, "app/infra", "MySQLRepo"),
+				func() graph.TypeUse {
+					u := tu("UserUsecase", "repo", graph.RoleField, 8, false, "app/infra", "MySQLRepo")
+					u.Calls = []string{"Find", "Save"}
+					return u
+				}(),
 				tu("UserUsecase.Get", "0", graph.RoleResult, 20, true, "app/infra", "Row"),
 				tu("UserUsecase.Opts", "o", graph.RoleParam, 21, true, "app/infra", "Options"),
 			},
 			Constructs: []graph.Construct{{Owner: "NewUserUsecase", Line: 12, Target: "app/infra", Type: "MySQLRepo"}}},
 		{Path: "app/infra/mysql.go", Package: "app/infra", Language: graph.Go, Symbols: []graph.Symbol{
 			{Name: "MySQLRepo", Kind: "struct", Exported: true},
+			// an interface of the infrastructure it also satisfies, not what the use case calls
+			{Name: "Logger", Kind: "interface", Exported: true, Methods: []string{"Printf"}},
 			{Name: "Row", Kind: "struct", Exported: true},
 			{Name: "Options", Kind: "struct", Exported: true},
 		}},
 		{Path: "app/infra/mysql_find.go", Package: "app/infra", Language: graph.Go, Symbols: []graph.Symbol{
 			{Name: "Find", Kind: "method", Exported: true, Receiver: "MySQLRepo"},
 			{Name: "Save", Kind: "method", Exported: true, Receiver: "MySQLRepo"},
+			{Name: "Printf", Kind: "method", Exported: true, Receiver: "MySQLRepo"},
 			{Name: "String", Kind: "method", Exported: true, Receiver: "Row"},
 		}},
 		// a test's method does not make a type satisfy a port
@@ -78,7 +87,8 @@ func TestEvaluateMembers(t *testing.T) {
 		t.Errorf("type leaks = %q, want %q", got, want)
 	}
 	for _, f := range byRule(fs, rules.RuleConcreteDependency) {
-		if f.ID == "app/usecase -> app/infra.MySQLRepo" && !strings.Contains(f.Message, "app/usecase/user.go:8 UserUsecase.repo, and 1 more") {
+		if f.ID == "app/usecase -> app/infra.MySQLRepo" && (!strings.Contains(f.Message, "app/usecase/user.go:8 UserUsecase.repo, and 1 more") ||
+			!strings.Contains(f.Message, "although it implements app/usecase.UserRepository:")) {
 			t.Errorf("message = %q", f.Message)
 		}
 	}

@@ -134,13 +134,22 @@ func (u *usageCollector) goMembers(root *gts.Node) {
 			}
 		case "function_declaration":
 			name := x.fieldText(n, "name")
-			u.goSignature(name, goExported(name), strings.HasPrefix(name, "New"), n)
+			ctor := strings.HasPrefix(name, "New")
+			u.goSignature(name, goExported(name), ctor, n)
 			u.goConstructs(name, x.field(n, "body"))
+			if ctor {
+				for _, p := range x.goParamNames(n) {
+					u.goCalls(name, p, "", x.field(n, "body"))
+				}
+			}
 		case "method_declaration":
 			recv, name := x.goReceiver(n), x.fieldText(n, "name")
 			owner := recv + "." + name
 			u.goSignature(owner, goExported(recv) && goExported(name), false, n)
 			u.goConstructs(owner, x.field(n, "body"))
+			if rv := x.goReceiverName(n); rv != "" {
+				u.goCalls(recv, "", rv, x.field(n, "body"))
+			}
 		}
 	}
 }
@@ -206,6 +215,76 @@ func (u *usageCollector) goConstructs(owner string, body *gts.Node) {
 	})
 }
 
+func (u *usageCollector) addCall(owner, member, method string) {
+	if owner == "" || member == "" || method == "" {
+		return
+	}
+	if u.memberCalls == nil {
+		u.memberCalls = map[string]map[string]bool{}
+	}
+	k := owner + "\x00" + member
+	if u.memberCalls[k] == nil {
+		u.memberCalls[k] = map[string]bool{}
+	}
+	u.memberCalls[k][method] = true
+}
+
+// goCalls records the methods called in body on the parameter param (of
+// owner), or, with recv, on the fields of owner through the receiver
+// (recv.field.Method()).
+func (u *usageCollector) goCalls(owner, param, recv string, body *gts.Node) {
+	x := u.x
+	x.walk(body, func(c *gts.Node) bool {
+		if x.typ(c) != "selector_expression" {
+			return true
+		}
+		op, f := x.field(c, "operand"), x.field(c, "field")
+		if op == nil || f == nil {
+			return true
+		}
+		switch {
+		case param != "" && x.typ(op) == "identifier" && x.text(op) == param:
+			u.addCall(owner, param, x.text(f))
+		case recv != "" && x.typ(op) == "selector_expression":
+			if o, ff := x.field(op, "operand"), x.field(op, "field"); o != nil && ff != nil && x.typ(o) == "identifier" && x.text(o) == recv {
+				u.addCall(owner, x.text(ff), x.text(f))
+			}
+		}
+		return true
+	})
+}
+
+// goParamNames are the names of a function's parameters.
+func (x *extractor) goParamNames(n *gts.Node) []string {
+	var out []string
+	if params := x.field(n, "parameters"); params != nil {
+		for i := 0; i < params.NamedChildCount(); i++ {
+			if p := params.NamedChild(i); x.typ(p) == "parameter_declaration" {
+				for _, nm := range x.fieldChildren(p, "name") {
+					out = append(out, x.text(nm))
+				}
+			}
+		}
+	}
+	return out
+}
+
+// goReceiverName is the name of a method's receiver ("" when unnamed).
+func (x *extractor) goReceiverName(m *gts.Node) string {
+	recv := x.field(m, "receiver")
+	if recv == nil {
+		return ""
+	}
+	for i := 0; i < recv.NamedChildCount(); i++ {
+		if p := recv.NamedChild(i); x.typ(p) == "parameter_declaration" {
+			if names := x.fieldChildren(p, "name"); len(names) == 1 {
+				return x.text(names[0])
+			}
+		}
+	}
+	return ""
+}
+
 // goTypeNames are the package-qualified types a Go type expression names:
 // q.T, *q.T, q.T[X] and, as collections, []q.T, [n]q.T, map[k]q.T.
 func (x *extractor) goTypeNames(t *gts.Node) []typeName {
@@ -266,15 +345,19 @@ func (x *extractor) goReceiver(m *gts.Node) string {
 	return ""
 }
 
-// goInterfaceMethods are the methods an interface type declares.
-func (x *extractor) goInterfaceMethods(t *gts.Node) []string {
-	var out []string
+// goInterfaceMethods are the methods an interface type declares; embeds
+// reports another element (an embedded interface, a type constraint).
+func (x *extractor) goInterfaceMethods(t *gts.Node) (methods []string, embeds bool) {
 	for i := 0; i < t.NamedChildCount(); i++ {
-		if m := t.NamedChild(i); x.typ(m) == "method_elem" {
-			out = append(out, x.fieldText(m, "name"))
+		switch m := t.NamedChild(i); x.typ(m) {
+		case "method_elem":
+			methods = append(methods, x.fieldText(m, "name"))
+		case "comment":
+		default:
+			embeds = true
 		}
 	}
-	return out
+	return methods, embeds
 }
 
 // ---- TypeScript ----------------------------------------------------------
@@ -355,6 +438,7 @@ func (u *usageCollector) tsClass(n *gts.Node, exported bool) {
 			}
 			u.tsSignature(holder+"."+name, exported && public, graph.RoleParam, m)
 			u.tsConstructs(holder+"."+name, x.field(m, "body"))
+			u.selfCalls(holder, "this", x.field(m, "body"))
 		}
 	}
 }
@@ -575,8 +659,32 @@ func (u *usageCollector) pyClass(n *gts.Node) {
 				u.pySignature(holder+"."+name, public && pyExported(name), graph.RoleParam, m)
 			}
 			u.pyConstructs(holder+"."+name, x.field(m, "body"))
+			u.selfCalls(holder, "self", x.field(m, "body"))
 		}
 	}
+}
+
+// selfCalls records the methods called in body on the fields of holder
+// through self (this.f.m(), self.f.m()).
+func (u *usageCollector) selfCalls(holder, self string, body *gts.Node) {
+	x := u.x
+	obj, prop := "object", "property"
+	if u.lang == graph.Python {
+		obj, prop = "object", "attribute"
+	}
+	x.walk(body, func(c *gts.Node) bool {
+		if t := x.typ(c); t != "member_expression" && t != "attribute" {
+			return true
+		}
+		o, m := x.field(c, obj), x.field(c, prop)
+		if o == nil || m == nil || (x.typ(o) != "member_expression" && x.typ(o) != "attribute") {
+			return true
+		}
+		if oo, f := x.field(o, obj), x.field(o, prop); oo != nil && f != nil && x.text(oo) == self {
+			u.addCall(holder, x.text(f), x.text(m))
+		}
+		return true
+	})
 }
 
 func (u *usageCollector) pySignature(owner string, exported bool, role string, n *gts.Node) {
@@ -819,6 +927,9 @@ func (u *usageCollector) resolveMembers(fg *graph.FileGraph, bySpec map[string]i
 		default:
 			use := m.use
 			use.TypeRef = ref
+			if cs := u.memberCalls[use.Owner+"\x00"+use.Member]; len(cs) > 0 && (use.Role == graph.RoleField || use.Role == graph.RoleCtor) {
+				use.Calls = sortedNames(cs)
+			}
 			fg.TypeUses = append(fg.TypeUses, use)
 		}
 	}
@@ -862,4 +973,13 @@ func (u *usageCollector) resolveType(t typeName, file func(string) string, goBin
 		}
 	}
 	return graph.TypeRef{}
+}
+
+func sortedNames(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	slices.Sort(out)
+	return out
 }

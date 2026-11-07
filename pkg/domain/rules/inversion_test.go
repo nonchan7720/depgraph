@@ -159,3 +159,50 @@ func TestAbstractPairsDefaultsAndValidate(t *testing.T) {
 		t.Errorf("validate: %v", err)
 	}
 }
+
+// The interface to hold must cover what the holder calls on the member:
+// an unrelated interface the implementation happens to satisfy (a Logger
+// of the infrastructure) is not advice, and without calls only a port of
+// the holder's own package is.
+func TestConcreteDependenciesPortCoversTheCalls(t *testing.T) {
+	c := archConfig()
+	pairs, _ := c.AbstractPairs()
+	ty := types{
+		"app/infra#Orders":   {Ref: ref("app/infra", "Orders"), Package: "app/infra", Kind: "struct", Methods: []string{"Find", "Save", "Printf"}},
+		"app/infra#Logger":   {Ref: ref("app/infra", "Logger"), Package: "app/infra", Kind: "interface", Methods: []string{"Printf"}},
+		"app/infra#Embeds":   {Ref: ref("app/infra", "Embeds"), Package: "app/infra", Kind: "interface", Methods: []string{"Find"}, Embeds: true},
+		"app/usecase#Finder": {Ref: ref("app/usecase", "Finder"), Package: "app/usecase", Kind: "interface", Methods: []string{"Find"}},
+		"app/usecase#Repo":   {Ref: ref("app/usecase", "Repo"), Package: "app/usecase", Kind: "interface", Methods: []string{"Find", "Save"}},
+	}
+	held := func(calls ...string) MemberUse {
+		u := use("UC", "orders", graph.RoleField, 3, ref("app/infra", "Orders"))
+		u.Calls = calls
+		return u
+	}
+	for _, tc := range []struct {
+		name  string
+		calls []string
+		want  string // the interface named, "" for no finding
+	}{
+		{"the smallest port covering the calls", []string{"Find"}, "app/usecase.Finder"},
+		{"both calls", []string{"Find", "Save"}, "app/usecase.Repo"},
+		{"a call no port has", []string{"Find", "Close"}, ""},
+		{"no calls: a port of the holder's package", nil, "app/usecase.Repo"},
+	} {
+		got := ConcreteDependencies([]MemberUse{held(tc.calls...)}, ty, pairs)
+		switch {
+		case tc.want == "" && len(got) != 0:
+			t.Errorf("%s: %+v", tc.name, got)
+		case tc.want != "" && (len(got) != 1 || !strings.Contains(got[0].Message, "although it implements "+tc.want+":")):
+			t.Errorf("%s: %+v, want %s", tc.name, got, tc.want)
+		}
+	}
+	// only the infrastructure's Logger: no advice, no finding
+	only := types{"app/infra#Orders": ty["app/infra#Orders"], "app/infra#Logger": ty["app/infra#Logger"]}
+	if got := ConcreteDependencies([]MemberUse{held("Find")}, only, pairs); len(got) != 0 {
+		t.Errorf("an unrelated interface was named: %+v", got)
+	}
+	if got := ConcreteDependencies([]MemberUse{held()}, only, pairs); len(got) != 0 {
+		t.Errorf("no calls and no port of the holder's package: %+v", got)
+	}
+}

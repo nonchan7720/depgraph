@@ -48,3 +48,22 @@ func TestLowCohesion(t *testing.T) {
 		}
 	}
 }
+
+// A package of data (entities, DTOs) used one type per consumer is normal
+// architecture, not two responsibilities.
+func TestLowCohesionSkipsData(t *testing.T) {
+	models := CohesionUnit{Key: "app/model", What: "package",
+		Parts: []CohesionPart{{ID: "user.go", Names: []string{"User", "NewUser"}, Data: true}, {ID: "order.go", Names: []string{"Order"}, Data: true}},
+		Users: map[string][]string{"User": {"svc/user"}, "NewUser": {"svc/user"}, "Order": {"svc/order"}}}
+	if got := LowCohesion([]CohesionUnit{models}); len(got) != 0 {
+		t.Errorf("data: %+v", got)
+	}
+	// behaviour on one side is enough to say the package does two things
+	models.Parts[1].Data = false
+	if got := LowCohesion([]CohesionUnit{models}); len(got) != 1 {
+		t.Errorf("data and behaviour: %+v", got)
+	}
+	if r, _ := Lookup(RuleLowCohesion); r.Severity != SeverityInfo {
+		t.Errorf("severity %s", r.Severity)
+	}
+}

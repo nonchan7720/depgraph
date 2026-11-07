@@ -54,6 +54,9 @@ type Symbol struct {
 	// method symbols with it as Receiver): constructors, accessors, static
 	// and dunder methods left out.
 	Methods []string `json:"methods,omitempty"`
+	// Embeds: a Go interface that embeds others: Methods is not its whole
+	// method set.
+	Embeds bool `json:"embeds,omitempty"`
 	// Abstract: a class that is an abstraction (a TypeScript abstract class,
 	// a Python Protocol / ABC or a class with an @abstractmethod).
 	Abstract bool `json:"abstract,omitempty"`

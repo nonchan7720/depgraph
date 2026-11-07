@@ -292,3 +292,78 @@ func TestMembersTypeScriptClassShape(t *testing.T) {
 		t.Errorf("Base = %+v", s)
 	}
 }
+
+// The methods called on a held member are recorded with it: through the
+// receiver / this / self in the holder's methods, and on a constructor's
+// parameters in the constructor.
+func TestMemberCalls(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "go.mod", "module example.com/app\n")
+	writeFile(t, root, "infra/i.go", "package infra\n")
+	writeFile(t, root, "uc/uc.go", `package uc
+
+import (
+	"io"
+
+	"example.com/app/infra"
+)
+
+type Port interface {
+	io.Closer
+	Find()
+}
+
+type UC struct {
+	repo *infra.Repo
+}
+
+func NewUC(r *infra.Repo) *UC {
+	r.Ping()
+	return &UC{repo: r}
+}
+
+func (u *UC) Get() { u.repo.Find(); u.repo.Save() }
+`)
+	fg := resolve(t, root, "uc/uc.go")
+	calls := map[string][]string{}
+	for _, u := range fg.TypeUses {
+		calls[u.Owner+"."+u.Member] = u.Calls
+	}
+	wantList(t, "field calls", calls["UC.repo"], []string{"Find", "Save"})
+	wantList(t, "ctor calls", calls["NewUC.r"], []string{"Ping"})
+	if !symbol(t, fg, "Port").Embeds {
+		t.Error("an interface embedding io.Closer is not marked")
+	}
+
+	writeFile(t, root, "package.json", `{"name": "app"}`)
+	writeFile(t, root, "src/infra.ts", "export class Repo { find() {} }\n")
+	writeFile(t, root, "src/uc.ts", `import { Repo } from "./infra";
+export class UC {
+  constructor(private repo: Repo) {}
+  get() { return this.repo.find(); }
+}
+`)
+	for _, u := range resolve(t, root, "src/uc.ts").TypeUses {
+		if u.Member == "repo" {
+			wantList(t, "ts calls", u.Calls, []string{"find"})
+		}
+	}
+
+	writeFile(t, root, "pyproject.toml", "[project]\nname = \"app\"\n")
+	writeFile(t, root, "app/__init__.py", "")
+	writeFile(t, root, "app/infra.py", "class Repo:\n    def find(self): ...\n")
+	writeFile(t, root, "app/uc.py", `from app.infra import Repo
+
+class UC:
+    def __init__(self, repo: Repo):
+        self.repo = repo
+
+    def get(self):
+        return self.repo.find()
+`)
+	for _, u := range resolve(t, root, "app/uc.py").TypeUses {
+		if u.Member == "repo" {
+			wantList(t, "py calls", u.Calls, []string{"find"})
+		}
+	}
+}

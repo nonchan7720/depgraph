@@ -33,6 +33,7 @@ type pyBinding struct {
 func (u *usageCollector) pyFile(root *gts.Node) {
 	x := u.x
 	bind := map[string]*pyBinding{}
+	u.pyBind = bind
 	x.walk(root, func(n *gts.Node) bool {
 		switch x.typ(n) {
 		case "import_statement":

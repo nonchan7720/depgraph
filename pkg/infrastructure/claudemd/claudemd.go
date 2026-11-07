@@ -38,7 +38,7 @@ func Render(stats view.Stats, findings []rules.Finding) string {
 	b.WriteString("- Prefer fixing the violations below over adding new code that depends on them.\n\n")
 
 	byRule := map[string][]rules.Finding{}
-	order := []string{"import-cycle", rules.RuleModuleCycle, "layer-violation", "duplicate-code", "god-package", "duplicate-symbol",
+	order := []string{"import-cycle", rules.RuleModuleCycle, "layer-violation", rules.RuleConcreteDependency, rules.RuleTypeLeak, "duplicate-code", "god-package", "duplicate-symbol",
 		rules.RuleUnusedExport, rules.RuleUnreachableFile, rules.RuleUnreachablePackage, rules.RuleExternalUnclassified}
 	known := map[string]bool{}
 	for _, r := range order {
@@ -65,6 +65,8 @@ func Render(stats view.Stats, findings []rules.Finding) string {
 		rules.RuleUnreachableFile:      "Unreachable files (no entry point imports them: delete or wire them up)",
 		rules.RuleUnreachablePackage:   "Unreachable Go packages (no main package or test imports them)",
 		rules.RuleExternalUnclassified: "External imports ext: layers could not classify (not checked for frameworks; do not take this as a pass)",
+		rules.RuleConcreteDependency:   "Concrete dependencies (hold the interface named, not the implementation; build the implementation in the composition root)",
+		rules.RuleTypeLeak:             "Types leaking through an API (return / take a type of the layer itself or an interface, not the outer layer's)",
 	}
 	for _, rule := range order {
 		fs := byRule[rule]

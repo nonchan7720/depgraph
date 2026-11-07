@@ -106,6 +106,7 @@ func TestLayerPairReportsExternal(t *testing.T) {
 		{Name: "frameworks", Packages: []string{"ext:*", "!ext:github.com/google/uuid"}},
 		{Name: "http", Packages: []string{"ext:net/http"}},
 	}
+	c.AbstractLayers = nil
 	c.ForbiddenLayers = [][2]string{{"domain", "frameworks"}, {"domain", "http"}}
 	if err := c.Validate(); err != nil {
 		t.Fatal(err)

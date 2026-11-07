@@ -76,6 +76,7 @@ func TestEvaluateExternalLayers(t *testing.T) {
 		{Name: "frameworks", Packages: []string{"ext:*", "!ext:github.com/google/uuid"}},
 		{Name: "http", Packages: []string{"ext:net/http"}},
 	}
+	c.AbstractLayers = nil
 	c.ForbiddenLayers = [][2]string{{"domain", "frameworks"}, {"domain", "http"}}
 	fs, err := New(st, key).Evaluate(ctx, c)
 	if err != nil {
@@ -116,6 +117,7 @@ func TestLayerViolationsMatchTheDomain(t *testing.T) {
 		{Name: "frameworks", Packages: []string{"ext:*", "!ext:github.com/google/uuid", "!ext:lodash"}},
 		{Name: "http", Packages: []string{"ext:net/http", "app/infra/http"}},
 	}
+	c.AbstractLayers = nil
 	c.ForbiddenLayers = [][2]string{{"domain", "infra"}, {"domain", "frameworks"}, {"domain", "http"}, {"usecase", "infra"}, {"infra", "http"}}
 	c.Components = []rules.Component{{Dir: "svc", Layers: []rules.Layer{
 		{Name: "core", Packages: []string{"domain/**"}}, {Name: "outer", Packages: []string{"infra/**", "ext:*"}},
@@ -207,6 +209,7 @@ func TestEvaluateExternalLayersPerImport(t *testing.T) {
 		{Name: "domain", Packages: []string{"lib/**", "web/**", "go/**"}},
 		{Name: "frameworks", Packages: []string{"ext:*"}},
 	}
+	c.AbstractLayers = nil
 	c.ForbiddenLayers = [][2]string{{"domain", "frameworks"}}
 	rb := &graph.FileGraph{Path: "lib/a.rb", Package: "lib", Language: graph.Ruby,
 		Imports: []graph.Import{{Spec: "yaml", Target: "ext:yaml", External: true}}}
@@ -258,6 +261,7 @@ func TestEvaluateExternalUnclassified(t *testing.T) {
 		{Name: "domain", Packages: []string{"app/domain/**"}},
 		{Name: "frameworks", Packages: []string{"ext:*", "ext:sqlalchemy", "!ext:attr"}},
 	}
+	c.AbstractLayers = nil
 	c.ForbiddenLayers = [][2]string{{"domain", "frameworks"}}
 	fs, err := New(st, key).Evaluate(ctx, c)
 	if err != nil {
@@ -328,6 +332,7 @@ func TestEvaluatePythonExternalLayers(t *testing.T) {
 		{Name: "frameworks", Packages: []string{"ext:*"}},
 		{Name: "orm", Packages: []string{"ext:sqlalchemy"}},
 	}
+	c.AbstractLayers = nil
 	c.ForbiddenLayers = [][2]string{{"domain", "frameworks"}, {"domain", "orm"}}
 	c.Languages = []rules.LanguageSetting{
 		{Dir: "app", Lang: "python", VersionFile: "../.python-version"},

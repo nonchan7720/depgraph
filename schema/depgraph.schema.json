@@ -4,10 +4,30 @@
   "additionalProperties": false,
   "description": "depgraph settings at the scanned root, or of a directory below it (a package of a monorepo: its layers, forbidden, components, ignore and unused-code paths are relative to that directory). Every key is optional; unknown keys, rules, options and layer names are errors.",
   "properties": {
+    "abstract": {
+      "additionalProperties": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "description": "Layer -\u003e layers it may use only through interfaces (imports stay allowed): holding or building an implementation of one although an interface it implements exists (concrete-dependency), or exposing its concrete types in the layer's API (type-leak), is reported. Names must be defined in layers (or be default layers).",
+      "type": "object"
+    },
     "components": {
       "additionalProperties": {
         "additionalProperties": false,
         "properties": {
+          "abstract": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": "Layer -\u003e layers it may use only through interfaces (imports stay allowed): holding or building an implementation of one although an interface it implements exists (concrete-dependency), or exposing its concrete types in the layer's API (type-leak), is reported. Names must be defined in layers (or be default layers). Within one component directory.",
+            "type": "object"
+          },
           "forbidden": {
             "additionalProperties": {
               "items": {
@@ -152,6 +172,27 @@
       "additionalProperties": false,
       "description": "Per rule: enabled, severity and the rule's options.",
       "properties": {
+        "concrete-dependency": {
+          "additionalProperties": false,
+          "description": "a struct / class holds or builds an implementation of a layer it must use through an interface (abstract:), although an interface it implements exists",
+          "properties": {
+            "enabled": {
+              "default": true,
+              "description": "false turns the rule off.",
+              "type": "boolean"
+            },
+            "severity": {
+              "default": "warn",
+              "description": "Severity of the rule's findings.",
+              "enum": [
+                "error",
+                "warn",
+                "info"
+              ]
+            }
+          },
+          "type": "object"
+        },
         "duplicate-code": {
           "additionalProperties": false,
           "description": "the same logic in several places, whatever the names",
@@ -321,6 +362,27 @@
             },
             "severity": {
               "default": "error",
+              "description": "Severity of the rule's findings.",
+              "enum": [
+                "error",
+                "warn",
+                "info"
+              ]
+            }
+          },
+          "type": "object"
+        },
+        "type-leak": {
+          "additionalProperties": false,
+          "description": "the API of a layer exposes a concrete type or data of a layer it must use only through an interface (abstract:)",
+          "properties": {
+            "enabled": {
+              "default": true,
+              "description": "false turns the rule off.",
+              "type": "boolean"
+            },
+            "severity": {
+              "default": "warn",
               "description": "Severity of the rule's findings.",
               "enum": [
                 "error",

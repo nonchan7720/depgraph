@@ -487,6 +487,13 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 		}
 	}
 
+	// 5b. The code inside the layers (members.go).
+	members, err := r.evaluateMembers(ctx, cfg, ignore)
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, members...)
+
 	// 6. Unused code at project level (unused.go).
 	unused, err := r.evaluateUnused(ctx, cfg)
 	if err != nil {

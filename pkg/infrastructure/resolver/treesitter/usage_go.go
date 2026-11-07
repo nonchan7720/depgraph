@@ -116,9 +116,8 @@ func (u *usageCollector) goWalk(n *gts.Node, pkg string, declared map[string]boo
 }
 
 // goUses resolves the imports of a Go file and its qualified names.
-func (u *usageCollector) goUses(root string, bySpec map[string]imports.Result) []graph.Use {
-	var out []graph.Use
-	binds := map[string]string{} // local package name -> package dir
+func (u *usageCollector) goUses(root string, bySpec map[string]imports.Result) (out []graph.Use, binds map[string]string) {
+	binds = map[string]string{} // local package name -> package dir
 	for _, gi := range u.goImports {
 		res, ok := bySpec[gi.spec]
 		if !ok || res.Kind != imports.InRepo || res.File == "" {
@@ -144,7 +143,7 @@ func (u *usageCollector) goUses(root string, bySpec map[string]imports.Result) [
 			out = append(out, graph.Use{Target: dir, Name: s.name})
 		}
 	}
-	return out
+	return out, binds
 }
 
 // goDefaultName is the package name an import path suggests (its last

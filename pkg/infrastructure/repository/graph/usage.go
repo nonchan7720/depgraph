@@ -7,7 +7,22 @@ import "github.com/nonchan7720/depgraph/pkg/domain/graph"
 // the property (`SET f += $usage`), so a file re-parsed without usage keeps
 // nothing stale. Lists are stored as encoded strings, see graph.Use.Encode.
 func usageProps(fg *graph.FileGraph) map[string]any {
-	props := map[string]any{"scope": nil, "entry": nil, "internal": nil, "generated": nil, "uses": nil, "exports": nil, "keep": nil, "mentions": nil}
+	props := map[string]any{"scope": nil, "entry": nil, "internal": nil, "generated": nil, "uses": nil, "exports": nil, "keep": nil, "mentions": nil,
+		"typeUses": nil, "constructs": nil}
+	if len(fg.TypeUses) > 0 {
+		us := make([]string, len(fg.TypeUses))
+		for i, x := range fg.TypeUses {
+			us[i] = x.Encode()
+		}
+		props["typeUses"] = us
+	}
+	if len(fg.Constructs) > 0 {
+		cs := make([]string, len(fg.Constructs))
+		for i, x := range fg.Constructs {
+			cs[i] = x.Encode()
+		}
+		props["constructs"] = cs
+	}
 	u := fg.Usage
 	if u == nil {
 		return props

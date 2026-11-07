@@ -28,6 +28,7 @@ func DefaultLimits() Limits {
 var ruleOrder = map[string]int{
 	"import-cycle": 0, rules.RuleModuleCycle: 1, "layer-violation": 2, "duplicate-code": 3, "god-package": 4, "duplicate-symbol": 5,
 	rules.RuleUnusedExport: 6, rules.RuleUnreachableFile: 7, rules.RuleUnreachablePackage: 8, rules.RuleExternalUnclassified: 9,
+	rules.RuleConcreteDependency: 2, rules.RuleTypeLeak: 2,
 }
 
 var ruleHints = map[string]string{
@@ -42,6 +43,8 @@ var ruleHints = map[string]string{
 	rules.RuleUnreachableFile:      "no entry point imports these: delete or wire them up",
 	rules.RuleUnreachablePackage:   "no main package or test imports these: delete or wire them up",
 	rules.RuleExternalUnclassified: "not checked against ext: layers; do not take this as a pass",
+	rules.RuleConcreteDependency:   "hold the interface it implements; build the implementation in the composition root",
+	rules.RuleTypeLeak:             "expose the layer's own types or an interface, not the outer layer's",
 }
 
 func severityRank(s string) int {

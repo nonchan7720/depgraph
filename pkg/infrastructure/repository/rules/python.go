@@ -10,10 +10,16 @@ import (
 	"github.com/nonchan7720/depgraph/pkg/infrastructure/resolver/imports"
 )
 
-// pythonImport is an external import of a Python file, classified now.
+// pythonImport is an external import of a Python (or Ruby) file,
+// classified when the rules are evaluated.
 type pythonImport struct {
 	pkg, file, key string
 	class, basis   string // class "" when unknown; basis says why
+	lang           graph.Language
+	python         bool // dotted submodules
+	// unlisted: an unknown import not worth listing as unclassified (a Ruby
+	// constant that is likely Ruby's own)
+	unlisted bool
 }
 
 // pythonImports are the external imports of the project's Python files.
@@ -49,7 +55,7 @@ func (r *Repository) pythonImports(ctx context.Context, cfg rules.Config, ignore
 	}
 	out := &pythonImports{}
 	for _, row := range rows {
-		im := pythonImport{pkg: fmt.Sprint(row["pkg"]), file: fmt.Sprint(row["file"]), key: fmt.Sprint(row["key"])}
+		im := pythonImport{pkg: fmt.Sprint(row["pkg"]), file: fmt.Sprint(row["file"]), key: fmt.Sprint(row["key"]), lang: graph.Python, python: true}
 		s, ok := cfg.LanguageSettingFor("python", im.file)
 		switch {
 		case r.root == "":
@@ -83,7 +89,7 @@ func (r *Repository) pythonImports(ctx context.Context, cfg rules.Config, ignore
 }
 
 func (im pythonImport) refs(thirdParty bool) (from, to rules.PackageRef) {
-	return rules.PackageRef{Key: im.pkg}, rules.PackageRef{Key: im.key, External: true, Python: true, ThirdParty: thirdParty}
+	return rules.PackageRef{Key: im.pkg}, rules.PackageRef{Key: im.key, External: true, Python: im.python, ThirdParty: thirdParty}
 }
 
 // violations are the rows of the layer violations of Python imports, in
@@ -111,17 +117,17 @@ func (p *pythonImports) violations(lp []rules.LayerPair) []map[string]any {
 	return out
 }
 
-// unclassified lists the unknown Python imports a wildcard of a pair would
-// match if they were third-party and that the pair does not decide
-// otherwise, as "key (basis)".
-func (p *pythonImports) unclassified(lp []rules.LayerPair) []string {
+// unclassified lists, per language, the unknown imports a wildcard of a
+// pair would match if they were third-party and that the pair does not
+// decide otherwise, as "key (basis)".
+func (p *pythonImports) unclassified(lp []rules.LayerPair) map[graph.Language][]string {
 	if p == nil {
 		return nil
 	}
 	seen := map[string]bool{}
-	var out []string
+	out := map[graph.Language][]string{}
 	for _, im := range p.list {
-		if im.class != "" {
+		if im.class != "" || im.unlisted {
 			continue
 		}
 		for _, pr := range lp {
@@ -132,14 +138,23 @@ func (p *pythonImports) unclassified(lp []rules.LayerPair) []string {
 			_, notTP := im.refs(false)
 			if pr.Reports(from, tp) && !pr.Reports(from, notTP) {
 				item := im.key + " (" + im.basis + ")"
-				if !seen[item] {
-					seen[item] = true
-					out = append(out, item)
+				if k := string(im.lang) + "\x00" + item; !seen[k] {
+					seen[k] = true
+					out[im.lang] = append(out[im.lang], item)
 				}
 				break
 			}
 		}
 	}
-	sort.Strings(out)
+	for l := range out {
+		sort.Strings(out[l])
+	}
 	return out
+}
+
+// add appends q's imports to p's (q may be nil).
+func (p *pythonImports) add(q *pythonImports) {
+	if q != nil {
+		p.list = append(p.list, q.list...)
+	}
 }

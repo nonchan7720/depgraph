@@ -38,6 +38,10 @@ type Usage struct {
 	// told from parts nothing connects (low-cohesion).
 	Decls  []string `json:"decls,omitempty"`
 	Idents []string `json:"idents,omitempty"`
+	// ExtConstants (Ruby): the top-level names of the constants the file
+	// refers to that the repository does not declare (ActiveRecord of
+	// ActiveRecord::Base): Rails code uses its frameworks through constants.
+	ExtConstants []string `json:"extConstants,omitempty"`
 	// DeclRefs (TypeScript, Python): the file's top-level declarations and
 	// the other ones each refers to.
 	DeclRefs []DeclRef `json:"declRefs,omitempty"`

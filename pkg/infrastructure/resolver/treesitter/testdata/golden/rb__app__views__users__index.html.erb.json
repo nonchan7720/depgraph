@@ -13,6 +13,9 @@
         "target": "::",
         "name": "UserCard"
       }
+    ],
+    "extConstants": [
+      "UserCard"
     ]
   }
 }

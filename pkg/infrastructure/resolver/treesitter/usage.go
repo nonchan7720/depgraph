@@ -71,6 +71,7 @@ type usageCollector struct {
 	goDecls     []string              // cohesion.go
 	goIdents    []string              // cohesion.go
 	declRefList []graph.DeclRef       // cohesion.go
+	rbExtConsts []string              // Ruby: constants the repository does not declare
 	tsBind      map[string]tsBinding  // TS/JS: local names bound by imports
 	pyBind      map[string]*pyBinding // Python: local names bound by imports
 }
@@ -233,17 +234,18 @@ func (r *Resolver) finishUsage(ctx context.Context, root string, fg *graph.FileG
 
 	entry := m.entry(fg.Path, fg.Language, u)
 	fg.Usage = &graph.Usage{
-		Scope:     m.scope(fg.Path, fg.Language),
-		Entry:     entry,
-		Internal:  m.internalAPI(fg.Path, fg.Language, entry),
-		Generated: generated(u.x.src) || m.isVendored(fg.Path),
-		Uses:      dedupUses(us),
-		Exports:   u.exports,
-		Keep:      dedupStrings(u.keep),
-		Mentions:  dedupStrings(u.mentions),
-		Decls:     u.goDecls,
-		Idents:    u.goIdents,
-		DeclRefs:  u.declRefList,
+		Scope:        m.scope(fg.Path, fg.Language),
+		Entry:        entry,
+		Internal:     m.internalAPI(fg.Path, fg.Language, entry),
+		Generated:    generated(u.x.src) || m.isVendored(fg.Path),
+		Uses:         dedupUses(us),
+		Exports:      u.exports,
+		Keep:         dedupStrings(u.keep),
+		Mentions:     dedupStrings(u.mentions),
+		Decls:        u.goDecls,
+		Idents:       u.goIdents,
+		DeclRefs:     u.declRefList,
+		ExtConstants: u.rbExtConsts,
 	}
 }
 

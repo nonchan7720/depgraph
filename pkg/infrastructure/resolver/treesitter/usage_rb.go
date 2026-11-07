@@ -316,17 +316,28 @@ func (u *usageCollector) rbGlobFrom(s string, fileOnly bool) {
 	if i < 0 || len(s) > 256 || !strings.HasSuffix(s, ".rb") {
 		return
 	}
+	if rbTestPath(u.rel) {
+		return // a test scans files (file_filters: ["app/**/*.rb"]), it does not load them
+	}
 	dir := path.Dir(strings.TrimPrefix(s[:i], "/") + "x")
 	if dir == "." {
 		return // the whole repository or directory: too broad to mean anything
 	}
-	u.rbGlobs = append(u.rbGlobs, rbGlobDir{dir: path.Clean(dir), fileOnly: fileOnly})
+	u.rbGlobs = append(u.rbGlobs, rbGlobDir{dir: path.Clean(dir), fileOnly: fileOnly, recursive: strings.Contains(s, "**")})
 }
 
 // rbGlobDir is the directory of a glob of Ruby files.
 type rbGlobDir struct {
-	dir      string
-	fileOnly bool
+	dir                 string
+	fileOnly, recursive bool
+}
+
+// rbTestPath reports whether rel is Ruby test code (*_spec.rb, *_test.rb,
+// spec/, test/).
+func rbTestPath(rel string) bool {
+	base := path.Base(rel)
+	return strings.HasSuffix(base, "_spec.rb") || strings.HasSuffix(base, "_test.rb") ||
+		hasSeg(strings.Split(path.Dir(rel), "/"), map[string]bool{"spec": true, "test": true})
 }
 
 // rbGlobUses turns the globs into directory prefixes: relative to the file,
@@ -340,7 +351,9 @@ func (u *usageCollector) rbGlobUses(root, scope string) {
 		if !g.fileOnly {
 			if d := path.Join(scope, g.dir); isDir(root, d) || scope == "." {
 				cands = append(cands, d)
-			} else {
+			} else if !g.recursive {
+				// the root's: only a plain directory of files (keeps/*.rb),
+				// not "app/**/*.rb" of another project
 				cands = append(cands, g.dir)
 			}
 		}

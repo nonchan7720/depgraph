@@ -296,6 +296,9 @@ end
 		"app/services/dispatch.rb":               "class Dispatch\n  def self.call(kind) = \"#{kind.camelize}Service\".constantize\nend\n",
 		"app/controllers/dispatch_controller.rb": "class DispatchController < ApplicationController\n  def index = Dispatch.call(:x)\nend\n",
 		"app/services/forgotten_service.rb":      "class ForgottenService\nend\n",
+		// a test that scans files from another project does not load them
+		"gems/distiller/distiller.gemspec":     "",
+		"gems/distiller/spec/manifest_spec.rb": "RSpec.describe 1 do\n  it { Dir.glob(\"app/**/*.rb\") }\nend\n",
 	})
 	wantFindings(t, evalUnused(toUnusedFiles(parseRepo(t, root)), rules.DefaultConfig()),
 		"unreachable-file|app/services/forgotten_service.rb")

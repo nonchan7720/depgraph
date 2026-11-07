@@ -82,6 +82,17 @@ rules:
 		t.Errorf("only the configured layers must be checked:\n%s", out)
 	}
 
+	// --fail-on: exit non-zero on findings of at least that severity (CI)
+	if out, err := run("check", "--root", root, "--claude-md", "", "--fail-on", "warn"); err == nil || !strings.Contains(err.Error(), "at least warn") {
+		t.Errorf("check --fail-on warn must fail on the warn finding, got %v\n%s", err, out)
+	}
+	if out, err := run("check", "--root", root, "--claude-md", "", "--fail-on", "error"); err != nil {
+		t.Errorf("check --fail-on error must pass without error findings, got %v\n%s", err, out)
+	}
+	if out, err := run("scan", "--root", root, "--claude-md", "", "--fail-on", "warn"); err == nil {
+		t.Errorf("scan --fail-on warn must fail on the warn finding\n%s", out)
+	}
+
 	writeTree(t, root, map[string]string{config.FileName: fmt.Sprintf("project: %s\nrules:\n  layer-violaton: {severity: warn}\n", key)})
 	out, err = run("check", "--root", root, "--claude-md", "")
 	if err == nil || !strings.Contains(err.Error(), `unknown rule "layer-violaton"`) || !strings.Contains(err.Error(), config.FileName) {

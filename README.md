@@ -188,9 +188,9 @@ depgraph projects prune [--dry-run]  # delete projects whose root no longer exis
 
 | command | description |
 |---|---|
-| `scan --root DIR [--reset]` | full scan → evaluate rules → update CLAUDE.md |
+| `scan --root DIR [--reset] [--fail-on warn]` | full scan → evaluate rules → update CLAUDE.md (with `--fail-on`, exit 1 on findings; see [CI](#ci)) |
 | `watch --root DIR [--no-lsp] [--no-ui]` | scan, then watch with fsnotify and update incrementally (tree-sitter, then LSP adds CALLS/REFERENCES) |
-| `check --root DIR` | evaluate rules against the graph already in Neo4j (updates CLAUDE.md) |
+| `check --root DIR [--fail-on warn]` | evaluate rules against the graph already in Neo4j (updates CLAUDE.md) |
 | `serve --root DIR [--addr 127.0.0.1:7777]` | browser UI over the graph already in Neo4j (no watching, CLAUDE.md untouched) |
 | `mcp --root DIR` | stdio MCP server that shows the browser UI as an [MCP App](#mcp-app) (reads the graph already in Neo4j, CLAUDE.md untouched) |
 | `parse --root DIR [files...]` | print the tree-sitter result as JSON, one file per line, without Neo4j (debugging) |
@@ -220,7 +220,21 @@ Flags (see `depgraph <command> --help`):
 | `--debounce` | watch | `400ms` |
 | `--no-ui` / `--no-lsp` | watch | false |
 | `--timeout` / `--debug` / `--format` | hook | `3s` / false / `json` (`text`: the context itself, for claude-hook-gate's `session_start`) |
+| `--fail-on` | scan / check | none (exit 1 when there are findings of at least `error` / `warn` / `info`) |
 | `--fail-on` / `--timeout` | gate | `warn` / `60s` |
+
+### CI
+
+`scan` and `check` exit 0 whatever they find, unless `--fail-on <error|warn|info>` is given: they
+then exit 1 when the evaluation has findings of at least that severity (all of them, not only new
+ones; the gate is for what a session added). For a CI job, with the container provider on a
+runner that has Docker:
+
+```bash
+depgraph scan --root . --claude-md "" --fail-on warn   # --claude-md "": do not rewrite CLAUDE.md
+```
+
+`--fail-on error` fails only on import cycles and layer violations.
 
 ## Claude Code plugin
 

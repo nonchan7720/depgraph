@@ -113,7 +113,10 @@ func local(rel string) (string, error) {
 	if rel == "" {
 		return "", fmt.Errorf("empty path: %w", ErrRefused)
 	}
-	if strings.HasPrefix(rel, "/") || filepath.IsAbs(rel) || filepath.VolumeName(rel) != "" || strings.Contains(rel, `\`) {
+	// a backslash is a path separator only on Windows; elsewhere it is a
+	// valid character of a file name
+	if strings.HasPrefix(rel, "/") || filepath.IsAbs(rel) || filepath.VolumeName(rel) != "" ||
+		(filepath.Separator == '\\' && strings.Contains(rel, `\`)) {
 		return "", refused(rel, "want a path relative to the repository (slash-separated)")
 	}
 	clean := path.Clean(rel)

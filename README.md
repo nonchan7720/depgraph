@@ -754,6 +754,11 @@ another package is built (`&infra.T{}`, `new T()`, `T()`).
 
 A component takes `abstract` like `forbidden`, within its directory.
 
+**Upgrading**: both rules are on by default (warn), and so are the abstract pairs `usecase → infra / db`
+when `.depgraph.yml` has no `layers:` (none, or only `forbidden:`). A project that matches the default
+layers gets new findings in the report, `CLAUDE.md` and the hooks after it upgrades. To keep the earlier
+behaviour, write `abstract: {}` or turn the rules off (`rules: {concrete-dependency: {enabled: false}}`).
+
 ### Monorepos (`components`)
 
 In a monorepo each part has its own architecture, often in another language: `pkg/` in Go,

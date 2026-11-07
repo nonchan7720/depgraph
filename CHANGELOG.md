@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.7](https://github.com/nonchan7720/depgraph/compare/v0.1.6...v0.1.7) (2026-11-07)
+
+
+### Features
+
+* **plugin:** install the depgraph binary of the plugin's version from the GitHub release ([#44](https://github.com/nonchan7720/depgraph/issues/44)) ([96fec04](https://github.com/nonchan7720/depgraph/commit/96fec042ab97e5f40490e76d223517f58c02e043))
+
 ## [0.1.6](https://github.com/nonchan7720/depgraph/compare/v0.1.5...v0.1.6) (2026-11-07)
 
 

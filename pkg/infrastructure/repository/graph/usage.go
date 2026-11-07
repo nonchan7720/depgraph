@@ -8,7 +8,7 @@ import "github.com/nonchan7720/depgraph/pkg/domain/graph"
 // nothing stale. Lists are stored as encoded strings, see graph.Use.Encode.
 func usageProps(fg *graph.FileGraph) map[string]any {
 	props := map[string]any{"scope": nil, "entry": nil, "internal": nil, "generated": nil, "uses": nil, "exports": nil, "keep": nil, "mentions": nil,
-		"typeUses": nil, "constructs": nil, "decls": nil, "idents": nil, "declRefs": nil}
+		"typeUses": nil, "constructs": nil, "decls": nil, "idents": nil, "declRefs": nil, "extConstants": nil}
 	if len(fg.TypeUses) > 0 {
 		us := make([]string, len(fg.TypeUses))
 		for i, x := range fg.TypeUses {
@@ -26,6 +26,9 @@ func usageProps(fg *graph.FileGraph) map[string]any {
 	u := fg.Usage
 	if u == nil {
 		return props
+	}
+	if len(u.ExtConstants) > 0 {
+		props["extConstants"] = u.ExtConstants
 	}
 	if len(u.Decls) > 0 {
 		props["decls"] = u.Decls

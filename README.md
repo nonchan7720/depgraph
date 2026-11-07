@@ -669,7 +669,7 @@ files and the resolution, never by a list of names shipped with depgraph, and no
 | Go | a module the importing module's `go.mod` (or its `go.work`) requires or replaces | a path whose first element has no dot (the go command's rule for the standard library) |
 | TypeScript / JavaScript | resolved into `node_modules`, or declared in a `package.json` of the file or above it when not installed | a Node built-in, as esbuild resolves it (`punycode` is the built-in, `punycode/` the installed package) |
 | Python | not the standard library of the version `languages.python` names, by the typeshed copy of the project's type checker (an external import is the standard library or an installed package) | in that version's standard library |
-| Ruby | not classified yet | |
+| Ruby | a `require` or a constant (by its top-level name: `ActiveRecord` of `ActiveRecord::Base`) whose name is a gem the bundle's `Gemfile.lock` locks (`activerecord`, `Aws` of `aws-sdk-s3`): what Bundler loads. A default gem the bundle locks (`json`) is third-party too: `!ext:JSON` leaves it out | anything else is unknown: a constant that is probably a locked gem's (`ActionController`, `actionpack`) is listed by `external-unclassified`, one that is likely Ruby's own (`Hash`) is not, since telling them apart would take a list of Ruby's per version |
 
 Each import records its class and why (`depgraph parse` shows them). An import a wildcard would match
 if it were third-party but that could not be classified is not reported as a violation, and not dropped
@@ -752,7 +752,9 @@ another package is built (`&infra.T{}`, `new T()`, `T()`).
   the infrastructure's types. Interfaces are fine; constructor parameters and held implementations are
   concrete-dependency's.
 
-A component takes `abstract` like `forbidden`, within its directory.
+A component takes `abstract` like `forbidden`, within its directory. Ruby has no types to read and no
+interfaces but duck typing, so neither rule applies to it (nor `low-cohesion`, whose parts would be
+methods called by dynamic dispatch): depgraph does not guess.
 
 ### Monorepos (`components`)
 

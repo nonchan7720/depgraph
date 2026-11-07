@@ -369,3 +369,40 @@ func TestEvaluatePythonExternalLayers(t *testing.T) {
 		t.Errorf("classified without the files: %q", got)
 	}
 }
+
+// Ruby: requires and constants are classified from the bundle's
+// Gemfile.lock; a constant that is probably a gem's but not by its name is
+// listed, one that is likely Ruby's own is not.
+func TestEvaluateRubyExternalLayers(t *testing.T) {
+	ctx, st := connect(t)
+	root := t.TempDir()
+	writeTree(t, root, map[string]string{"Gemfile.lock": "GEM\n  specs:\n    actionpack (7.1.3)\n    activerecord (7.1.3)\n    sidekiq (7.2.0)\n"})
+	key := fmt.Sprintf("zz_test_%d_rblayers", time.Now().UnixNano())
+	upsertAll(ctx, t, st, key, []*graph.FileGraph{
+		{Path: "app/domain/order.rb", Package: "app/domain", Language: graph.Ruby,
+			Imports: []graph.Import{{Spec: "sidekiq", Target: "ext:sidekiq", External: true}},
+			Usage:   &graph.Usage{Scope: ".", ExtConstants: []string{"ActionController", "ActiveRecord", "Hash"}}},
+	})
+	c := rules.DefaultConfig()
+	c.DefaultLayers = false
+	c.Layers = []rules.Layer{{Name: "domain", Packages: []string{"app/domain/**"}}, {Name: "frameworks", Packages: []string{"ext:*"}}}
+	c.AbstractLayers = nil
+	c.ForbiddenLayers = [][2]string{{"domain", "frameworks"}}
+	fs, err := New(st, key).WithRoot(root).Evaluate(ctx, c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := messages(byRule(fs, rules.RuleLayerViolation))
+	want := []string{
+		"app/domain -> ext:ActiveRecord (domain must not import frameworks)",
+		"app/domain -> ext:sidekiq (domain must not import frameworks)",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("violations = %q, want %q", got, want)
+	}
+	un := byRule(fs, rules.RuleExternalUnclassified)
+	if len(un) != 1 || un[0].ID != "ruby" || !strings.Contains(un[0].Message, "ext:ActionController (probably gem actionpack") ||
+		strings.Contains(un[0].Message, "Hash") {
+		t.Errorf("unclassified = %+v", un)
+	}
+}

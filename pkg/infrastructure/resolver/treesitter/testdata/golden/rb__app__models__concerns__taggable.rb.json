@@ -35,6 +35,10 @@
         "target": "::Taggable",
         "name": "Tag"
       }
+    ],
+    "extConstants": [
+      "ActiveSupport",
+      "Tag"
     ]
   }
 }

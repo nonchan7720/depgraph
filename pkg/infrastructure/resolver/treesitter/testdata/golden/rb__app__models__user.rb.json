@@ -58,6 +58,11 @@
         "target": "::User",
         "name": "Taggable"
       }
+    ],
+    "extConstants": [
+      "ApplicationRecord",
+      "Comment",
+      "Org"
     ]
   }
 }

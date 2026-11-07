@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"io/fs"
-	"os"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -15,6 +14,7 @@ import (
 	"github.com/nonchan7720/depgraph/pkg/domain/graph"
 	"github.com/nonchan7720/depgraph/pkg/infrastructure/resolver"
 	"github.com/nonchan7720/depgraph/pkg/infrastructure/resolver/imports"
+	"github.com/nonchan7720/depgraph/pkg/internal/safefile"
 )
 
 // Entry points: files that are run, loaded or imported from outside the
@@ -316,7 +316,7 @@ func loadManifests(ctx context.Context, root string, imp *imports.Multi) *manife
 		m.loadRubyScript(root, rel)
 	}
 	for _, rel := range pyManifests {
-		b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+		b, err := safefile.ReadManifest(root, rel)
 		if err == nil && djangoRe.Match(b) {
 			m.django[nearest(m.pyScopes, path.Dir(rel))] = true
 		}
@@ -345,7 +345,7 @@ func (m *manifests) addFile(rel, why string) {
 }
 
 func (m *manifests) loadPackageJSON(root, rel string) (packageJSON, bool) {
-	b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+	b, err := safefile.ReadManifest(root, rel)
 	if err != nil {
 		return packageJSON{}, false
 	}
@@ -494,7 +494,7 @@ func hasSourceExt(s string) bool {
 // first, then the usual dist/ build/ lib/ out/ -> src/ or the package root.
 func tsOutDirs(root, dir string) [][2]string {
 	var pairs [][2]string
-	if b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(dir), "tsconfig.json")); err == nil {
+	if b, err := safefile.ReadManifest(root, path.Join(dir, "tsconfig.json")); err == nil {
 		var tc struct {
 			CompilerOptions struct {
 				OutDir  string `json:"outDir"`
@@ -625,7 +625,7 @@ var scriptSrcRe = regexp.MustCompile(`(?is)<script\b[^>]*\bsrc\s*=\s*["']([^"']+
 
 // loadHTML: <script src> of a page (Vite and other bundlers start there).
 func (m *manifests) loadHTML(root, rel string) {
-	b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+	b, err := safefile.ReadManifest(root, rel)
 	if err != nil {
 		return
 	}
@@ -656,7 +656,7 @@ func (m *manifests) loadHTML(root, rel string) {
 // components.json names (aliases.ui, default @/components/ui). The kit
 // exports every part of each component on purpose: it is vendored code.
 func (m *manifests) loadShadcn(root, rel string) {
-	b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+	b, err := safefile.ReadManifest(root, rel)
 	if err != nil {
 		return
 	}
@@ -701,7 +701,7 @@ var mdxImportRe = regexp.MustCompile(`(?m)^\s*(?:import|export)\s[^'"\n]*?['"]([
 func (m *manifests) loadMDX(ctx context.Context, root string, mdxs []string, imp *imports.Multi) {
 	var reqs []imports.Request
 	for _, rel := range mdxs {
-		b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+		b, err := safefile.ReadManifest(root, rel)
 		if err != nil {
 			continue
 		}
@@ -730,7 +730,7 @@ func commandTokens(s string) []string { return commandTokenRe.FindAllString(s, -
 // (`node dist/server.js`, `python scripts/x.py`, `python -m pkg.tool`,
 // `uvicorn app.main:app`, `celery -A app.worker`).
 func (m *manifests) loadCommands(root, rel string, py func(fromDir, spec string) string) {
-	b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+	b, err := safefile.ReadManifest(root, rel)
 	if err != nil || len(b) > 1<<20 {
 		return
 	}

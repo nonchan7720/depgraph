@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/nonchan7720/depgraph/pkg/domain/graph"
+	"github.com/nonchan7720/depgraph/pkg/internal/safefile"
 )
 
 // fakeResolver handles *.go files; resolve decides what each call does.
@@ -312,5 +313,24 @@ func TestScanRepoSkipsSymlinksOutsideRoot(t *testing.T) {
 	sort.Strings(want)
 	if !slices.Equal(got, want) {
 		t.Errorf("scanned %v, want %v", got, want)
+	}
+}
+
+// A file the safe reader refuses (a FIFO, a device) is skipped like an
+// unsupported one: one such file must not abort the scan of the rest.
+func TestScanRepoSkipsRefusedFiles(t *testing.T) {
+	root, rels := scanTree(t, 3)
+	r := &fakeResolver{resolve: func(_ context.Context, rel string) (*graph.FileGraph, error) {
+		if rel == rels[1] {
+			return nil, fmt.Errorf("%s: not a regular file: %w", rel, safefile.ErrRefused)
+		}
+		return &graph.FileGraph{Path: rel}, nil
+	}}
+	var got []string
+	if err := scanWorkers(t, 2, context.Background(), r, root, func(fg *graph.FileGraph) error { got = append(got, fg.Path); return nil }); err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if len(got) != 2 || slices.Contains(got, rels[1]) {
+		t.Errorf("scanned %v", got)
 	}
 }

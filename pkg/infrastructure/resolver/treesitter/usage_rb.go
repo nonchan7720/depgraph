@@ -2,7 +2,6 @@ package treesitter
 
 import (
 	"context"
-	"os"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/nonchan7720/depgraph/pkg/domain/graph"
 	"github.com/nonchan7720/depgraph/pkg/infrastructure/resolver/imports"
+	"github.com/nonchan7720/depgraph/pkg/internal/safefile"
 )
 
 // Ruby usage. Rails code (Zeitwerk) names other files' code by constant, not
@@ -595,7 +595,7 @@ func rbTemplateCode(rel string, src []byte) []string {
 // code names are its uses; it declares nothing and is an entry (rendered by
 // the controllers).
 func (r *Resolver) resolveRubyTemplate(ctx context.Context, root, rel string) (*graph.FileGraph, error) {
-	src, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+	src, err := safefile.ReadSource(root, rel)
 	if err != nil {
 		return nil, err
 	}

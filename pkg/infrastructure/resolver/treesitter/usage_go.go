@@ -2,6 +2,7 @@ package treesitter
 
 import (
 	"bufio"
+	"bytes"
 	"os"
 	"path"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/nonchan7720/depgraph/pkg/domain/graph"
 	"github.com/nonchan7720/depgraph/pkg/infrastructure/resolver/imports"
+	"github.com/nonchan7720/depgraph/pkg/internal/safefile"
 )
 
 // Go usage:
@@ -171,22 +173,21 @@ func goPackageName(root, dir string) string {
 		if e.IsDir() || !strings.HasSuffix(n, ".go") || strings.HasSuffix(n, "_test.go") {
 			continue
 		}
-		if name := readPackageClause(filepath.Join(abs, n)); name != "" {
+		if name := readPackageClause(root, path.Join(dir, n)); name != "" {
 			return name
 		}
 	}
 	return ""
 }
 
-func readPackageClause(p string) string {
-	f, err := os.Open(p)
+func readPackageClause(root, rel string) string {
+	b, err := safefile.ReadSource(root, rel)
 	if err != nil {
 		return ""
 	}
-	defer func() { _ = f.Close() }()
 	// bufio.Reader, not Scanner: a generated file can start with a comment
 	// line longer than Scanner's 64KB limit.
-	r := bufio.NewReader(f)
+	r := bufio.NewReader(bytes.NewReader(b))
 	for {
 		line, err := r.ReadString('\n')
 		if m := goPackageRe.FindStringSubmatch(line); m != nil {

@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/nonchan7720/depgraph/pkg/internal/rootcache"
+	"github.com/nonchan7720/depgraph/pkg/internal/safefile"
 )
 
 // Python resolves Python imports the way the import system does, over the
@@ -164,7 +165,7 @@ func loadPy(root string) *pyRoot {
 		dir := path.Dir(rel)
 		switch d.Name() {
 		case "pyproject.toml", "setup.cfg":
-			b, err := os.ReadFile(p)
+			b, err := safefile.ReadManifest(root, rel)
 			if err != nil {
 				return nil
 			}

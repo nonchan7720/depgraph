@@ -19,6 +19,7 @@ import (
 	"sync"
 
 	"github.com/nonchan7720/depgraph/pkg/domain/graph"
+	"github.com/nonchan7720/depgraph/pkg/internal/safefile"
 )
 
 // ErrUnsupported is graph.ErrUnsupported (kept for callers of this package).
@@ -77,9 +78,9 @@ func LoadIgnoreFile(path string) error {
 	if path == "" {
 		return nil
 	}
-	b, err := os.ReadFile(path)
+	b, err := safefile.ReadPath(path, safefile.Manifest)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, os.ErrNotExist) {
 			return nil
 		}
 		return err
@@ -276,7 +277,10 @@ func deliver(ctx context.Context, order <-chan chan scanResult, fn func(*graph.F
 			return err
 		}
 		if res.err != nil {
-			if errors.Is(res.err, ErrUnsupported) {
+			// unsupported, or a file the safe reader refuses (a FIFO, a
+			// device, a pseudo file a pull request can add): skipped, never
+			// the end of the scan
+			if errors.Is(res.err, ErrUnsupported) || errors.Is(res.err, safefile.ErrRefused) {
 				continue
 			}
 			return res.err

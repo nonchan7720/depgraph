@@ -158,6 +158,8 @@ func TestParseErrors(t *testing.T) {
 		{"empty layer", "layers:\n  a: []\n", `layer "a"`},
 		{"bad glob", "layers:\n  a: [a/b**]\n", `layer "a"`},
 		{"bad ignore", "ignore: [\"\"]\n", "ignore"},
+		{"empty external pattern", "layers:\n  a: [\"ext:\"]\n", "empty external package pattern"},
+		{"only exclusions", "layers:\n  a: [\"!a/**\"]\n", "only ! patterns"},
 		{"duplicate key", "project: a\nproject: b\n", "already defined"},
 		{"two documents", "project: a\n---\nproject: b\n", "one YAML document"},
 	}
@@ -255,5 +257,23 @@ func TestParseGodPackageFanOut(t *testing.T) {
 	}
 	if _, err := Parse([]byte("rules:\n  god-package: {fanOut: 0}\n")); err == nil {
 		t.Error("fanOut 0 must be an error")
+	}
+}
+
+// A layer may hold external packages and exclusions.
+func TestParseExternalLayers(t *testing.T) {
+	f, err := Parse([]byte(`
+layers:
+  domain: [app/domain/**]
+  frameworks: ["ext:*", "!ext:github.com/google/uuid"]
+forbidden:
+  domain: [frameworks]
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []rules.Layer{{Name: "domain", Packages: []string{"app/domain/**"}}, {Name: "frameworks", Packages: []string{"ext:*", "!ext:github.com/google/uuid"}}}
+	if !reflect.DeepEqual(f.Rules.Layers, want) || !reflect.DeepEqual(f.Rules.ForbiddenLayers, [][2]string{{"domain", "frameworks"}}) {
+		t.Errorf("= %+v", f.Rules)
 	}
 }

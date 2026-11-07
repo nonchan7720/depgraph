@@ -90,7 +90,9 @@
     {
       "spec": "path",
       "target": "ext:path",
-      "external": true
+      "external": true,
+      "class": "standard",
+      "basis": "Node built-in (esbuild)"
     },
     {
       "spec": "../db/index.js",

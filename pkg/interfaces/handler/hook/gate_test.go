@@ -161,3 +161,15 @@ func TestRenderGateLimitsLines(t *testing.T) {
 		t.Fatalf("RenderGate:\n%s", out)
 	}
 }
+
+// Every built-in rule has a place in the summary and a hint.
+func TestSummaryKnowsEveryBuiltinRule(t *testing.T) {
+	for _, r := range rules.Builtin() {
+		if _, ok := ruleOrder[r.Name]; !ok {
+			t.Errorf("%s has no rank", r.Name)
+		}
+		if ruleHints[r.Name] == "" {
+			t.Errorf("%s has no hint", r.Name)
+		}
+	}
+}

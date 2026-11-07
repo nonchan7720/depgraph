@@ -442,7 +442,7 @@ import は各エコシステム自身の解決方法で、プロジェクトの�
 |---|---|---|
 | `import-cycle` | error | パッケージ間の循環 import。8 パッケージ以下の循環に乗る import ごとに、それを通る最短の循環（最大 50 件） |
 | `module-cycle` | error | モノレポのモジュール間の import 循環（Go モジュール・npm のワークスペースパッケージ・Python プロジェクト・Ruby のアプリケーション / gem / engine / packwerk の pack。`go.mod`・`package.json`・`pyproject.toml`・`setup.py`・`setup.cfg`・`Gemfile`・`*.gemspec`・`package.yml` のあるディレクトリと[コンポーネント](#モノレポcomponents)）。ディレクトリ同士では循環にならないもの（`packages/web/src/a -> packages/kit/src -> packages/web/src/b`）も検出します。1 ホップごとに import を 1 つ示し、`import-cycle` が報告済みの循環は重ねて報告しません |
-| `layer-violation` | error | import してはいけないレイヤーを import している（`handler → repository` など、または独自レイヤー） |
+| `layer-violation` | error | import してはいけないレイヤーを import している（`handler → repository` など、または独自レイヤー）。レイヤーには外部パッケージも書けるので、フレームワークを import するドメインも違反になる（[フレームワーク](#フレームワークレイヤーに外部パッケージ)参照） |
 | `duplicate-code` | warn | 名前に関係なく、同じロジックが複数箇所にある（完全に同じ、または少し手を加えた複製。下記） |
 | `god-package` | warn | ハブ：10 パッケージ以上から import され、かつリポジトリ内の 3 パッケージ以上を import している。多くから依存されてもリポジトリ内の何にも依存しないパッケージ（ドメインモデルなど）は安定しており、god package ではない（安定依存の原則） |
 | `duplicate-symbol` | warn | 同名の exported function/class が複数ファイルに存在（1 つの Go パッケージのファイルは 1 か所と数える。同名が両立するのは build constraint で分けたときだけのため。Ruby は対象外: クラスの再オープンは Ruby の拡張方法そのもの） |
@@ -492,11 +492,13 @@ layers:                     # レイヤー名 -> パッケージパスの glob
   services: ["pkg/services/**"]
   infrastructure: ["pkg/infrastructure/**"]
   interfaces: ["pkg/interfaces/**", "cmd/**"]
+  frameworks: ["ext:*", "!ext:github.com/google/uuid"]   # サードパーティのパッケージ（下記）
 
 forbidden:                  # レイヤー -> import してはいけないレイヤー
-  domain: [infrastructure, services, interfaces]
+  domain: [infrastructure, services, interfaces, frameworks]
   services: [interfaces]
   infrastructure: [interfaces, services]
+
 
 rules:                      # ルールごと: enabled、severity（error | warn | info）、オプション
   import-cycle: {severity: error}
@@ -538,6 +540,38 @@ store:                      # Neo4j の用意の仕方（Neo4j 参照）。フ�
 `infrastructure`・`repositories`・`usecases`）と、禁止ペア `handler → repository / infra / db`、
 `controller → repository / db`、`domain → infra / handler / repository`、`usecase → handler` です。
 このリポジトリ自身の [`.depgraph.yml`](.depgraph.yml) が例になります。
+
+### フレームワーク：レイヤーに外部パッケージ
+
+`ext:` で始まるレイヤーパターンはリポジトリ外のパッケージにマッチするので、
+`forbidden` でドメインをフレームワークから切り離せます:
+
+| パターン | マッチするもの |
+|---|---|
+| `ext:gorm.io/gorm` | そのパッケージと配下（`gorm.io/gorm/clause`。Python の import ではサブモジュールも: `ext:sqlalchemy` は `sqlalchemy.orm` にマッチ。一方 `lodash.debounce` は `ext:lodash` の配下ではない）。標準ライブラリも含む（`ext:net/http`、`ext:database/sql`） |
+| `ext:*`、`ext:github.com/aws/*`、`ext:@nestjs/*` | サードパーティと分かっているパッケージをパターンで指定（`*` は `/` を含む任意の文字列、`?` は 1 文字）。サードパーティかどうかの判定は下記 |
+| `!<パターン>` | レイヤーから除外する（`"!ext:github.com/google/uuid"`、`"!pkg/domain/legacy/**"`） |
+
+```yaml
+layers:
+  domain: ["internal/domain/**"]
+  frameworks: ["ext:*", "!ext:github.com/google/uuid", "!ext:github.com/shopspring/decimal"]
+  http: ["ext:net/http"]
+forbidden:
+  domain: [frameworks, http]   # internal/domain -> ext:gorm.io/gorm (domain must not import frameworks)
+```
+
+ワイルドカードがマッチするのは、サードパーティと分かっている import だけです。判定はプロジェクト自身のファイルと解決結果から行い、
+depgraph が持つ名前の一覧は使わず、何も実行しません:
+
+| 言語 | サードパーティ | サードパーティではない |
+|---|---|---|
+| Go | import 元モジュールの `go.mod`（または `go.work`）が require / replace しているモジュール | 先頭要素にドットを含まないパス（go コマンドの標準ライブラリの規則） |
+| TypeScript / JavaScript | `node_modules` に解決されたもの。未インストールなら、そのファイルか上位の `package.json` が宣言しているもの | esbuild が組み込みに解決した Node の組み込みモジュール（`punycode` は組み込み、`punycode/` はインストール済みパッケージ） |
+| Python、Ruby | まだ判定しない | |
+
+import ごとに判定結果と根拠を記録します（`depgraph parse` で見られます）。サードパーティならワイルドカードにマッチするのに判定できなかった
+import は、違反としては報告せず、黙って捨てることもしません。`external-unclassified`（info）が言語ごとに根拠つきで一覧にします。
 
 ### モノレポ（`components`）
 

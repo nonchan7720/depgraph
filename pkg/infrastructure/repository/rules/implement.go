@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/nonchan7720/depgraph/pkg/domain/graph"
 	"github.com/nonchan7720/depgraph/pkg/domain/rules"
 )
 
@@ -87,15 +88,27 @@ func (r *Repository) packageKeys(ctx context.Context) ([]string, error) {
 	return keys, nil
 }
 
+// expandComponents returns cfg with the components whose directory is a
+// pattern expanded over the project's packages.
+func (r *Repository) expandComponents(ctx context.Context, cfg rules.Config) (rules.Config, error) {
+	if !slices.ContainsFunc(cfg.Components, func(c rules.Component) bool { return strings.ContainsAny(c.Dir, "*?") }) {
+		return cfg, nil
+	}
+	keys, err := r.packageKeys(ctx)
+	if err != nil {
+		return rules.Config{}, err
+	}
+	return cfg.ExpandComponents(keys), nil
+}
+
 // layerPairs compiles cfg's forbidden pairs for the query; components whose
 // directory is a pattern are expanded over the project's packages first.
+// toExternal tells the query whether a pair's to layer names external
+// packages (only then are imports of external packages matched).
 func (r *Repository) layerPairs(ctx context.Context, cfg rules.Config) ([]map[string]any, error) {
-	if slices.ContainsFunc(cfg.Components, func(c rules.Component) bool { return strings.ContainsAny(c.Dir, "*?") }) {
-		keys, err := r.packageKeys(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("layers: %w", err)
-		}
-		cfg = cfg.ExpandComponents(keys)
+	cfg, err := r.expandComponents(ctx, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("layers: %w", err)
 	}
 	lp, err := cfg.LayerPairs()
 	if err != nil {
@@ -103,13 +116,90 @@ func (r *Repository) layerPairs(ctx context.Context, cfg rules.Config) ([]map[st
 	}
 	out := make([]map[string]any, 0, len(lp))
 	for _, p := range lp {
-		except := p.ExceptRx
-		if except == nil {
-			except = []string{}
+		m := p.Params()
+		m["toExternal"] = p.ToSet.HasExternal()
+		out = append(out, m)
+	}
+	return out, nil
+}
+
+// inRepoLayer is the Cypher condition "in-repo package node n is in the
+// layer set s" (a rules.LayerSet.Params map): rules.LayerSet.Contains.
+func inRepoLayer(n, s string) string {
+	return fmt.Sprintf(`(NOT any(rx IN %[2]s.notRx WHERE %[1]s.key =~ rx) AND any(rx IN %[2]s.rx WHERE %[1]s.key =~ rx))`, n, s)
+}
+
+// inExtLayer is the Cypher condition "external package node n, imported by
+// a Python file when py, known to be third-party when tp, is in the layer
+// set s": rules.LayerSet.Contains.
+func inExtLayer(n, s, py, tp string) string {
+	return fmt.Sprintf(`(NOT any(rx IN CASE WHEN %[3]s THEN %[2]s.pyExtNotRx ELSE %[2]s.extNotRx END WHERE %[1]s.key =~ rx) AND (
+		any(rx IN CASE WHEN %[3]s THEN %[2]s.pyExtRx ELSE %[2]s.extRx END WHERE %[1]s.key =~ rx) OR
+		(%[4]s AND any(rx IN %[2]s.libRx WHERE %[1]s.key =~ rx))))`, n, s, py, tp)
+}
+
+// externalUnclassified lists, per language, the external imports of the
+// from layer of a forbidden pair whose to layer has a wildcard that would
+// match them if they were known to be third-party, and is not decided by an
+// exact pattern or an exclusion.
+func (r *Repository) externalUnclassified(ctx context.Context, cfg rules.Config, ignore []string) ([]rules.Finding, error) {
+	pairs, err := r.layerPairs(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	var wild []map[string]any
+	for _, p := range pairs {
+		if set, _ := p["toSet"].(map[string]any); set != nil {
+			if libs, _ := set["libRx"].([]string); len(libs) > 0 {
+				wild = append(wild, p)
+			}
 		}
-		out = append(out, map[string]any{
-			"component": p.Component, "from": p.From, "to": p.To,
-			"fromRx": p.FromRx, "toRx": p.ToRx, "exceptRx": except,
+	}
+	if len(wild) == 0 {
+		return nil, nil
+	}
+	rows, err := r.query(ctx, `
+		UNWIND $pairs AS pr
+		MATCH (a:Package {project: $project})-[:CONTAINS]->(f:File)-[e:IMPORTS]->(b:Package)
+		WHERE a.external = false AND b.external = true AND e.class IS NULL
+		  AND NOT any(rx IN pr.exceptRx WHERE a.key =~ rx)
+		  AND NOT any(rx IN $ignore WHERE a.key =~ rx OR b.key =~ rx)
+		  AND `+inRepoLayer("a", "pr.fromSet")+` AND NOT `+inRepoLayer("a", "pr.toSet")+`
+		WITH a, b, f, e, pr, f.language = 'python' AS py
+		WHERE `+inExtLayer("b", "pr.toSet", "py", "true")+` AND NOT `+inExtLayer("b", "pr.toSet", "py", "false")+`
+		  AND NOT `+inExtLayer("b", "pr.fromSet", "py", "true")+`
+		RETURN DISTINCT f.language AS lang, b.key AS key, e.basis AS basis
+	`, ignore, map[string]any{"pairs": wild})
+	if err != nil {
+		return nil, fmt.Errorf("external unclassified: %w", err)
+	}
+	byLang := map[string][]string{}
+	for _, row := range rows {
+		lang, _ := row["lang"].(string)
+		item := fmt.Sprint(row["key"])
+		if basis, _ := row["basis"].(string); basis != "" {
+			item += " (" + basis + ")"
+		}
+		byLang[lang] = append(byLang[lang], item)
+	}
+	langs := slices.Sorted(maps.Keys(byLang))
+	out := make([]rules.Finding, 0, len(langs))
+	for _, lang := range langs {
+		items := byLang[lang]
+		sort.Strings(items)
+		items = slices.Compact(items)
+		shown := items
+		if len(shown) > 10 {
+			shown = shown[:10]
+		}
+		msg := fmt.Sprintf("%d imports of %s files may be third-party but could not be classified, so ext: wildcards skip them: %s",
+			len(items), lang, strings.Join(shown, ", "))
+		if n := len(items) - len(shown); n > 0 {
+			msg += fmt.Sprintf(", and %d more", n)
+		}
+		out = append(out, rules.Finding{
+			Rule: rules.RuleExternalUnclassified, Severity: string(cfg.Severity(rules.RuleExternalUnclassified)),
+			ID: lang, Message: msg, Data: map[string]any{"language": lang, "imports": items},
 		})
 	}
 	return out, nil
@@ -199,16 +289,36 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 			return nil, err
 		}
 		if len(pairs) > 0 {
+			// rules.LayerPair.Reports: a in from, b in to, and the import
+			// crosses the pair. Imports of in-repo packages are package
+			// edges; imports of external packages are read per file, whose
+			// language decides what is the standard library (and whether
+			// submodules are dotted), for the pairs whose to layer names
+			// external packages (toExternal). A wildcard matches only an
+			// import the resolver classified as third-party (the edge's
+			// class; an edge of an older graph has none).
+			params := map[string]any{"pairs": pairs}
 			rows, err := r.query(ctx, `
 				UNWIND $pairs AS pr
 				MATCH (a:Package {project: $project})-[:IMPORTS]->(b:Package)
 				WHERE a.external = false AND b.external = false
-				  AND any(rx IN pr.fromRx WHERE a.key =~ rx) AND any(rx IN pr.toRx WHERE b.key =~ rx)
-				  AND NOT any(rx IN pr.toRx WHERE a.key =~ rx) AND NOT any(rx IN pr.fromRx WHERE b.key =~ rx)
 				  AND NOT any(rx IN pr.exceptRx WHERE a.key =~ rx OR b.key =~ rx)
 				  AND NOT any(rx IN $ignore WHERE a.key =~ rx OR b.key =~ rx)
+				  AND `+inRepoLayer("a", "pr.fromSet")+` AND `+inRepoLayer("b", "pr.toSet")+`
+				  AND NOT `+inRepoLayer("a", "pr.toSet")+` AND NOT `+inRepoLayer("b", "pr.fromSet")+`
 				RETURN DISTINCT a.key AS from, b.key AS to, pr.from AS fromLayer, pr.to AS toLayer, pr.component AS component
-			`, ignore, map[string]any{"pairs": pairs})
+				UNION
+				UNWIND $pairs AS pr
+				WITH pr WHERE pr.toExternal
+				MATCH (a:Package {project: $project})-[:CONTAINS]->(f:File)-[e:IMPORTS]->(b:Package)
+				WHERE a.external = false AND b.external = true
+				  AND NOT any(rx IN pr.exceptRx WHERE a.key =~ rx)
+				  AND NOT any(rx IN $ignore WHERE a.key =~ rx OR b.key =~ rx)
+				  AND `+inRepoLayer("a", "pr.fromSet")+` AND NOT `+inRepoLayer("a", "pr.toSet")+`
+				WITH pr, a, b, f.language = 'python' AS py, coalesce(e.class = '`+graph.ClassThirdParty+`', false) AS tp
+				WHERE `+inExtLayer("b", "pr.toSet", "py", "tp")+` AND NOT `+inExtLayer("b", "pr.fromSet", "py", "tp")+`
+				RETURN DISTINCT a.key AS from, b.key AS to, pr.from AS fromLayer, pr.to AS toLayer, pr.component AS component
+			`, ignore, params)
 			if err != nil {
 				return nil, fmt.Errorf("layers: %w", err)
 			}
@@ -225,6 +335,15 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 				})
 			}
 		}
+	}
+
+	// 2b. Imports a wildcard external layer could not classify.
+	if cfg.Enabled(rules.RuleExternalUnclassified) {
+		fs, err := r.externalUnclassified(ctx, cfg, ignore)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, fs...)
 	}
 
 	// 3. God packages: hubs, imported by many packages and importing many

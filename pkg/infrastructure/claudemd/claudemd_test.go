@@ -108,3 +108,13 @@ func TestRenderDuplicateCode(t *testing.T) {
 		t.Errorf("render:\n%s", out)
 	}
 }
+
+// Every built-in rule has a title that tells the assistant what to do.
+func TestRenderTitlesEveryBuiltinRule(t *testing.T) {
+	for _, r := range rules.Builtin() {
+		out := Render(view.Stats{}, []rules.Finding{{Rule: r.Name, Severity: string(r.Severity), Message: "m"}})
+		if strings.Contains(out, "### "+r.Name+"\n") {
+			t.Errorf("%s has no title:\n%s", r.Name, out)
+		}
+	}
+}

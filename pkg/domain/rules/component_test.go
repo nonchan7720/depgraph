@@ -1,7 +1,6 @@
 package rules
 
 import (
-	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -23,22 +22,6 @@ func TestPrefixGlob(t *testing.T) {
 	}
 }
 
-// pairMatches reports whether the pair p reports an import from -> to, the
-// way the store evaluates it (rules/implement.go).
-func pairMatches(t *testing.T, p LayerPair, from, to string) bool {
-	t.Helper()
-	any := func(rxs []string, key string) bool {
-		for _, rx := range rxs {
-			if regexp.MustCompile(rx).MatchString(key) {
-				return true
-			}
-		}
-		return false
-	}
-	return any(p.FromRx, from) && any(p.ToRx, to) && !any(p.ToRx, from) && !any(p.FromRx, to) &&
-		!any(p.ExceptRx, from) && !any(p.ExceptRx, to)
-}
-
 func violations(t *testing.T, c Config, from, to string) []string {
 	t.Helper()
 	if err := c.Validate(); err != nil {
@@ -50,7 +33,7 @@ func violations(t *testing.T, c Config, from, to string) []string {
 	}
 	var out []string
 	for _, p := range pairs {
-		if pairMatches(t, p, from, to) {
+		if p.Reports(PackageRef{Key: from}, PackageRef{Key: to}) {
 			out = append(out, strings.TrimPrefix(p.Component+":", ":")+p.From+"->"+p.To)
 		}
 	}

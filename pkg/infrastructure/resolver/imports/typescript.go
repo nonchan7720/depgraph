@@ -128,15 +128,20 @@ func tsFailure(spec, reason string) Result {
 		// or package.json "imports" entry
 		return unresolvedf(reason)
 	}
-	// a package that is not installed
-	return external(packageName(spec))
+	// a package that is not installed: whether it is declared is the
+	// manifests' call (package.json)
+	return external(packageName(spec)).classed("", "not installed")
 }
 
 // tsResolved classifies what esbuild resolved spec to.
 func tsResolved(realRoot, spec, p string, isExternal bool, namespace string) Result {
-	if isExternal || (namespace != "" && namespace != "file") {
-		// node builtins ("fs", "node:fs"), URLs
-		return external(packageName(spec))
+	if isExternal {
+		// esbuild resolves a Node built-in ("fs", "node:fs") to itself,
+		// before node_modules ("punycode/" is the installed package)
+		return external(packageName(spec)).classed(ClassStandard, "Node built-in (esbuild)")
+	}
+	if namespace != "" && namespace != "file" {
+		return external(packageName(spec)).classed("", "resolved to namespace "+namespace)
 	}
 	// a bundler query ("worker.ts?worker&inline", Vite) is not part of the
 	// file: esbuild's metafile keeps it as the path's suffix
@@ -148,19 +153,20 @@ func tsResolved(realRoot, spec, p string, isExternal bool, namespace string) Res
 	}
 	slash := filepath.ToSlash(p)
 	if _, after, ok := strings.CutLast(slash, "/node_modules/"); ok {
-		if name := packageName(after); validPackageName(name) {
-			return external(name)
+		name := packageName(after)
+		if !validPackageName(name) {
+			name = packageName(spec)
 		}
-		return external(packageName(spec))
+		return external(name).classed(ClassThirdParty, "installed in node_modules")
 	}
 	if rel, ok := toRel(realRoot, p); ok {
 		return inRepoFile(rel)
 	}
 	// resolved to a file outside the repository
 	if isPathSpec(spec) {
-		return external(spec)
+		return external(spec).classed("", "a file outside the repository")
 	}
-	return external(packageName(spec))
+	return external(packageName(spec)).classed("", "resolved outside the repository and node_modules")
 }
 
 // Invalidate implements Resolver.

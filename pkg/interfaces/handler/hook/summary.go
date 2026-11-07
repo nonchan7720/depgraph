@@ -27,7 +27,7 @@ func DefaultLimits() Limits {
 
 var ruleOrder = map[string]int{
 	"import-cycle": 0, rules.RuleModuleCycle: 1, "layer-violation": 2, "duplicate-code": 3, "god-package": 4, "duplicate-symbol": 5,
-	rules.RuleUnusedExport: 6, rules.RuleUnreachableFile: 7, rules.RuleUnreachablePackage: 8,
+	rules.RuleUnusedExport: 6, rules.RuleUnreachableFile: 7, rules.RuleUnreachablePackage: 8, rules.RuleExternalUnclassified: 9,
 }
 
 var ruleHints = map[string]string{
@@ -38,9 +38,10 @@ var ruleHints = map[string]string{
 	"god-package":         "avoid adding more dependents",
 	"duplicate-symbol":    "reuse or consolidate instead of re-implementing",
 
-	rules.RuleUnusedExport:       "nothing uses these: delete them instead of building on them",
-	rules.RuleUnreachableFile:    "no entry point imports these: delete or wire them up",
-	rules.RuleUnreachablePackage: "no main package or test imports these: delete or wire them up",
+	rules.RuleUnusedExport:         "nothing uses these: delete them instead of building on them",
+	rules.RuleUnreachableFile:      "no entry point imports these: delete or wire them up",
+	rules.RuleUnreachablePackage:   "no main package or test imports these: delete or wire them up",
+	rules.RuleExternalUnclassified: "not checked against ext: layers; do not take this as a pass",
 }
 
 func severityRank(s string) int {

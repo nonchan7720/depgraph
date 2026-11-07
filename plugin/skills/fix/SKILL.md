@@ -32,7 +32,9 @@ refactor nobody asked for.
 - **layer-violation** (error): a layer imports one it must not (`.depgraph.yml` `forbidden`, or
   the defaults such as handler → repository). Route the call through the layer in between
   (handler → usecase → repository) or depend on an interface the inner layer declares. Change the
-  layer rules only when the user confirms the architecture changed.
+  layer rules only when the user confirms the architecture changed. When the imported package is
+  external (`ext:...`, a framework in an inner layer), keep the framework in an adapter of the outer
+  layer behind an interface the inner layer declares, and pass plain types across.
 - **duplicate-code** (warn): the same logic in several places, also under different names. Keep one
   implementation in the place both callers can import, and call it from both. Before writing new
   code, search for an existing function that does the job; this rule exists because agents

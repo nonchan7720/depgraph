@@ -470,7 +470,7 @@ external, so it never shows up as a dependency. `watch` rescans when one of thes
 |---|---|---|
 | `import-cycle` | error | import cycle between packages: for every import on a cycle of at most 8 packages, the shortest cycle through it (up to 50) |
 | `module-cycle` | error | import cycle between the modules of a monorepo (Go modules, npm workspace packages, Python projects, Ruby applications / gems / engines / packwerk packs: directories with `go.mod`, `package.json`, `pyproject.toml`, `setup.py`, `setup.cfg`, `Gemfile`, `*.gemspec` or `package.yml`, plus [components](#monorepos-components)) through directories that do not form a cycle themselves (`packages/web/src/a -> packages/kit/src -> packages/web/src/b`). One import is listed per hop; a cycle `import-cycle` already reports is not repeated |
-| `layer-violation` | error | a package imports a layer it must not import (`handler → repository`, ... or your own layers) |
+| `layer-violation` | error | a package imports a layer it must not import (`handler → repository`, ... or your own layers). Layers may name external packages, so a domain that imports a framework is one too (see [Frameworks](#frameworks-external-packages-in-layers)) |
 | `duplicate-code` | warn | the same logic in several places, whatever the names: identical, or a copy changed a little (see below) |
 | `god-package` | warn | a hub: imported by 10 or more packages and importing 3 or more in-repo packages. A package many depend on that depends on nothing in the repository (a domain model) is stable, not a god package (Stable Dependencies Principle) |
 | `duplicate-symbol` | warn | an exported function/class with the same name exists in several files (the files of one Go package count once: they can only share a name through build constraints; Ruby is left out, reopening a class is how Ruby extends it) |
@@ -584,9 +584,10 @@ layers:                     # layer name -> package path globs
   services: ["pkg/services/**"]
   infrastructure: ["pkg/infrastructure/**"]
   interfaces: ["pkg/interfaces/**", "cmd/**"]
+  frameworks: ["ext:*", "!ext:github.com/google/uuid"]   # third-party packages (see below)
 
 forbidden:                  # layer -> layers it must not import
-  domain: [infrastructure, services, interfaces]
+  domain: [infrastructure, services, interfaces, frameworks]
   services: [interfaces]
   infrastructure: [interfaces, services]
 
@@ -631,6 +632,39 @@ Without `.depgraph.yml` the defaults are the layers `controller`, `db`, `domain`
 pairs `handler → repository / infra / db`, `controller → repository / db`,
 `domain → infra / handler / repository` and `usecase → handler`.
 This repository's own [`.depgraph.yml`](.depgraph.yml) is an example.
+
+### Frameworks: external packages in layers
+
+A layer pattern that starts with `ext:` matches packages outside the repository, so `forbidden`
+keeps a domain free of frameworks:
+
+| pattern | matches |
+|---|---|
+| `ext:gorm.io/gorm` | that package and what is under it (`gorm.io/gorm/clause`; in Python imports also its submodules: `ext:sqlalchemy` matches `sqlalchemy.orm`, while `lodash.debounce` is not under `ext:lodash`), the standard library included (`ext:net/http`, `ext:database/sql`) |
+| `ext:*`, `ext:github.com/aws/*`, `ext:@nestjs/*` | packages known to be third-party, by a pattern (`*` is any run of characters, `/` included; `?` one character). See below for how an import is known to be third-party |
+| `!<pattern>` | leaves packages out of the layer (`"!ext:github.com/google/uuid"`, `"!pkg/domain/legacy/**"`) |
+
+```yaml
+layers:
+  domain: ["internal/domain/**"]
+  frameworks: ["ext:*", "!ext:github.com/google/uuid", "!ext:github.com/shopspring/decimal"]
+  http: ["ext:net/http"]
+forbidden:
+  domain: [frameworks, http]   # internal/domain -> ext:gorm.io/gorm (domain must not import frameworks)
+```
+
+A wildcard matches only an import known to be third-party. That is decided from the project's own
+files and the resolution, never by a list of names shipped with depgraph, and nothing is executed:
+
+| language | third-party | not third-party |
+|---|---|---|
+| Go | a module the importing module's `go.mod` (or its `go.work`) requires or replaces | a path whose first element has no dot (the go command's rule for the standard library) |
+| TypeScript / JavaScript | resolved into `node_modules`, or declared in a `package.json` of the file or above it when not installed | a Node built-in, as esbuild resolves it (`punycode` is the built-in, `punycode/` the installed package) |
+| Python, Ruby | not classified yet | |
+
+Each import records its class and why (`depgraph parse` shows them). An import a wildcard would match
+if it were third-party but that could not be classified is not reported as a violation, and not dropped
+either: `external-unclassified` (info) lists them per language with the reason.
 
 ### Monorepos (`components`)
 

@@ -2,6 +2,7 @@ package treesitter
 
 import (
 	"encoding/json"
+	"io"
 	"os"
 	"path"
 	"path/filepath"
@@ -9,6 +10,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/nonchan7720/depgraph/pkg/infrastructure/resolver/imports"
 )
 
 // Ruby entry points. Rails loads much of an application by convention, not
@@ -61,10 +64,11 @@ func packPublicPath(root, rel string) string {
 }
 
 // rbBase is the directory of the application, gem, engine or pack rel
-// belongs to (the deepest with a Gemfile, *.gemspec or package.yml).
+// belongs to (the deepest with a Gemfile, *.gemspec or package.yml, or
+// whose app/ has Rails' layout).
 func (m *manifests) rbBase(rel string) string {
 	for d := path.Dir(rel); ; d = path.Dir(d) {
-		if _, ok := m.rbPacks[d]; ok || m.rbScopes[d] {
+		if _, ok := m.rbPacks[d]; ok || m.rbScopes[d] || m.rbApps[d] {
 			return d
 		}
 		if d == "." || d == "/" || d == "" {
@@ -88,12 +92,23 @@ func (m *manifests) rbEntry(rel string, u *usageCollector) string {
 		return "script (#!)"
 	case strings.HasPrefix(base, "."):
 		return "tool configuration (" + base + ")" // .active_record_doctor.rb, .pryrc.rb
+	case strings.HasPrefix(rel, ".") || strings.Contains(rel, "/."):
+		return "tool directory" // .skills/, .devcontainer/, .github/
+	case base == "plugin.rb" && m.rbApps[path.Dir(rel)]:
+		return "Discourse plugin"
 	}
 	if u.rbEntry != "" {
 		return u.rbEntry
 	}
 	if why := m.rbLibrary(u); why != "" {
 		return why
+	}
+	for _, s := range u.x.fg.Symbols {
+		if s.Kind == "class" || s.Kind == "module" {
+			if f, ok := m.rbYAML[s.Name]; ok {
+				return "named in " + f
+			}
+		}
 	}
 	b := m.rbBase(rel)
 	in := rel
@@ -399,5 +414,93 @@ func (m *manifests) loadRailsJS(root, dir string) {
 	}
 	if !packer {
 		prefix("app/javascript/packs", "Shakapacker / Webpacker entry")
+	}
+}
+
+// ---- Rails layouts outside a Gemfile ---------------------------------------
+
+// findRailsApps records the directories whose app/ has Rails' layout
+// (an engine or a Discourse plugin without a Gemfile of its own).
+func (m *manifests) findRailsApps() {
+	for _, f := range m.sources {
+		segs := strings.Split(f, "/")
+		for i := 0; i+2 < len(segs); i++ {
+			if segs[i] == "app" && imports.RailsAppDirs[segs[i+1]] {
+				d := path.Join(segs[:i]...)
+				if d == "" {
+					d = "."
+				}
+				m.rbApps[d] = true
+			}
+		}
+	}
+}
+
+// loadDiscoursePlugin: a Discourse plugin (plugin.rb) is loaded by
+// Discourse, and the Ember resolver loads its JavaScript by name.
+func (m *manifests) loadDiscoursePlugin(root, dir string) {
+	if !m.rbApps[dir] && !isDir(root, path.Join(dir, "assets")) && !isDir(root, path.Join(dir, "lib")) {
+		return // a plugin.rb that is not a Discourse plugin's
+	}
+	m.rbApps[dir] = true
+	for _, d := range []string{"assets/javascripts", "admin/assets/javascripts", "test/javascripts"} {
+		if p := path.Join(dir, d); isDir(root, p) {
+			m.prefixes[p+"/"] = "Discourse plugin asset (Ember resolver)"
+		}
+	}
+}
+
+// ---- constants named by configuration --------------------------------------
+
+// rbConfigYAML: YAML configuration of a Rails application (config/**/*.yml,
+// not its translations), which names classes by string (site settings
+// validators, schedules).
+func rbConfigYAML(rel string) bool {
+	if !strings.HasSuffix(rel, ".yml") && !strings.HasSuffix(rel, ".yaml") {
+		return false
+	}
+	segs := strings.Split(path.Dir(rel), "/")
+	return hasSeg(segs, map[string]bool{"config": true}) && !hasSeg(segs, map[string]bool{"locales": true, "locale": true})
+}
+
+// a YAML value or list item that is a constant name and nothing else
+var yamlConstRe = regexp.MustCompile(`(?m)(?:^\s*-|:)\s*["']?((?:::)?[A-Z][A-Za-z0-9]*(?:::[A-Z][A-Za-z0-9]*)*)["']?\s*$`)
+
+func (m *manifests) loadConfigConstants(root, rel string) {
+	b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+	if err != nil || len(b) > 4<<20 {
+		return
+	}
+	for _, sm := range yamlConstRe.FindAllSubmatch(b, -1) {
+		if c := strings.TrimPrefix(string(sm[1]), "::"); m.rbYAML[c] == "" {
+			m.rbYAML[c] = rel
+		}
+	}
+}
+
+var rubyShebangRe = regexp.MustCompile(`^#!\S*(?:/env\s+(?:-S\s+)?)?\S*\bruby\b`)
+
+// loadRubyScript: an extensionless Ruby script (bin/setup, a #!/usr/bin/env
+// ruby tool) is not parsed, but the constants its code names are used.
+func (m *manifests) loadRubyScript(root, rel string) {
+	f, err := os.Open(filepath.Join(root, filepath.FromSlash(rel)))
+	if err != nil {
+		return
+	}
+	defer func() { _ = f.Close() }()
+	head := make([]byte, 128)
+	n, _ := io.ReadFull(f, head)
+	if !rubyShebangRe.Match(head[:n]) {
+		return // only the first line is read of files that are not Ruby
+	}
+	rest, err := io.ReadAll(io.LimitReader(f, 1<<20))
+	if err != nil {
+		return
+	}
+	b := append(head[:n], rest...)
+	for _, sm := range rbTemplConst.FindAllSubmatch(rbStringRe.ReplaceAll(b, []byte(`""`)), -1) {
+		if c := strings.TrimPrefix(string(sm[1]), "::"); m.rbYAML[c] == "" {
+			m.rbYAML[c] = rel
+		}
 	}
 }

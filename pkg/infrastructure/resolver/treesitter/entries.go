@@ -49,6 +49,8 @@ type manifests struct {
 	rbGems   map[string]bool   // dirs with a *.gemspec
 	rbPacks  map[string]string // packwerk pack dir (package.yml) -> its public path
 	rbLibs   map[string]bool   // rbLibKey of the libraries' root constants -> certain (see loadGemNames)
+	rbApps   map[string]bool   // dirs whose app/ has Rails' layout (engines, Discourse plugins)
+	rbYAML   map[string]string // constant named by a configuration file or an extensionless script -> the file
 
 	files    map[string]string            // file -> why it is an entry
 	prefixes map[string]string            // dir/ -> why every file under it is an entry
@@ -173,11 +175,12 @@ func loadManifests(ctx context.Context, root string, imp *imports.Multi) *manife
 	m := &manifests{
 		tsScopes: map[string]bool{}, pyScopes: map[string]bool{}, goScopes: map[string]bool{},
 		rbScopes: map[string]bool{}, rbGems: map[string]bool{}, rbPacks: map[string]string{}, rbLibs: rbCoreRoots(),
+		rbApps: map[string]bool{}, rbYAML: map[string]string{},
 		files: map[string]string{}, prefixes: map[string]string{}, opaque: map[string]string{},
 		routing: map[string]string{}, dirs: map[string]map[string]string{}, django: map[string]bool{},
 		vendored: map[string]string{}, deps: map[string]map[string]bool{}, internal: map[string]bool{},
 	}
-	var pkgs, htmls, commands, pyManifests, mdxs, kits, rbConfigs []string
+	var pkgs, htmls, commands, pyManifests, mdxs, kits, rbConfigs, plugins, yamls, scripts []string
 	opaqueFiles := map[string]string{} // dir -> framework
 	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || ctx.Err() != nil {
@@ -215,6 +218,12 @@ func loadManifests(ctx context.Context, root string, imp *imports.Multi) *manife
 			m.loadGemNames(root, rel)
 		case rbToolConfig(rel):
 			rbConfigs = append(rbConfigs, rel)
+		case base == "plugin.rb":
+			plugins = append(plugins, dir)
+		case rbConfigYAML(rel):
+			yamls = append(yamls, rel)
+		case path.Ext(base) == "" && !d.IsDir():
+			scripts = append(scripts, rel)
 		case strings.HasSuffix(base, ".gemspec"):
 			m.rbScopes[dir], m.rbGems[dir] = true, true
 		case base == "package.yml":
@@ -293,6 +302,16 @@ func loadManifests(ctx context.Context, root string, imp *imports.Multi) *manife
 	}
 	for dir := range m.rbScopes {
 		m.loadRailsJS(root, dir)
+	}
+	m.findRailsApps()
+	for _, dir := range plugins {
+		m.loadDiscoursePlugin(root, dir)
+	}
+	for _, rel := range yamls {
+		m.loadConfigConstants(root, rel)
+	}
+	for _, rel := range scripts {
+		m.loadRubyScript(root, rel)
 	}
 	for _, rel := range pyManifests {
 		b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
@@ -409,6 +428,9 @@ func (m *manifests) internalAPI(rel string, lang graph.Language, why string) boo
 	}
 	if why == "" || lang == graph.Go || lang == graph.Python || !m.internal[m.scope(rel, lang)] {
 		return false
+	}
+	if _, ok := m.opaque[m.scope(rel, lang)]; ok {
+		return false // a framework loads its files by name (Ember, Vue, ...)
 	}
 	switch why {
 	case "package entry name", "package.json (implicit main)", "package.json main", "package.json module",

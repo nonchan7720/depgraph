@@ -163,3 +163,62 @@ func TestUnusedRubyFreshApp(t *testing.T) {
 	})
 	wantFindings(t, evalUnused(toUnusedFiles(parseRepo(t, root)), rules.DefaultConfig()))
 }
+
+// Conventions of Discourse and its plugins (a plugin is a Rails engine
+// without a Gemfile, loaded by plugin.rb; its JavaScript is loaded by the
+// Ember resolver), and ways Rails code names files and classes outside the
+// constants it writes.
+func TestUnusedRubyDiscourseCases(t *testing.T) {
+	root := writeRepo(t, map[string]string{
+		"Gemfile":                         "gem 'rails'\n",
+		"config/application.rb":           "",
+		"plugins/chat/plugin.rb":          "module ::Chat\n  PLUGIN_NAME = 'chat'\nend\nrequire_relative 'lib/chat/engine'\nafter_initialize do\nend\n",
+		"plugins/chat/lib/chat/engine.rb": "module Chat\n  class Engine < ::Rails::Engine\n    isolate_namespace Chat\n  end\nend\n",
+		"plugins/chat/app/controllers/chat/api_controller.rb":                  "module Chat\n  class ApiController < ::ApplicationController\n    def index\n      Chat::Channel.all\n    end\n  end\nend\n",
+		"plugins/chat/app/models/chat/channel.rb":                              "module Chat\n  class Channel < ActiveRecord::Base\n  end\nend\n",
+		"plugins/chat/app/models/chat/orphan.rb":                               "module Chat\n  class Orphan < ActiveRecord::Base\n  end\nend\n",
+		"plugins/chat/package.json":                                            `{"name": "chat", "private": true}`,
+		"plugins/chat/assets/javascripts/discourse/initializers/chat.js":       "export default { name: 'chat' };\n",
+		"plugins/chat/admin/assets/javascripts/discourse/routes/admin-chat.js": "export default class AdminChatRoute {}\n",
+		// required by a glob
+		"config/initializers/002-freedom_patches.rb": "Dir[\"#{Rails.root.join(\"lib/freedom_patches/*.rb\")}\"].each { |f| require f }\n" +
+			"Rails.application.config.paths.add(\"plugins/*\", eager_load: false)\n", // a directory glob is no use
+		"lib/freedom_patches/copy_file.rb": "module FreedomPatches\n  module CopyFile\n    def copy; end\n  end\nend\n",
+		// named in configuration
+		"config/site_settings.yml":               "basic:\n  colors:\n    default: ''\n    validator: \"ColorListValidator\"\n",
+		"lib/validators/color_list_validator.rb": "class ColorListValidator\n  def valid_value?(v) = true\nend\n",
+		// an association whose name is built at run time
+		"app/models/concerns/searchable.rb":  "module Searchable\n  extend ActiveSupport::Concern\n  included { has_one :\"#{name.underscore}_search_data\", dependent: :destroy }\nend\n",
+		"app/models/application_record.rb":   "class ApplicationRecord < ActiveRecord::Base\n  primary_abstract_class\nend\n",
+		"app/models/tag.rb":                  "class Tag < ApplicationRecord\n  include Searchable\nend\n",
+		"app/models/tag_search_data.rb":      "class TagSearchData < ApplicationRecord\nend\n",
+		"app/controllers/tags_controller.rb": "class TagsController < ApplicationController\n  def index\n    Tag.all\n  end\nend\n",
+		// a module that prepends itself
+		"config/boot.rb":        "require_relative '../lib/require_compat'\n",
+		"lib/require_compat.rb": "module RequireCompat\n  def require_dependency(f) = super\n  Object.prepend(self)\nend\n",
+		// used by an extensionless Ruby script
+		"docs/guides/sync_docs":   "#!/usr/bin/env ruby\nrequire_relative 'lib/util'\nUtil.parse_md('x')\n",
+		"docs/guides/lib/util.rb": "module Util\n  def self.parse_md(s) = s\nend\n",
+		// a script of a tool directory
+		".skills/upcoming/scripts/optimize.rb": "puts 1\n",
+		// a standalone script that brings its own gems
+		"docs/guides/scrape_docs.rb": "require \"bundler/inline\"\ngemfile do\n  gem \"faraday\"\nend\nputs 1\n",
+		// classes of its own namespace looked up by name
+		"lib/service/steps_inspector.rb": `module Service
+  class StepsInspector
+    class Step
+      def inspector
+        "#{module_parent_name}::#{self.class.name.demodulize}".constantize.new
+      end
+    end
+    class Policy < Step; end
+    class Lock < Step; end
+  end
+end
+`,
+		"app/services/runner.rb":             "class Runner\n  def call = Service::StepsInspector::Step.new.inspector\nend\n",
+		"app/controllers/runs_controller.rb": "class RunsController < ApplicationController\n  def index = Runner.new.call\nend\n",
+	})
+	got := evalUnused(toUnusedFiles(parseRepo(t, root)), rules.DefaultConfig())
+	wantFindings(t, got, "unreachable-file|plugins/chat/app/models/chat/orphan.rb")
+}

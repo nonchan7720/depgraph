@@ -44,7 +44,7 @@ func (r rbRef) candidates() []string {
 	if a, ok := strings.CutPrefix(r.written, "::"); ok {
 		return []string{a}
 	}
-	if strings.HasSuffix(r.written, "::*") {
+	if strings.HasSuffix(r.written, "::*") || strings.HasPrefix(r.written, "*") {
 		return nil
 	}
 	out := make([]string, 0, len(r.levels)+1)
@@ -74,6 +74,7 @@ func (u *usageCollector) rbRequire(spec string) {
 var (
 	rbConstRe       = regexp.MustCompile(`^(::)?[A-Z]\w*(::[A-Z]\w*)*$`)
 	rbConstPrefixRe = regexp.MustCompile(`^(::)?([A-Z]\w*::)+$`)
+	rbParentConstRe = regexp.MustCompile(`^"#\{[^}]*module_parent(_name)?[^}]*\}::`)
 	// the base of an application's models: subclassed, never named elsewhere
 	// in a new application
 	rbAbstractRe  = regexp.MustCompile(`(?m)^\s*(primary_abstract_class|self\.abstract_class\s*=\s*true)\b`)
@@ -145,7 +146,7 @@ func (u *usageCollector) rbVisit(n *gts.Node, levels []string) {
 		if x.typ(n) == "module" && strings.HasSuffix("::"+fq, "::ClassMethods") && len(levels) > 0 {
 			u.keep = append(u.keep, fq) // extended by ActiveSupport::Concern
 		}
-		if x.typ(n) == "class" && x.rbRegistersSelf(body) {
+		if x.rbRegistersSelf(body) { // a class or module that registers or prepends itself
 			u.keep = append(u.keep, fq)
 		}
 		u.rbVisitChildren(body, append([]string{fq}, levels...))
@@ -188,11 +189,20 @@ func (u *usageCollector) rbVisit(n *gts.Node, levels []string) {
 			if rbConstRe.MatchString(s) && len(s) < 256 {
 				u.rbConst(nil, s)
 			}
+			u.rbGlob(s)
 			return
 		}
 		if p := x.staticPrefix(n); rbConstPrefixRe.MatchString(p) {
 			u.rbConst(nil, p+"*")
 		}
+		// "#{module_parent_name}::#{kind}".constantize: a constant of the
+		// enclosing namespace
+		if rbParentConstRe.MatchString(x.text(n)) && len(levels) > 0 {
+			if i := strings.LastIndex(levels[0], "::"); i > 0 {
+				u.rbConst(nil, levels[0][:i]+"::*")
+			}
+		}
+		u.rbGlob(x.rbStringTail(n))  // "#{Rails.root}/lib/patches/*.rb"
 		u.rbVisitChildren(n, levels) // interpolations
 		return
 	case "call":
@@ -212,8 +222,9 @@ func (u *usageCollector) rbVisitChildren(n *gts.Node, levels []string) {
 	}
 }
 
-// rbRegistersSelf reports whether a class body hands the class itself to a
-// call (HTTP::Options.register_feature(:x, self)): a registry loads it.
+// rbRegistersSelf reports whether a class or module body hands itself to a
+// call (HTTP::Options.register_feature(:x, self), Object.prepend(self)):
+// a registry or the patched class uses it.
 func (x *extractor) rbRegistersSelf(body *gts.Node) bool {
 	if body == nil {
 		return false
@@ -230,6 +241,42 @@ func (x *extractor) rbRegistersSelf(body *gts.Node) bool {
 		}
 	}
 	return false
+}
+
+// rbStringTail is the literal text after the last interpolation of a string.
+func (x *extractor) rbStringTail(n *gts.Node) string {
+	var b strings.Builder
+	for i := 0; i < n.NamedChildCount(); i++ {
+		switch c := n.NamedChild(i); x.typ(c) {
+		case "string_content":
+			b.WriteString(x.text(c))
+		case "interpolation":
+			b.Reset()
+		}
+	}
+	return b.String()
+}
+
+// rbGlob records the directory of a file glob (Dir["lib/patches/*.rb"],
+// Dir.glob("#{__dir__}/handlers/*.rb")): every file under it is loaded.
+// The directory is taken from the repository root and from the file's
+// directory.
+func (u *usageCollector) rbGlob(s string) {
+	i := strings.IndexByte(s, '*')
+	// only a glob of Ruby files is loaded: "components/*" in a path
+	// configuration names directories, not code
+	if i < 0 || len(s) > 256 || !strings.HasSuffix(s, ".rb") {
+		return
+	}
+	dir := path.Dir(strings.TrimPrefix(s[:i], "/") + "x")
+	if dir == "." {
+		return // the whole repository or directory: too broad to mean anything
+	}
+	for _, d := range []string{path.Clean(dir), path.Join(path.Dir(u.rel), dir)} {
+		if d != "." && d != ".." && !strings.HasPrefix(d, "../") {
+			u.tsPrefixes = append(u.tsPrefixes, d)
+		}
+	}
 }
 
 // rbConstPath is the text of a constant path made of constants only
@@ -300,6 +347,9 @@ func (u *usageCollector) rbCall(n *gts.Node, levels []string) bool {
 		if m == "require_relative" && !strings.HasPrefix(s, "./") && !strings.HasPrefix(s, "../") {
 			s = "./" + s
 		}
+		if s == "bundler/inline" {
+			u.rbEntry = "script (bundler/inline)" // brings its own gems: run by hand
+		}
 		u.rbRequire(s)
 		return true
 	case "autoload":
@@ -327,6 +377,16 @@ func (u *usageCollector) rbCall(n *gts.Node, levels []string) bool {
 	}
 	name := x.rbSymbolName(args[0])
 	if name == "" {
+		// has_one :"#{name.underscore}_search_data": every class whose name
+		// ends with SearchData
+		if x.typ(args[0]) == "delimited_symbol" {
+			if tail := strings.Trim(x.rbStringTail(args[0]), "_"); tail != "" && !strings.ContainsAny(tail, "\"' ") {
+				if plural {
+					tail = rbSingularize(tail)
+				}
+				u.rbConst(levels, "*"+rbCamelize(tail))
+			}
+		}
 		return false
 	}
 	named := false

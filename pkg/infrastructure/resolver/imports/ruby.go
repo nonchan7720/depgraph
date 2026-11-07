@@ -30,7 +30,8 @@ import (
 //     javascript and views), their concerns/, and lib/, of every
 //     application root: the repository root, and each directory with app/
 //     and a Gemfile, *.gemspec, package.yml (a packwerk pack) or
-//     config/application.rb. A::B is a/b.rb under one of them, or the
+//     config/application.rb, or whose app/ has Rails' layout (a Discourse
+//     plugin: app/controllers, app/models, ...). A::B is a/b.rb under one of them, or the
 //     directory a/b (an implicit namespace). The roots of the importing
 //     file's own application are tried first. A constant found nowhere is
 //     External (Ruby's own, or a gem's).
@@ -286,6 +287,24 @@ func rubyUnderscore(s string) string {
 	return b.String()
 }
 
+// RailsAppDirs are the directories of app/ that make a directory a Rails
+// application or engine (a Discourse plugin has no Gemfile of its own).
+var RailsAppDirs = map[string]bool{
+	"controllers": true, "models": true, "jobs": true, "mailers": true, "helpers": true,
+	"serializers": true, "services": true, "channels": true,
+}
+
+// railsLayout reports whether the directory app (repo-relative) holds one of
+// RailsAppDirs.
+func railsLayout(root, app string) bool {
+	for d := range RailsAppDirs {
+		if isDirAt(root, path.Join(app, d)) {
+			return true
+		}
+	}
+	return false
+}
+
 // rbNotAutoloaded: directories under app/ Rails does not autoload.
 var rbNotAutoloaded = map[string]bool{"assets": true, "javascript": true, "javascripts": true, "views": true, "frontend": true}
 
@@ -332,7 +351,7 @@ func loadRuby(root string) *rbRoot {
 		return nil
 	})
 	for d := range appDirs {
-		if d == "." || marks[d] {
+		if d == "." || marks[d] || railsLayout(root, path.Join(d, "app")) {
 			rr.apps = append(rr.apps, d)
 		}
 	}

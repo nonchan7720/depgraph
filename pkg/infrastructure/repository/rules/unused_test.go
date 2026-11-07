@@ -406,3 +406,17 @@ func TestUnusedAliasedDynamicImport(t *testing.T) {
 	got := evalUnused(toUnusedFiles(parseRepo(t, root)), rules.DefaultConfig())
 	wantFindings(t, got, "unreachable-file|src/other/Dead.tsx")
 }
+
+// A private workspace package other packages depend on whose files a
+// framework loads by name (an Ember app): its exports are not an API only
+// the repository uses, so they are not reported.
+func TestUnusedInternalFrameworkPackage(t *testing.T) {
+	root := writeRepo(t, map[string]string{
+		"package.json":                       `{"name": "root", "private": true, "workspaces": ["frontend/*"]}`,
+		"frontend/app/package.json":          `{"name": "app", "private": true, "exports": {"./*": "./app/*"}, "dependencies": {"ember-source": "7.3.0"}}`,
+		"frontend/app/app/adapters/group.js": "export default class GroupAdapter {}\n",
+		"frontend/kit/package.json":          `{"name": "kit", "private": true, "main": "index.js", "dependencies": {"app": "workspace:*"}}`,
+		"frontend/kit/index.js":              "import 'app/adapters/group';\n",
+	})
+	wantFindings(t, evalUnused(toUnusedFiles(parseRepo(t, root)), rules.DefaultConfig()))
+}

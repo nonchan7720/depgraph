@@ -18,6 +18,47 @@
             "description": "Layer -\u003e layers it must not import, within one component directory. Names must be defined in layers (or be default layers).",
             "type": "object"
           },
+          "languages": {
+            "additionalProperties": false,
+            "description": "Language -\u003e the version it runs in the component's directory. The setting of the deepest directory holding a file applies.",
+            "properties": {
+              "python": {
+                "additionalProperties": false,
+                "description": "The version this part of the project runs, to classify its imports (standard library or third-party) for ext: wildcards. Name the file that pins it (recommended) or the version.",
+                "oneOf": [
+                  {
+                    "required": [
+                      "versionFile"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "version"
+                    ]
+                  }
+                ],
+                "properties": {
+                  "stdlib": {
+                    "description": "A typeshed stdlib directory (with its VERSIONS file), relative to the component's directory; default: the copies in node_modules (pyright, basedpyright).",
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "version": {
+                    "description": "The version itself (3.12), when no file pins it.",
+                    "pattern": "^\\d+\\.\\d+(\\.\\d+)?$",
+                    "type": "string"
+                  },
+                  "versionFile": {
+                    "description": "The file that pins the version, relative to the component's directory (recommended): .python-version, .tool-versions, mise.toml, pyproject.toml ([tool.pyright] pythonVersion / [tool.mypy] python_version), pyrightconfig.json, Dockerfile. It may be a symlink.",
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "type": "object"
+          },
           "layers": {
             "additionalProperties": {
               "items": {
@@ -50,6 +91,47 @@
         "type": "string"
       },
       "type": "array"
+    },
+    "languages": {
+      "additionalProperties": false,
+      "description": "Language -\u003e the version it runs in this file's directory. The setting of the deepest directory holding a file applies.",
+      "properties": {
+        "python": {
+          "additionalProperties": false,
+          "description": "The version this part of the project runs, to classify its imports (standard library or third-party) for ext: wildcards. Name the file that pins it (recommended) or the version.",
+          "oneOf": [
+            {
+              "required": [
+                "versionFile"
+              ]
+            },
+            {
+              "required": [
+                "version"
+              ]
+            }
+          ],
+          "properties": {
+            "stdlib": {
+              "description": "A typeshed stdlib directory (with its VERSIONS file), relative to this file's directory; default: the copies in node_modules (pyright, basedpyright).",
+              "minLength": 1,
+              "type": "string"
+            },
+            "version": {
+              "description": "The version itself (3.12), when no file pins it.",
+              "pattern": "^\\d+\\.\\d+(\\.\\d+)?$",
+              "type": "string"
+            },
+            "versionFile": {
+              "description": "The file that pins the version, relative to this file's directory (recommended): .python-version, .tool-versions, mise.toml, pyproject.toml ([tool.pyright] pythonVersion / [tool.mypy] python_version), pyrightconfig.json, Dockerfile. It may be a symlink.",
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
     },
     "layers": {
       "additionalProperties": {

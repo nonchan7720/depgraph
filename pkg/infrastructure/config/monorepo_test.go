@@ -201,3 +201,58 @@ func TestLoadFindsModules(t *testing.T) {
 		t.Errorf("modules = %v, want %v", f.Rules.Modules, want)
 	}
 }
+
+// languages: can be set at the root, per component (a pattern sets each
+// directory it matches) and in a nested .depgraph.yml, which sets its own
+// directory; a component may set languages only.
+func TestLoadLanguages(t *testing.T) {
+	root := t.TempDir()
+	writeFiles(t, root, map[string]string{
+		".depgraph.yml": `
+languages:
+  python: {versionFile: .python-version}
+components:
+  "services/*":
+    languages:
+      python: {versionFile: .python-version, stdlib: typeshed/stdlib}
+`,
+		"lib/foo/.depgraph.yml":  "languages:\n  python: {version: \"3.9\"}\n",
+		"lib/foo/pyproject.toml": "",
+	})
+	f, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]rules.LanguageSetting{}
+	for _, s := range f.Rules.Languages {
+		got[s.Dir] = s
+	}
+	want := map[string]rules.LanguageSetting{
+		".":          {Dir: ".", Lang: "python", VersionFile: ".python-version"},
+		"services/*": {Dir: "services/*", Lang: "python", VersionFile: ".python-version", Stdlib: "typeshed/stdlib"},
+		"lib/foo":    {Dir: "lib/foo", Lang: "python", Version: "3.9"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("languages = %+v, want %+v", got, want)
+	}
+	if len(f.Warnings) != 0 {
+		t.Errorf("languages of a nested file is not a root-only setting: %v", f.Warnings)
+	}
+	// a component that sets languages only has no layers of its own: the
+	// default layers still apply inside services/*
+	for _, comp := range f.Rules.Components {
+		if comp.Dir == "services/*" {
+			t.Errorf("languages-only component became a layer component: %+v", comp)
+		}
+	}
+	for src, msg := range map[string]string{
+		"languages:\n  ruby: {versionFile: .ruby-version}\n":           `"ruby" is not supported yet`,
+		"languages:\n  python: {versionFile: .python-version, x: 1}\n": "field x not found",
+		"languages:\n  python: {version: \">=3.9\"}\n":                 `version ">=3.9"`,
+		"languages:\n  python: {versionFile: ../x}\n":                  "outside the repository",
+	} {
+		if _, err := Parse([]byte(src)); err == nil || !strings.Contains(err.Error(), msg) {
+			t.Errorf("%q: %v, want %q", src, err, msg)
+		}
+	}
+}

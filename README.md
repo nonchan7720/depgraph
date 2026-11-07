@@ -660,11 +660,48 @@ files and the resolution, never by a list of names shipped with depgraph, and no
 |---|---|---|
 | Go | a module the importing module's `go.mod` (or its `go.work`) requires or replaces | a path whose first element has no dot (the go command's rule for the standard library) |
 | TypeScript / JavaScript | resolved into `node_modules`, or declared in a `package.json` of the file or above it when not installed | a Node built-in, as esbuild resolves it (`punycode` is the built-in, `punycode/` the installed package) |
-| Python, Ruby | not classified yet | |
+| Python | not the standard library of the version `languages.python` names, by the typeshed copy of the project's type checker (an external import is the standard library or an installed package) | in that version's standard library |
+| Ruby | not classified yet | |
 
 Each import records its class and why (`depgraph parse` shows them). An import a wildcard would match
 if it were third-party but that could not be classified is not reported as a violation, and not dropped
 either: `external-unclassified` (info) lists them per language with the reason.
+
+**Python: `languages`.** The standard library depends on the Python version, and a repository often pins
+it in several places (`.python-version`, `mise.toml`, a Dockerfile, ...), not always the same way. depgraph
+does not choose: name the file that pins the version, relative to the file's directory (recommended), or
+the version itself. A monorepo whose parts run different versions (an application on 3.12, a library kept
+on 3.9 for its users) sets it per component, or in the part's own `.depgraph.yml`; a file uses the setting
+of the deepest directory holding it.
+
+```yaml
+languages:
+  python: {versionFile: .python-version}       # the root
+components:
+  lib/foo:
+    languages:
+      python: {versionFile: .python-version}   # lib/foo/.python-version
+  "services/*":                                # each service's own file
+    languages:
+      python: {versionFile: Dockerfile}
+```
+
+- Version files: `.python-version`, `.tool-versions`, `mise.toml` (`.mise.toml`, `.config/mise.toml`,
+  `mise.local.toml`), `pyproject.toml` (`[tool.pyright] pythonVersion`, `[tool.mypy] python_version`;
+  `requires-python` is a range and does not count), `pyrightconfig.json`, `mypy.ini` / `setup.cfg`, a
+  Dockerfile with a single `FROM python:<version>...`. Only an exact version is accepted: `latest`,
+  `system`, `3`, ranges, several versions, a multi-stage Dockerfile or an `ARG` are errors, not guesses.
+- The file may be a symlink (a dotfiles manager), also to a file outside the repository. It is read
+  without following it into a FIFO, a device or a pseudo file, up to 64 KiB, parsed strictly, and only its
+  relative path is ever shown (never its content).
+- A directory between a file and its setting that pins another version (`lib/foo/.python-version` under
+  a root setting), or a `mise.<env>.toml` that sets python, leaves that file's imports unclassified with
+  the reason: set `languages.python` for that part instead of letting depgraph pick.
+- The standard library of the version comes from typeshed's `stdlib/VERSIONS` in the project's own type
+  checker, `node_modules/pyright` or `node_modules/basedpyright` from the setting's directory up to the
+  root (several copies must agree on a module), or the directory `stdlib:` names. depgraph keeps no list
+  of its own.
+- Imports are classified when the rules are evaluated, so a change of the setting needs no rescan.
 
 ### Monorepos (`components`)
 

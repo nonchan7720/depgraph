@@ -180,6 +180,7 @@ func (r *Repository) externalUnclassified(ctx context.Context, cfg rules.Config,
 		  AND `+inRepoLayer("a", "pr.fromSet")+` AND NOT `+inRepoLayer("a", "pr.toSet")+`
 		WITH a, b, f, e, pr, false AS py
 		WHERE `+inExtLayer("b", "pr.toSet", "py", "true")+` AND NOT `+inExtLayer("b", "pr.toSet", "py", "false")+`
+		  AND NOT `+inExtLayer("b", "pr.fromSet", "py", "true")+`
 		RETURN DISTINCT f.language AS lang, b.key AS key, e.basis AS basis
 	`, ignore, map[string]any{"pairs": wild})
 	if err != nil {

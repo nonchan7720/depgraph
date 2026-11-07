@@ -150,3 +150,15 @@ func TestInfoChanges(t *testing.T) {
 		t.Error("a changed target outside the repository is reported unchanged")
 	}
 }
+
+// On Unix a backslash is a character of a file name, not a separator.
+func TestReadBackslashName(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a separator on Windows")
+	}
+	root := t.TempDir()
+	write(t, filepath.Join(root, `a\b.go`), "package a\n")
+	if b, _, err := Read(root, `a\b.go`, 64); err != nil || string(b) != "package a\n" {
+		t.Errorf("Read = %q, %v", b, err)
+	}
+}

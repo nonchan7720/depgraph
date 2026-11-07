@@ -654,6 +654,8 @@ depgraph はすべての型と関数のメンバーを読みます（Go・TypeSc
 ダックタイピングだけなので、どちらのルールも Ruby には適用しません（`low-cohesion` も同様。部分がメソッドになり、動的ディスパッチで
 呼ばれるため）。depgraph は推測しません。
 
+**アップグレード時の注意**: この 2 つのルールはデフォルトで有効（warn）で、`.depgraph.yml` に `layers:` がない場合（設定なし、または `forbidden:` だけ）は abstract ペア `usecase → infra / db` も有効です。デフォルトのレイヤーに当てはまるプロジェクトでは、アップグレード後にレポート・`CLAUDE.md`・フックに新しい指摘が出ます。以前の動作のままにするには `abstract: {}` を書くか、ルールを無効にします（`rules: {concrete-dependency: {enabled: false}}`）。`low-cohesion` も info として有効です（`--fail-on warn` では失敗しません）。
+
 ### モノレポ（`components`）
 
 モノレポでは部分ごとにアーキテクチャが違い、言語も違うことがよくあります。`pkg/` は Go、

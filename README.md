@@ -756,6 +756,12 @@ A component takes `abstract` like `forbidden`, within its directory. Ruby has no
 interfaces but duck typing, so neither rule applies to it (nor `low-cohesion`, whose parts would be
 methods called by dynamic dispatch): depgraph does not guess.
 
+**Upgrading**: both rules are on by default (warn), and so are the abstract pairs `usecase → infra / db`
+when `.depgraph.yml` has no `layers:` (none, or only `forbidden:`). A project that matches the default
+layers gets new findings in the report, `CLAUDE.md` and the hooks after it upgrades. To keep the earlier
+behaviour, write `abstract: {}` or turn the rules off (`rules: {concrete-dependency: {enabled: false}}`).
+`low-cohesion` is on too, as info: `--fail-on warn` does not fail on it.
+
 ### Monorepos (`components`)
 
 In a monorepo each part has its own architecture, often in another language: `pkg/` in Go,

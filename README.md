@@ -758,6 +758,7 @@ A component takes `abstract` like `forbidden`, within its directory.
 when `.depgraph.yml` has no `layers:` (none, or only `forbidden:`). A project that matches the default
 layers gets new findings in the report, `CLAUDE.md` and the hooks after it upgrades. To keep the earlier
 behaviour, write `abstract: {}` or turn the rules off (`rules: {concrete-dependency: {enabled: false}}`).
+`low-cohesion` is on too, as info: `--fail-on warn` does not fail on it.
 
 ### Monorepos (`components`)
 

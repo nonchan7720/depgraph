@@ -56,6 +56,14 @@ func TestEvaluateLowCohesion(t *testing.T) {
 		{Path: "web/a.ts", Package: "web", Language: graph.TypeScript, Usage: &graph.Usage{Scope: ".", Uses: []graph.Use{use("web/lib/text.ts", "split"), use("web/lib/text.ts", "join")}}},
 		{Path: "web/b.ts", Package: "web/b", Language: graph.TypeScript, Usage: &graph.Usage{Scope: ".", Uses: []graph.Use{use("web/lib/text.ts", "renderHtml")}}},
 		{Path: "web/c.ts", Package: "web/c", Language: graph.TypeScript, Usage: &graph.Usage{Scope: ".", Uses: []graph.Use{use("web/lib/text.ts", "renderText")}}},
+		// Python: a module of dataclasses, one per consumer, and a constant: data
+		{Path: "app/models.py", Package: "app", Language: graph.Python, Symbols: []graph.Symbol{
+			{Name: "User", Kind: "class", Data: true, Methods: []string{"full_name"}}, {Name: "Order", Kind: "class", Data: true},
+			{Name: "LIMIT", Kind: "variable"},
+		}, Usage: &graph.Usage{Scope: ".", DeclRefs: []graph.DeclRef{{Name: "User"}, {Name: "Order"}, {Name: "LIMIT"}}}},
+		{Path: "app/users.py", Package: "app/users", Language: graph.Python, Usage: &graph.Usage{Scope: ".", Uses: []graph.Use{use("app/models.py", "User")}}},
+		{Path: "app/orders.py", Package: "app/orders", Language: graph.Python, Usage: &graph.Usage{Scope: ".", Uses: []graph.Use{use("app/models.py", "Order")}}},
+		{Path: "app/limits.py", Package: "app/limits", Language: graph.Python, Usage: &graph.Usage{Scope: ".", Uses: []graph.Use{use("app/models.py", "LIMIT")}}},
 	})
 	fs, err := New(st, key).Evaluate(ctx, rules.DefaultConfig())
 	if err != nil {

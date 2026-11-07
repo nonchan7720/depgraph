@@ -208,10 +208,8 @@ func (u *usageCollector) rbVisit(n *gts.Node, levels []string) {
 			}
 		}
 		u.rbGlob(x.rbStringTail(n)) // "#{Rails.root}/lib/patches/*.rb"
-		// "#{kind}Pipeline".constantize: every constant whose name fits
-		if p, ok := x.rbNamePattern(n); ok && len(p) > 4 {
-			u.rbConst(nil, p)
-		}
+		// no "#{kind}Service".constantize: every *Service of the repository
+		// would be used. Only const_get (rbCall) and "Ns::#{x}" name where.
 		u.rbVisitChildren(n, levels) // interpolations
 		return
 	case "call":

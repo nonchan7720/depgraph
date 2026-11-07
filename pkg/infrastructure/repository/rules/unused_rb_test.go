@@ -291,6 +291,12 @@ end
 		"gems/housekeeper/housekeeper.gemspec":       "",
 		"gems/housekeeper/lib/housekeeper/loader.rb": "module Housekeeper\n  class Loader\n    KEEPS_GLOB = \"keeps/*.rb\"\n    def load = Dir.glob(KEEPS_GLOB).each { |f| require File.expand_path(f) }\n  end\nend\n",
 		"keeps/remove_indexes.rb":                    "module Keeps\n  class RemoveIndexes\n  end\nend\n",
+		// a name built from a suffix alone, outside const_get, does not use
+		// every class of the repository with that suffix
+		"app/services/dispatch.rb":               "class Dispatch\n  def self.call(kind) = \"#{kind.camelize}Service\".constantize\nend\n",
+		"app/controllers/dispatch_controller.rb": "class DispatchController < ApplicationController\n  def index = Dispatch.call(:x)\nend\n",
+		"app/services/forgotten_service.rb":      "class ForgottenService\nend\n",
 	})
-	wantFindings(t, evalUnused(toUnusedFiles(parseRepo(t, root)), rules.DefaultConfig()))
+	wantFindings(t, evalUnused(toUnusedFiles(parseRepo(t, root)), rules.DefaultConfig()),
+		"unreachable-file|app/services/forgotten_service.rb")
 }

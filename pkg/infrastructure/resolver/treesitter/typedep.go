@@ -209,7 +209,22 @@ func (u *usageCollector) tsTypeRefs(root *gts.Node) {
 // tsTypeName is the namespace and name of a type annotation written T,
 // T<X> or ns.T; "" for any other type (arrays, unions, literals, ...).
 func (x *extractor) tsTypeName(t *gts.Node) (q, name string) {
-	switch t = x.unwrapType(t); {
+	t = x.unwrapType(t)
+	if t != nil && x.typ(t) == "union_type" { // T | null, T | undefined
+		var only *gts.Node
+		for i := 0; i < t.NamedChildCount(); i++ {
+			c := t.NamedChild(i)
+			if x.typ(c) == "literal_type" && (x.text(c) == "null" || x.text(c) == "undefined") {
+				continue
+			}
+			if only != nil {
+				return "", ""
+			}
+			only = c
+		}
+		return x.tsTypeName(only)
+	}
+	switch {
 	case t == nil:
 	case x.typ(t) == "type_identifier":
 		return "", x.text(t)
@@ -318,6 +333,27 @@ func (x *extractor) pyTypeName(t *gts.Node) (q, name string) {
 		return "", ""
 	}
 	switch x.typ(t) {
+	case "binary_operator": // T | None
+		l, r := x.field(t, "left"), x.field(t, "right")
+		switch {
+		case l != nil && r != nil && x.typ(r) == "none":
+			return x.pyTypeName(l)
+		case l != nil && r != nil && x.typ(l) == "none":
+			return x.pyTypeName(r)
+		}
+		return "", ""
+	case "generic_type", "subscript": // Optional[T], typing.Optional[T]
+		if t.NamedChildCount() != 2 {
+			return "", ""
+		}
+		head, arg := t.NamedChild(0), t.NamedChild(1)
+		if h := x.text(head); h != "Optional" && !strings.HasSuffix(h, ".Optional") {
+			return "", ""
+		}
+		if x.typ(arg) == "type_parameter" && arg.NamedChildCount() == 1 {
+			arg = arg.NamedChild(0)
+		}
+		return x.pyTypeName(arg)
 	case "identifier":
 		return "", x.text(t)
 	case "attribute":
@@ -334,6 +370,36 @@ func (x *extractor) pyTypeName(t *gts.Node) (q, name string) {
 // pyAbstractBases are the base classes that make a class an abstraction.
 var pyAbstractBases = map[string]bool{"Protocol": true, "ABC": true}
 
+// pyDataBases are the base classes of data: values, records, models.
+var pyDataBases = map[string]bool{"Enum": true, "IntEnum": true, "StrEnum": true, "Flag": true, "IntFlag": true,
+	"NamedTuple": true, "TypedDict": true, "BaseModel": true, "Struct": true}
+
+// pyDataDecorators make a class a record (dataclasses, attrs).
+var pyDataDecorators = map[string]bool{"dataclass": true, "define": true, "frozen": true, "mutable": true, "s": true, "attrs": true}
+
+// pyAccessors are the decorators of a property: an attribute, not behaviour.
+var pyAccessors = map[string]bool{"property": true, "cached_property": true, "setter": true, "getter": true, "deleter": true}
+
+// pyDecoratorName is the last name of a decorator (dataclass of
+// @dataclasses.dataclass(frozen=True), setter of @dsn.setter).
+func (x *extractor) pyDecoratorName(d *gts.Node) string {
+	t := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(x.text(d)), "@"))
+	if i := strings.IndexByte(t, '('); i >= 0 {
+		t = t[:i]
+	}
+	return t[strings.LastIndexByte(t, '.')+1:]
+}
+
+// pyMarkData: a class decorated as a record holds data, whatever helpers
+// it has (its methods are not counted).
+func (x *extractor) pyMarkData(decorated *gts.Node, sym *graph.Symbol) {
+	for i := 0; i < decorated.NamedChildCount(); i++ {
+		if d := decorated.NamedChild(i); x.typ(d) == "decorator" && pyDataDecorators[x.pyDecoratorName(d)] {
+			sym.Methods = 0
+		}
+	}
+}
+
 // pyClassShape marks an abstract class (a Protocol / ABC base, an ABCMeta
 // metaclass or an @abstractmethod) and counts its methods (dunder methods
 // left out).
@@ -348,9 +414,11 @@ func (x *extractor) pyClassShape(n *gts.Node, sym *graph.Symbol) {
 		t := x.text(c)
 		return t[strings.LastIndexByte(t, '.')+1:]
 	}
+	data := false
 	if bases := x.field(n, "superclasses"); bases != nil {
 		for i := 0; i < bases.NamedChildCount(); i++ {
 			b := bases.NamedChild(i)
+			data = data || pyDataBases[last(b)]
 			if x.typ(b) == "keyword_argument" {
 				if x.fieldText(b, "name") == "metaclass" && last(x.field(b, "value")) == "ABCMeta" {
 					sym.Abstract = true
@@ -368,11 +436,13 @@ func (x *extractor) pyClassShape(n *gts.Node, sym *graph.Symbol) {
 	}
 	for i := 0; i < body.NamedChildCount(); i++ {
 		m := body.NamedChild(i)
-		abstract := false
+		abstract, accessor := false, false
 		if x.typ(m) == "decorated_definition" {
 			for j := 0; j < m.NamedChildCount(); j++ {
-				if d := m.NamedChild(j); x.typ(d) == "decorator" && strings.HasSuffix(strings.TrimSpace(x.text(d)), "abstractmethod") {
-					abstract = true
+				if d := m.NamedChild(j); x.typ(d) == "decorator" {
+					name := x.pyDecoratorName(d)
+					abstract = abstract || name == "abstractmethod"
+					accessor = accessor || pyAccessors[name]
 				}
 			}
 			m = x.field(m, "definition")
@@ -384,8 +454,10 @@ func (x *extractor) pyClassShape(n *gts.Node, sym *graph.Symbol) {
 		if strings.HasPrefix(name, "__") && strings.HasSuffix(name, "__") {
 			continue
 		}
-		sym.Methods++
 		sym.Abstract = sym.Abstract || abstract
+		if !accessor && !data {
+			sym.Methods++
+		}
 	}
 }
 
@@ -420,7 +492,7 @@ func pyJoin(mod, name string) string {
 func (u *usageCollector) typeDeps(bySpec map[string]imports.Result, goBinds map[string]string) []graph.TypeDep {
 	var out []graph.TypeDep
 	add := func(r typeRef, target, typ string) {
-		if target != "" && typ != "" && typ != "default" {
+		if target != "" && typ != "" { // "default": what the target exports as default
 			out = append(out, graph.TypeDep{Holder: r.holder, Member: r.member, Line: r.line, Target: target, Type: typ})
 		}
 	}

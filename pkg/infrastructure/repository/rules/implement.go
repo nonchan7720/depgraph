@@ -9,7 +9,9 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/nonchan7720/depgraph/pkg/domain/graph"
 	"github.com/nonchan7720/depgraph/pkg/domain/rules"
+	"github.com/nonchan7720/depgraph/pkg/infrastructure/resolver/imports"
 )
 
 // Querier runs a read query against the graph store.
@@ -122,13 +124,48 @@ func (r *Repository) layerPairs(ctx context.Context, cfg rules.Config) ([]map[st
 	return out, nil
 }
 
-// inLayer is the Cypher condition "package node n is in the layer set s"
-// (a rules.LayerSet.Params map): rules.LayerSet.Contains in the store.
-func inLayer(n, s string) string {
-	return fmt.Sprintf(`(NOT any(rx IN %[2]s.notRx WHERE %[1]s.key =~ rx) AND (
-		(%[1]s.external = false AND any(rx IN %[2]s.rx WHERE %[1]s.key =~ rx)) OR
-		(%[1]s.external = true AND (any(rx IN %[2]s.extRx WHERE %[1]s.key =~ rx) OR
-			(coalesce(%[1]s.std, false) = false AND any(rx IN %[2]s.libRx WHERE %[1]s.key =~ rx))))))`, n, s)
+// inRepoLayer is the Cypher condition "in-repo package node n is in the
+// layer set s" (a rules.LayerSet.Params map): rules.LayerSet.Contains.
+func inRepoLayer(n, s string) string {
+	return fmt.Sprintf(`(NOT any(rx IN %[2]s.notRx WHERE %[1]s.key =~ rx) AND any(rx IN %[2]s.rx WHERE %[1]s.key =~ rx))`, n, s)
+}
+
+// inExtLayer is the Cypher condition "external package node n, imported by
+// a Python file when py, the standard library when std, is in the layer
+// set s": rules.LayerSet.Contains.
+func inExtLayer(n, s, py, std string) string {
+	return fmt.Sprintf(`(NOT any(rx IN CASE WHEN %[3]s THEN %[2]s.pyExtNotRx ELSE %[2]s.extNotRx END WHERE %[1]s.key =~ rx) AND (
+		any(rx IN CASE WHEN %[3]s THEN %[2]s.pyExtRx ELSE %[2]s.extRx END WHERE %[1]s.key =~ rx) OR
+		(NOT %[4]s AND any(rx IN %[2]s.libRx WHERE %[1]s.key =~ rx))))`, n, s, py, std)
+}
+
+// stdKeys returns, by language, the external package keys the project's
+// files of that language import from its standard library. Whether a
+// package is the standard library depends on the importing language
+// (ext:yaml is Ruby's and an npm package), so it is decided per import, from
+// the key, never from what the graph stored.
+func (r *Repository) stdKeys(ctx context.Context) (map[string]any, error) {
+	rows, err := r.query(ctx, `
+		MATCH (:Package {project: $project})-[:CONTAINS]->(f:File)-[:IMPORTS]->(b:Package)
+		WHERE b.external = true
+		RETURN DISTINCT f.language AS lang, b.key AS key
+	`, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	byLang := map[string][]string{}
+	for _, row := range rows {
+		lang, _ := row["lang"].(string)
+		key, _ := row["key"].(string)
+		if imports.IsStdlib(graph.Language(lang), key) {
+			byLang[lang] = append(byLang[lang], key)
+		}
+	}
+	out := make(map[string]any, len(byLang))
+	for lang, keys := range byLang {
+		out[lang] = keys
+	}
+	return out, nil
 }
 
 // query runs cypher with $project and $ignore set.
@@ -216,18 +253,38 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 		}
 		if len(pairs) > 0 {
 			// rules.LayerPair.Reports: a in from, b in to, and the import
-			// crosses the pair; b may be an external package when the pair's
-			// to layer names some (toExternal)
+			// crosses the pair. Imports of in-repo packages are package
+			// edges; imports of external packages are read per file, whose
+			// language decides what is the standard library (and whether
+			// submodules are dotted), for the pairs whose to layer names
+			// external packages (toExternal).
+			params := map[string]any{"pairs": pairs, "std": map[string]any{}}
+			if slices.ContainsFunc(pairs, func(p map[string]any) bool { return p["toExternal"] == true }) {
+				if params["std"], err = r.stdKeys(ctx); err != nil {
+					return nil, fmt.Errorf("layers: %w", err)
+				}
+			}
 			rows, err := r.query(ctx, `
 				UNWIND $pairs AS pr
 				MATCH (a:Package {project: $project})-[:IMPORTS]->(b:Package)
-				WHERE a.external = false AND (b.external = false OR pr.toExternal)
-				  AND NOT any(rx IN pr.exceptRx WHERE a.key =~ rx OR (b.external = false AND b.key =~ rx))
+				WHERE a.external = false AND b.external = false
+				  AND NOT any(rx IN pr.exceptRx WHERE a.key =~ rx OR b.key =~ rx)
 				  AND NOT any(rx IN $ignore WHERE a.key =~ rx OR b.key =~ rx)
-				  AND `+inLayer("a", "pr.fromSet")+` AND `+inLayer("b", "pr.toSet")+`
-				  AND NOT `+inLayer("a", "pr.toSet")+` AND NOT `+inLayer("b", "pr.fromSet")+`
+				  AND `+inRepoLayer("a", "pr.fromSet")+` AND `+inRepoLayer("b", "pr.toSet")+`
+				  AND NOT `+inRepoLayer("a", "pr.toSet")+` AND NOT `+inRepoLayer("b", "pr.fromSet")+`
 				RETURN DISTINCT a.key AS from, b.key AS to, pr.from AS fromLayer, pr.to AS toLayer, pr.component AS component
-			`, ignore, map[string]any{"pairs": pairs})
+				UNION
+				UNWIND $pairs AS pr
+				WITH pr WHERE pr.toExternal
+				MATCH (a:Package {project: $project})-[:CONTAINS]->(f:File)-[:IMPORTS]->(b:Package)
+				WHERE a.external = false AND b.external = true
+				  AND NOT any(rx IN pr.exceptRx WHERE a.key =~ rx)
+				  AND NOT any(rx IN $ignore WHERE a.key =~ rx OR b.key =~ rx)
+				  AND `+inRepoLayer("a", "pr.fromSet")+` AND NOT `+inRepoLayer("a", "pr.toSet")+`
+				WITH pr, a, b, f.language = 'python' AS py, b.key IN coalesce($std[f.language], []) AS std
+				WHERE `+inExtLayer("b", "pr.toSet", "py", "std")+` AND NOT `+inExtLayer("b", "pr.fromSet", "py", "std")+`
+				RETURN DISTINCT a.key AS from, b.key AS to, pr.from AS fromLayer, pr.to AS toLayer, pr.component AS component
+			`, ignore, params)
 			if err != nil {
 				return nil, fmt.Errorf("layers: %w", err)
 			}

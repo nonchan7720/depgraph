@@ -650,8 +650,8 @@ packages outside the repository, so `forbidden` keeps a domain free of framework
 
 | pattern | matches |
 |---|---|
-| `ext:gorm.io/gorm` | that package and what is under it (`gorm.io/gorm/clause`; `ext:sqlalchemy` matches `sqlalchemy.orm`), the standard library included (`ext:net/http`, `ext:database/sql`) |
-| `ext:*`, `ext:github.com/aws/*`, `ext:@nestjs/*` | third-party packages by a pattern (`*` is any run of characters, `/` included; `?` one character). A wildcard never matches the language's standard library (Go's `fmt`, Node's `fs` / `node:*`, Python's `json`, Ruby's `set`): it is not a framework |
+| `ext:gorm.io/gorm` | that package and what is under it (`gorm.io/gorm/clause`; in Python imports also its submodules: `ext:sqlalchemy` matches `sqlalchemy.orm`, while `lodash.debounce` is not under `ext:lodash`), the standard library included (`ext:net/http`, `ext:database/sql`) |
+| `ext:*`, `ext:github.com/aws/*`, `ext:@nestjs/*` | third-party packages by a pattern (`*` is any run of characters, `/` included; `?` one character). A wildcard never matches the standard library of the importing file's language (Go's `fmt`, Node's `fs` / `node:*`, Python's `json`, Ruby's `set`; `yaml` is Ruby's standard library and an npm package): it is not a framework |
 | `!<pattern>` | leaves packages out of the layer (`"!ext:github.com/google/uuid"`, `"!pkg/domain/legacy/**"`) |
 
 ```yaml
@@ -677,11 +677,15 @@ abstract:
 #   (internal/usecase/user.go:12 UserUsecase.repo): usecase must depend on repository through an interface
 ```
 
-An implementation is a struct or class with methods (Go: on the type or its pointer, in any file of
-its package) that is not abstract. An interface, a TypeScript `abstract class`, a Python `Protocol`
-/ `ABC` / class with an `@abstractmethod`, and a struct without methods (a row, an options struct:
-data, not a service) are not reported, nor are test files, collections (`[]*T`), and external types
-(their kind is not in the graph; forbid the import with an `ext:` layer instead). The composition
+An implementation is a struct or class with methods (Go: on the type or its pointer, in any non-test
+file of its package) that is not abstract. An interface, a TypeScript `abstract class`, a Python
+`Protocol` / `ABC` / class with an `@abstractmethod`, and data are not reported: a struct whose only
+methods are what values implement for the standard library (`String`, `Error`, `MarshalJSON`, `Scan`
+/ `Value`, `TableName`, ...), a class with only accessors (`get` / `set`, `@property`), a Python
+dataclass / attrs class / pydantic model / `Enum` / `NamedTuple`. Neither are test files, collections
+(`[]*T`), and external types (their kind is not in the graph; forbid the import with an `ext:` layer
+instead). Optional dependencies count (`T | null`, `Optional[T]`, `T | None`), and so does a
+default-imported class (`import SqlRepo from "./sql"`). The composition
 root (`main`, `cmd/`, a DI container) is where the implementations are wired in: leave it out of
 the `abstract` pairs. A finding lists each place that holds the type. A component (below) takes
 `abstract` like `forbidden`, within its directory.

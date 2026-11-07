@@ -13,6 +13,7 @@ import (
 	"github.com/nonchan7720/depgraph/pkg/domain/graph"
 	"github.com/nonchan7720/depgraph/pkg/domain/rules"
 	graphrepo "github.com/nonchan7720/depgraph/pkg/infrastructure/repository/graph"
+	"github.com/nonchan7720/depgraph/pkg/infrastructure/resolver/imports"
 )
 
 func upsertAll(ctx context.Context, t *testing.T, st *graphrepo.Store, key string, files []*graph.FileGraph) {
@@ -93,19 +94,22 @@ func TestLayerViolationsMatchTheDomain(t *testing.T) {
 	ctx, st := connect(t)
 	rng := rand.New(rand.NewPCG(7, 11))
 	inRepo := []string{"app/domain", "app/domain/legacy", "app/usecase", "app/infra/db", "app/infra/http", "svc/domain", "svc/infra", "tools"}
-	external := []rules.PackageRef{
-		{Key: "ext:fmt", External: true, Std: true},
-		{Key: "ext:net/http", External: true, Std: true},
+	external := []rules.PackageRef{ // Std / Python: set per importer below
+		{Key: "ext:fmt", External: true},
+		{Key: "ext:net/http", External: true},
 		{Key: "ext:gorm.io/gorm", External: true},
 		{Key: "ext:gorm.io/gorm/clause", External: true},
 		{Key: "ext:github.com/google/uuid", External: true},
+		{Key: "ext:json", External: true},
+		{Key: "ext:sqlalchemy.orm", External: true},
+		{Key: "ext:lodash.debounce", External: true},
 	}
 	c := rules.DefaultConfig()
 	c.Layers = []rules.Layer{
 		{Name: "domain", Packages: []string{"**/domain/**", "!app/domain/legacy"}},
 		{Name: "usecase", Packages: []string{"**/usecase/**"}},
-		{Name: "infra", Packages: []string{"**/infra/**", "ext:gorm.io/gorm"}},
-		{Name: "frameworks", Packages: []string{"ext:*", "!ext:github.com/google/uuid"}},
+		{Name: "infra", Packages: []string{"**/infra/**", "ext:gorm.io/gorm", "ext:sqlalchemy", "ext:lodash"}},
+		{Name: "frameworks", Packages: []string{"ext:*", "!ext:github.com/google/uuid", "!ext:lodash"}},
 		{Name: "http", Packages: []string{"ext:net/http", "app/infra/http"}},
 	}
 	c.ForbiddenLayers = [][2]string{{"domain", "infra"}, {"domain", "frameworks"}, {"domain", "http"}, {"usecase", "infra"}, {"infra", "http"}}
@@ -122,8 +126,14 @@ func TestLayerViolationsMatchTheDomain(t *testing.T) {
 		key := fmt.Sprintf("zz_test_%d_layers%d", time.Now().UnixNano(), g)
 		var files []*graph.FileGraph
 		var want []string
-		for _, from := range inRepo {
-			fg := &graph.FileGraph{Path: from + "/f.go", Package: from, Language: graph.Go}
+		for i, from := range inRepo {
+			// Go and Python importers: the standard library and dotted
+			// submodules depend on the importing language
+			lang, file := graph.Go, from+"/f.go"
+			if (i+g)%2 == 1 {
+				lang, file = graph.Python, from+"/f.py"
+			}
+			fg := &graph.FileGraph{Path: file, Package: from, Language: lang}
 			for _, to := range inRepo {
 				if to != from && rng.Float64() < 0.4 {
 					fg.Imports = append(fg.Imports, graph.Import{Spec: to, Target: to})
@@ -132,7 +142,8 @@ func TestLayerViolationsMatchTheDomain(t *testing.T) {
 			}
 			for _, to := range external {
 				if rng.Float64() < 0.5 {
-					fg.Imports = append(fg.Imports, graph.Import{Spec: to.Key[4:], Target: to.Key, External: true, Std: to.Std})
+					fg.Imports = append(fg.Imports, graph.Import{Spec: to.Key[4:], Target: to.Key, External: true})
+					to.Std, to.Python = imports.IsStdlib(lang, to.Key), lang == graph.Python
 					want = appendReported(want, pairs, rules.PackageRef{Key: from}, to)
 				}
 			}
@@ -189,6 +200,7 @@ func TestEvaluateConcreteDependency(t *testing.T) {
 				dep("NewUserUsecase", "repo", 12, "app/repository", "MySQLUserRepo"),
 				dep("UserUsecase", "users", 9, "app/repository", "UserRepository"),
 				dep("UserUsecase", "opts", 10, "app/repository", "Options"),
+				dep("UserUsecase", "row", 11, "app/repository", "Row"),
 			}},
 		{Path: "app/repository/mysql.go", Package: "app/repository", Language: graph.Go, Symbols: []graph.Symbol{
 			{Name: "MySQLUserRepo", Kind: "struct", Exported: true},
@@ -198,11 +210,26 @@ func TestEvaluateConcreteDependency(t *testing.T) {
 		// the methods of a Go type may be in another file of its package
 		{Path: "app/repository/mysql_find.go", Package: "app/repository", Language: graph.Go, Symbols: []graph.Symbol{
 			{Name: "Find", Kind: "method", Exported: true, Receiver: "MySQLUserRepo"},
+			// what data implements (fmt.Stringer, json.Marshaler, ...) is not behaviour
+			{Name: "Row", Kind: "struct", Exported: true},
+			{Name: "String", Kind: "method", Exported: true, Receiver: "Row"},
+			{Name: "MarshalJSON", Kind: "method", Exported: true, Receiver: "Row"},
+		}},
+		// a test's helper method or its own type of the same name is not the package's
+		{Path: "app/repository/mysql_test.go", Package: "app/repository", Language: graph.Go, Symbols: []graph.Symbol{
+			{Name: "helper", Kind: "method", Receiver: "Options"},
+			{Name: "UserRepository", Kind: "struct", Exported: true},
+			{Name: "fake", Kind: "method", Receiver: "UserRepository"},
 		}},
 		{Path: "web/usecase/order.ts", Package: "web/usecase", Language: graph.TypeScript, TypeDeps: []graph.TypeDep{
 			dep("OrderService", "repo", 3, "web/repository/order.ts", "HttpOrderRepo"),
 			dep("OrderService", "base", 4, "web/repository/order.ts", "BaseRepo"),
+			// a default import: the class the file exports as default
+			dep("OrderService", "sql", 5, "web/repository/sql.ts", "default"),
 		}},
+		{Path: "web/repository/sql.ts", Package: "web/repository", Language: graph.TypeScript,
+			Symbols: []graph.Symbol{{Name: "SqlOrderRepo", Kind: "class", Exported: true, Methods: 1}},
+			Usage:   &graph.Usage{Exports: []graph.ExportName{{Name: "default", Local: "SqlOrderRepo"}}}},
 		{Path: "web/repository/order.ts", Package: "web/repository", Language: graph.TypeScript, Symbols: []graph.Symbol{
 			{Name: "HttpOrderRepo", Kind: "class", Exported: true, Methods: 2},
 			{Name: "BaseRepo", Kind: "class", Exported: true, Methods: 2, Abstract: true},
@@ -220,7 +247,8 @@ func TestEvaluateConcreteDependency(t *testing.T) {
 			t.Errorf("%s: severity %s", f.ID, f.Severity)
 		}
 	}
-	want := []string{"app/usecase -> app/repository.MySQLUserRepo", "web/usecase -> web/repository.HttpOrderRepo"}
+	want := []string{"app/usecase -> app/repository.MySQLUserRepo", "web/usecase -> web/repository.HttpOrderRepo",
+		"web/usecase -> web/repository.SqlOrderRepo"}
 	if !slices.Equal(ids, want) {
 		t.Fatalf("concrete dependencies = %q, want %q", ids, want)
 	}
@@ -258,5 +286,42 @@ func TestEvaluateLargePackage(t *testing.T) {
 	want := []string{"pkg/cmd has 110 lines in 2 files (limit 100): split it by responsibility"}
 	if !slices.Equal(got, want) {
 		t.Errorf("large packages = %q, want %q", got, want)
+	}
+}
+
+// Whether an external package is the standard library depends on the
+// language of the importing file, not on the package node (ext:yaml is
+// Ruby's standard library and an npm package), whatever order the files
+// were stored in; and it does not depend on what the graph stored (a graph
+// from before std existed).
+func TestEvaluateExternalLayersPerLanguage(t *testing.T) {
+	ctx, st := connect(t)
+	c := rules.DefaultConfig()
+	c.DefaultLayers = false
+	c.Layers = []rules.Layer{
+		{Name: "domain", Packages: []string{"lib/**", "web/**", "go/**"}},
+		{Name: "frameworks", Packages: []string{"ext:*"}},
+	}
+	c.ForbiddenLayers = [][2]string{{"domain", "frameworks"}}
+	c.AbstractLayers = nil
+	rb := &graph.FileGraph{Path: "lib/a.rb", Package: "lib", Language: graph.Ruby,
+		Imports: []graph.Import{{Spec: "yaml", Target: "ext:yaml", External: true, Std: true}}}
+	ts := &graph.FileGraph{Path: "web/b.ts", Package: "web", Language: graph.TypeScript,
+		Imports: []graph.Import{{Spec: "yaml", Target: "ext:yaml", External: true}}}
+	// stored without std
+	gofile := &graph.FileGraph{Path: "go/c.go", Package: "go", Language: graph.Go,
+		Imports: []graph.Import{{Spec: "fmt", Target: "ext:fmt", External: true}}}
+	for i, files := range [][]*graph.FileGraph{{rb, ts, gofile}, {ts, rb, gofile}} {
+		key := fmt.Sprintf("zz_test_%d_extlang%d", time.Now().UnixNano(), i)
+		upsertAll(ctx, t, st, key, files)
+		fs, err := New(st, key).Evaluate(ctx, c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := messages(byRule(fs, rules.RuleLayerViolation))
+		want := []string{"web -> ext:yaml (domain must not import frameworks)"}
+		if !slices.Equal(got, want) {
+			t.Errorf("order %d: %q, want %q", i, got, want)
+		}
 	}
 }

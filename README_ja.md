@@ -557,8 +557,8 @@ depgraph は import グラフだけでは見えない 3 つを検査します。
 
 | パターン | マッチするもの |
 |---|---|
-| `ext:gorm.io/gorm` | そのパッケージと配下（`gorm.io/gorm/clause`。`ext:sqlalchemy` は `sqlalchemy.orm` にも）。標準ライブラリも含む（`ext:net/http`、`ext:database/sql`） |
-| `ext:*`、`ext:github.com/aws/*`、`ext:@nestjs/*` | パターンによるサードパーティのパッケージ（`*` は `/` を含む任意の文字列、`?` は 1 文字）。ワイルドカードは言語の標準ライブラリ（Go の `fmt`、Node の `fs` / `node:*`、Python の `json`、Ruby の `set`）には決してマッチしません。標準ライブラリはフレームワークではないため |
+| `ext:gorm.io/gorm` | そのパッケージと配下（`gorm.io/gorm/clause`。Python の import ではサブモジュールも: `ext:sqlalchemy` は `sqlalchemy.orm` にマッチ。一方 `lodash.debounce` は `ext:lodash` の配下ではない）。標準ライブラリも含む（`ext:net/http`、`ext:database/sql`） |
+| `ext:*`、`ext:github.com/aws/*`、`ext:@nestjs/*` | パターンによるサードパーティのパッケージ（`*` は `/` を含む任意の文字列、`?` は 1 文字）。ワイルドカードは import 元ファイルの言語の標準ライブラリ（Go の `fmt`、Node の `fs` / `node:*`、Python の `json`、Ruby の `set`。`yaml` は Ruby では標準ライブラリ、npm では外部パッケージ）には決してマッチしません。標準ライブラリはフレームワークではないため |
 | `!<パターン>` | レイヤーから除外する（`"!ext:github.com/google/uuid"`、`"!pkg/domain/legacy/**"`） |
 
 ```yaml
@@ -583,10 +583,13 @@ abstract:
 #   (internal/usecase/user.go:12 UserUsecase.repo): usecase must depend on repository through an interface
 ```
 
-実装とは、メソッドを持つ（Go ではその型かポインタに対して、パッケージ内のどのファイルでも）抽象でない struct / class です。
+実装とは、メソッドを持つ（Go ではその型かポインタに対して、パッケージ内のテスト以外のどのファイルでも）抽象でない struct / class です。
 インターフェース、TypeScript の `abstract class`、Python の `Protocol` / `ABC` / `@abstractmethod` を持つクラス、
-メソッドの無い struct（行やオプションの struct: サービスではなくデータ）は報告せず、テストファイル、コレクション（`[]*T`）、
-外部の型（種類がグラフに無い。`ext:` レイヤーで import を禁止してください）も対象外です。
+そしてデータは報告しません。データとは、標準ライブラリ向けに値が実装するメソッド（`String`、`Error`、`MarshalJSON`、`Scan` / `Value`、
+`TableName` など）しか持たない struct、アクセサ（`get` / `set`、`@property`）しか持たないクラス、Python の dataclass / attrs /
+pydantic モデル / `Enum` / `NamedTuple` です。テストファイル、コレクション（`[]*T`）、外部の型（種類がグラフに無い。
+`ext:` レイヤーで import を禁止してください）も対象外です。省略可能な依存（`T | null`、`Optional[T]`、`T | None`）と
+default import したクラス（`import SqlRepo from "./sql"`）も対象です。
 composition root（`main`、`cmd/`、DI コンテナ）は実装を組み立てる場所なので、`abstract` のペアに入れないでください。
 1 件の検出に、その型を保持しているすべての箇所を併記します。コンポーネント（下記）でも `forbidden` と同じく
 ディレクトリ内で `abstract` を書けます。

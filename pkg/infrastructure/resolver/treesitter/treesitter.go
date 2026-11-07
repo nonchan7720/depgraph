@@ -404,7 +404,11 @@ func (x *extractor) pyDecl(n *gts.Node) {
 		}
 	case "decorated_definition":
 		if d := x.field(n, "definition"); d != nil {
+			before := len(x.fg.Symbols)
 			x.pyDecl(d)
+			if x.typ(d) == "class_definition" && len(x.fg.Symbols) > before {
+				x.pyMarkData(n, &x.fg.Symbols[len(x.fg.Symbols)-1])
+			}
 		}
 	}
 }

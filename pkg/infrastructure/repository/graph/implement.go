@@ -156,7 +156,7 @@ func (r *Graph) UpsertFile(ctx context.Context, fg *graph.FileGraph) error {
 			continue // points at nothing: no package, no edge
 		}
 		imports = append(imports, map[string]any{
-			"spec": im.Spec, "target": im.Target, "external": im.External, "std": im.Std,
+			"spec": im.Spec, "target": im.Target, "external": im.External,
 		})
 	}
 
@@ -211,9 +211,6 @@ func (r *Graph) UpsertFile(ctx context.Context, fg *graph.FileGraph) error {
 				UNWIND $imports AS i
 				MERGE (q:Package {project: $project, key: i.target})
 				  ON CREATE SET q.name = i.target, q.external = i.external
-				// set on every upsert: a graph stored before std existed gets it
-				// with the next scan
-				SET q.std = CASE WHEN i.external AND i.std THEN true ELSE null END
 				MERGE (f)-[r:IMPORTS]->(q)
 				  SET r.spec = i.spec
 			`, r.params(map[string]any{"path": fg.Path, "imports": imports})); err != nil {

@@ -268,3 +268,93 @@ class UserService:
 		}
 	}
 }
+
+// Data classes are not services: properties are not behaviour, and a
+// dataclass / attrs / pydantic model / Enum / NamedTuple is data whatever
+// helpers it has.
+func TestPythonDataClasses(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "pyproject.toml", "[project]\nname = \"app\"\n")
+	writeFile(t, root, "app/__init__.py", "")
+	writeFile(t, root, "app/models.py", `from dataclasses import dataclass
+import dataclasses
+from enum import Enum
+from functools import cached_property
+from pydantic import BaseModel
+
+class Props:
+    @property
+    def dsn(self): ...
+    @dsn.setter
+    def dsn(self, v): ...
+    @cached_property
+    def size(self): ...
+
+@dataclass(frozen=True)
+class Config:
+    url: str
+    def dsn(self): ...
+
+@dataclasses.dataclass
+class Row:
+    def key(self): ...
+
+class Color(Enum):
+    RED = 1
+    def label(self): ...
+
+class User(BaseModel):
+    def name(self): ...
+
+class Service:
+    @property
+    def ready(self): ...
+    def run(self): ...
+`)
+	fg := resolve(t, root, "app/models.py")
+	for name, want := range map[string]int{"Props": 0, "Config": 0, "Row": 0, "Color": 0, "User": 0, "Service": 1} {
+		if got := symbol(t, fg, name).Methods; got != want {
+			t.Errorf("%s: methods %d, want %d", name, got, want)
+		}
+	}
+}
+
+// Optional dependencies: T | null (TypeScript), Optional[T] / T | None
+// (Python); a default-imported class is recorded as "default" (the rule
+// looks up what the file exports as default).
+func TestTypeDepsOptionalAndDefault(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "package.json", `{"name": "app"}`)
+	writeFile(t, root, "src/repo.ts", "export default class SqlRepo { find() {} }\nexport class Other { run() {} }\n")
+	writeFile(t, root, "src/service.ts", `import SqlRepo, { Other } from "./repo";
+export class Service {
+  repo: SqlRepo | null;
+  other?: Other | undefined;
+  both: SqlRepo | Other;
+  constructor(r: SqlRepo) {}
+}
+`)
+	wantDeps(t, resolve(t, root, "src/service.ts"),
+		"Service.other@4 -> src/repo.ts#Other",
+		"Service.r@6 -> src/repo.ts#default",
+		"Service.repo@3 -> src/repo.ts#default",
+	)
+	writeFile(t, root, "pyproject.toml", "[project]\nname = \"app\"\n")
+	writeFile(t, root, "app/__init__.py", "")
+	writeFile(t, root, "app/repo.py", "class SqlRepo:\n    def find(self): ...\n")
+	writeFile(t, root, "app/service.py", `from typing import Optional
+import typing
+from app.repo import SqlRepo
+
+class Service:
+    a: Optional[SqlRepo]
+    b: SqlRepo | None
+    c: typing.Optional[SqlRepo]
+    d: SqlRepo | int
+`)
+	wantDeps(t, resolve(t, root, "app/service.py"),
+		"Service.a@6 -> app/repo.py#SqlRepo",
+		"Service.b@7 -> app/repo.py#SqlRepo",
+		"Service.c@8 -> app/repo.py#SqlRepo",
+	)
+}

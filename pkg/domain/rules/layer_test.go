@@ -9,6 +9,7 @@ func TestLayerSetContains(t *testing.T) {
 	in := func(k string) PackageRef { return PackageRef{Key: k} }
 	ext := func(name string) PackageRef { return PackageRef{Key: "ext:" + name, External: true} }
 	std := func(name string) PackageRef { return PackageRef{Key: "ext:" + name, External: true, Std: true} }
+	py := func(name string) PackageRef { return PackageRef{Key: "ext:" + name, External: true, Python: true} }
 	for _, tc := range []struct {
 		patterns []string
 		pkg      PackageRef
@@ -31,7 +32,13 @@ func TestLayerSetContains(t *testing.T) {
 		{[]string{"ext:gorm.io/gorm"}, ext("gorm.io/gorm"), true},
 		{[]string{"ext:gorm.io/gorm"}, ext("gorm.io/gorm/clause"), true},
 		{[]string{"ext:gorm.io/gorm"}, ext("gorm.io/gormx"), false},
-		{[]string{"ext:sqlalchemy"}, ext("sqlalchemy.orm"), true},
+		// a dotted submodule only of a Python import: lodash.debounce is
+		// another npm package
+		{[]string{"ext:sqlalchemy"}, py("sqlalchemy.orm"), true},
+		{[]string{"ext:lodash"}, ext("lodash.debounce"), false},
+		{[]string{"ext:lodash"}, ext("lodash/fp"), true},
+		{[]string{"ext:*", "!ext:sqlalchemy"}, py("sqlalchemy.orm"), false},
+		{[]string{"ext:*", "!ext:lodash"}, ext("lodash.debounce"), true},
 		{[]string{"ext:net/http"}, std("net/http"), true},
 		{[]string{"ext:net/http"}, std("net/http/httptest"), true},
 		{[]string{"ext:database/sql"}, std("database/sqlx"), false},

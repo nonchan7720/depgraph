@@ -20,15 +20,19 @@ type PackageRef struct {
 	External bool
 	// Std: an external package of the language's standard library.
 	Std bool
+	// Python: an external package imported by Python code, whose
+	// submodules are dotted (sqlalchemy.orm under sqlalchemy).
+	Python bool
 }
 
 // LayerSet is the packages of one layer, compiled from its patterns:
 //
 //	pkg/domain/**                in-repo package keys (Glob)
 //	ext:gorm.io/gorm             an external package by name, with its
-//	                             subpackages / submodules (gorm.io/gorm/clause,
-//	                             sqlalchemy.orm of ext:sqlalchemy); the
-//	                             standard library too (ext:net/http)
+//	                             subpackages (gorm.io/gorm/clause) and, in
+//	                             Python, its submodules (sqlalchemy.orm of
+//	                             ext:sqlalchemy); the standard library too
+//	                             (ext:net/http)
 //	ext:*  ext:github.com/aws/*  external packages by a pattern where * is any
 //	                             run of characters (/ included) and ? one:
 //	                             third-party packages only, never the standard
@@ -37,25 +41,27 @@ type PackageRef struct {
 //
 // The regular expressions mean the same in Go and in the store (see Glob).
 type LayerSet struct {
-	// Rx: in-repo package keys.
-	Rx []string
-	// ExtRx: external packages named exactly (standard library included).
-	ExtRx []string
+	// Rx / NotRx: in-repo package keys in the layer / left out of it.
+	Rx, NotRx []string
+	// ExtRx: external packages named exactly (standard library included);
+	// PyExtRx the same for Python imports (dotted submodules too).
+	ExtRx, PyExtRx []string
 	// LibRx: external packages matched by a wildcard (third-party only).
 	LibRx []string
-	// NotRx: packages left out (in-repo or external).
-	NotRx []string
+	// ExtNotRx / PyExtNotRx: external packages left out.
+	ExtNotRx, PyExtNotRx []string
 }
 
 // Contains reports whether p is in the layer.
 func (s LayerSet) Contains(p PackageRef) bool {
-	if anyRx(s.NotRx, p.Key) {
-		return false
-	}
 	if !p.External {
-		return anyRx(s.Rx, p.Key)
+		return !anyRx(s.NotRx, p.Key) && anyRx(s.Rx, p.Key)
 	}
-	return anyRx(s.ExtRx, p.Key) || (!p.Std && anyRx(s.LibRx, p.Key))
+	exact, not := s.ExtRx, s.ExtNotRx
+	if p.Python {
+		exact, not = s.PyExtRx, s.PyExtNotRx
+	}
+	return !anyRx(not, p.Key) && (anyRx(exact, p.Key) || (!p.Std && anyRx(s.LibRx, p.Key)))
 }
 
 // Params is s as a map for a store query.
@@ -66,7 +72,8 @@ func (s LayerSet) Params() map[string]any {
 		}
 		return xs
 	}
-	return map[string]any{"rx": list(s.Rx), "extRx": list(s.ExtRx), "libRx": list(s.LibRx), "notRx": list(s.NotRx)}
+	return map[string]any{"rx": list(s.Rx), "notRx": list(s.NotRx), "extRx": list(s.ExtRx), "pyExtRx": list(s.PyExtRx),
+		"libRx": list(s.LibRx), "extNotRx": list(s.ExtNotRx), "pyExtNotRx": list(s.PyExtNotRx)}
 }
 
 // HasExternal reports whether the layer has external packages.
@@ -95,17 +102,19 @@ func compileLayerSet(patterns []string) (LayerSet, error) {
 	for _, raw := range patterns {
 		p, neg := strings.CutPrefix(raw, "!")
 		if name, ext := strings.CutPrefix(p, ExternalPrefix); ext {
-			rx, wildcard, err := externalRegex(name)
+			rx, pyRx, wildcard, err := externalRegex(name)
 			if err != nil {
 				return LayerSet{}, fmt.Errorf("%q: %w", raw, err)
 			}
 			switch {
 			case neg:
-				s.NotRx = append(s.NotRx, rx)
+				s.ExtNotRx = append(s.ExtNotRx, rx)
+				s.PyExtNotRx = append(s.PyExtNotRx, pyRx)
 			case wildcard:
 				s.LibRx = append(s.LibRx, rx)
 			default:
 				s.ExtRx = append(s.ExtRx, rx)
+				s.PyExtRx = append(s.PyExtRx, pyRx)
 			}
 		} else {
 			g, err := CompileGlob(p)
@@ -132,10 +141,11 @@ func compileLayerSet(patterns []string) (LayerSet, error) {
 }
 
 // externalRegex is the regular expression of an external package pattern
-// (without "ext:"); wildcard reports whether it has * or ?.
-func externalRegex(name string) (rx string, wildcard bool, err error) {
+// (without "ext:"), and the one for Python imports; wildcard reports
+// whether it has * or ? (the two are then the same).
+func externalRegex(name string) (rx, pyRx string, wildcard bool, err error) {
 	if name == "" {
-		return "", false, errors.New("empty external package pattern")
+		return "", "", false, errors.New("empty external package pattern")
 	}
 	var b strings.Builder
 	b.WriteString("^" + regexp.QuoteMeta(ExternalPrefix))
@@ -151,15 +161,21 @@ func externalRegex(name string) (rx string, wildcard bool, err error) {
 			b.WriteString(regexp.QuoteMeta(string(r)))
 		}
 	}
-	if !wildcard {
-		// the package and what is under it: gorm.io/gorm/clause, sqlalchemy.orm
-		b.WriteString("(?:[/.].*)?")
+	body := b.String()
+	if wildcard {
+		rx = body + "$"
+		pyRx = rx
+	} else {
+		// the package and what is under it: gorm.io/gorm/clause; in
+		// Python also its submodules (sqlalchemy.orm), elsewhere a dotted
+		// name is another package (lodash.debounce)
+		rx = body + "(?:/.*)?$"
+		pyRx = body + "(?:[/.].*)?$"
 	}
-	b.WriteString("$")
-	if _, err := regexp.Compile(b.String()); err != nil {
-		return "", false, err
+	if _, err := regexp.Compile(pyRx); err != nil {
+		return "", "", false, err
 	}
-	return b.String(), wildcard, nil
+	return rx, pyRx, wildcard, nil
 }
 
 // scopeLayerPattern makes a layer pattern of the component in dir relative

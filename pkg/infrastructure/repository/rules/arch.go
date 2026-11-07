@@ -81,6 +81,44 @@ func (r *Repository) concreteDependencies(ctx context.Context, cfg rules.Config,
 	if len(deps) == 0 {
 		return nil, nil
 	}
+	// a default import names what its file exports as default
+	var defaults []string
+	for t, ns := range names {
+		if ns["default"] {
+			defaults = append(defaults, t.target)
+		}
+	}
+	if len(defaults) > 0 {
+		rows, err := r.query(ctx, `
+			UNWIND $files AS path
+			MATCH (f:File {project: $project, path: path})
+			RETURN f.path AS path, f.language AS lang, f.exports AS exports
+		`, nil, map[string]any{"files": defaults})
+		if err != nil {
+			return nil, err
+		}
+		local := map[target]string{}
+		for _, row := range rows {
+			for _, e := range toStrings(row["exports"]) {
+				if ex, ok := graph.DecodeExportName(e); ok && ex.Name == "default" {
+					local[target{fmt.Sprint(row["lang"]), fmt.Sprint(row["path"])}] = ex.Local
+				}
+			}
+		}
+		for i := range deps {
+			if deps[i].d.Type != "default" {
+				continue
+			}
+			l := local[deps[i].target]
+			deps[i].d.Type = l
+			if l != "" {
+				names[deps[i].target][l] = true
+			}
+		}
+		for _, ns := range names {
+			delete(ns, "default")
+		}
+	}
 	params := make([]map[string]any, 0, len(names))
 	for t, ns := range names {
 		list := make([]string, 0, len(ns))
@@ -96,7 +134,7 @@ func (r *Repository) concreteDependencies(ctx context.Context, cfg rules.Config,
 	const match = `
 		WHERE f.language = t.lang AND (s.name IN t.names OR s.receiver IN t.names)
 		  AND none(rx IN $ignore WHERE p.key =~ rx)
-		RETURN t.lang AS lang, t.target AS target, p.key AS pkg, s.name AS name, s.kind AS kind,
+		RETURN t.lang AS lang, t.target AS target, p.key AS pkg, f.path AS file, s.name AS name, s.kind AS kind,
 		       s.abstract AS abstract, s.methods AS methods, s.receiver AS receiver`
 	rows, err = r.query(ctx, `
 		UNWIND $targets AS t
@@ -125,9 +163,14 @@ func (r *Repository) concreteDependencies(ctx context.Context, cfg rules.Config,
 		return shapes[k]
 	}
 	for _, row := range rows {
+		if file, _ := row["file"].(string); rules.IsTestFile(file) {
+			continue // a test's helpers and fakes are not the package's
+		}
 		t := target{fmt.Sprint(row["lang"]), fmt.Sprint(row["target"])}
 		if recv, _ := row["receiver"].(string); recv != "" {
-			get(typeKey{t, recv}).shape.Methods++
+			if !dataMethods[fmt.Sprint(row["name"])] {
+				get(typeKey{t, recv}).shape.Methods++
+			}
 			continue
 		}
 		kind, _ := row["kind"].(string)
@@ -147,6 +190,9 @@ func (r *Repository) concreteDependencies(ctx context.Context, cfg rules.Config,
 	}
 	in := make([]rules.HeldDependency, 0, len(deps))
 	for _, h := range deps {
+		if h.d.Type == "" {
+			continue // a default import of a file without a default class
+		}
 		sh := shapes[typeKey{h.target, h.d.Type}]
 		if sh == nil || !sh.found {
 			continue // not declared there (a re-export, an ignored package)
@@ -159,6 +205,17 @@ func (r *Repository) concreteDependencies(ctx context.Context, cfg rules.Config,
 		out[i].Severity = string(cfg.Severity(rules.RuleConcreteDependency))
 	}
 	return out, nil
+}
+
+// dataMethods are the methods data types implement for the standard
+// library (fmt.Stringer, error, the encoders, database/sql, sort, gorm's
+// table name): a struct with only these is a value, not a service.
+var dataMethods = map[string]bool{
+	"String": true, "GoString": true, "Format": true, "Error": true, "Unwrap": true, "Is": true,
+	"MarshalJSON": true, "UnmarshalJSON": true, "MarshalText": true, "UnmarshalText": true,
+	"MarshalYAML": true, "UnmarshalYAML": true, "MarshalBinary": true, "UnmarshalBinary": true,
+	"MarshalXML": true, "UnmarshalXML": true, "Scan": true, "Value": true, "TableName": true,
+	"Len": true, "Less": true, "Swap": true, "Equal": true, "Clone": true, "Validate": true,
 }
 
 // largePackages sums the lines of every package's source files (tests and

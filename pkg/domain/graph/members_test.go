@@ -6,9 +6,10 @@ func TestTypeUseEncode(t *testing.T) {
 	for _, u := range []TypeUse{
 		{Owner: "UserService", Member: "repo", Role: RoleField, Exported: false, Line: 12, Target: "app/repository", Type: "MySQLRepo"},
 		{Owner: "Get", Member: "0", Role: RoleResult, Exported: true, Collection: true, Line: 3, Target: "src/infra/row.ts", Type: "Row"},
+		{Owner: "UC", Member: "repo", Role: RoleField, Line: 4, Target: "app/infra", Type: "Repo", Calls: []string{"Find", "Save"}},
 	} {
 		got, ok := DecodeTypeUse(u.Encode())
-		if !ok || got != u {
+		if !ok || got.Encode() != u.Encode() {
 			t.Errorf("round trip %+v = %+v, %v", u, got, ok)
 		}
 	}

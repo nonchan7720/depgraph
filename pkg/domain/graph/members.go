@@ -53,6 +53,10 @@ type TypeUse struct {
 	// Collection: the type is the element of a slice / array / map / list.
 	Collection bool `json:"collection,omitempty"`
 	Line       int  `json:"line"`
+	// Calls: the methods the owner calls on the member (a field through
+	// its receiver / this / self, a constructor parameter in the
+	// constructor), sorted.
+	Calls []string `json:"calls,omitempty"`
 	TypeRef
 }
 
@@ -65,13 +69,14 @@ func boolField(b bool) string {
 
 // Encode returns u as one string (for list properties of the store).
 func (u TypeUse) Encode() string {
-	return strings.Join([]string{u.Owner, u.Member, u.Role, strconv.Itoa(u.Line), boolField(u.Exported), boolField(u.Collection), u.Target, u.Type}, usesSep)
+	return strings.Join([]string{u.Owner, u.Member, u.Role, strconv.Itoa(u.Line), boolField(u.Exported), boolField(u.Collection), u.Target, u.Type,
+		strings.Join(u.Calls, ",")}, usesSep)
 }
 
 // DecodeTypeUse is the inverse of TypeUse.Encode.
 func DecodeTypeUse(s string) (TypeUse, bool) {
 	f := strings.Split(s, usesSep)
-	if len(f) != 8 || f[6] == "" || f[7] == "" {
+	if (len(f) != 8 && len(f) != 9) || f[6] == "" || f[7] == "" { // 8: stored before Calls
 		return TypeUse{}, false
 	}
 	switch f[2] {
@@ -83,8 +88,12 @@ func DecodeTypeUse(s string) (TypeUse, bool) {
 	if err != nil {
 		return TypeUse{}, false
 	}
-	return TypeUse{Owner: f[0], Member: f[1], Role: f[2], Line: line, Exported: f[4] == "1", Collection: f[5] == "1",
-		Target: f[6], Type: f[7]}, true
+	u := TypeUse{Owner: f[0], Member: f[1], Role: f[2], Line: line, Exported: f[4] == "1", Collection: f[5] == "1",
+		Target: f[6], Type: f[7]}
+	if len(f) == 9 && f[8] != "" {
+		u.Calls = strings.Split(f[8], ",")
+	}
+	return u, true
 }
 
 // Construct is a place the file instantiates a type of the repository

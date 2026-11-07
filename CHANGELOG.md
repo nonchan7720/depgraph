@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.8](https://github.com/nonchan7720/depgraph/compare/v0.1.7...v0.1.8) (2026-11-07)
+
+
+### Features
+
+* **ruby:** support Ruby and Ruby on Rails (Zeitwerk, concerns, engines, packwerk) ([#47](https://github.com/nonchan7720/depgraph/issues/47)) ([0b3741a](https://github.com/nonchan7720/depgraph/commit/0b3741ae2f4885a7f43b553f220c86a51dc2ab95))
+
 ## [0.1.7](https://github.com/nonchan7720/depgraph/compare/v0.1.6...v0.1.7) (2026-11-07)
 
 

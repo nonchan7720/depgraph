@@ -237,3 +237,24 @@ func TestUnusedRubyGlobOfNestedGem(t *testing.T) {
 	wantFindings(t, evalUnused(toUnusedFiles(parseRepo(t, root)), rules.DefaultConfig()),
 		"unreachable-file|lib/gitlab/orphan.rb")
 }
+
+// A gem named like the application's own namespace (GitLab depends on the
+// `gitlab` API client gem; dry-types is not `Types`) does not exempt the
+// application's classes in it.
+func TestUnusedRubyOwnNamespaceNamedLikeAGem(t *testing.T) {
+	root := writeRepo(t, map[string]string{
+		"Gemfile":                            "gem 'rails'\ngem 'gitlab', require: false\ngem 'dry-types'\ngem 'kt-paperclip'\n",
+		"Gemfile.lock":                       "GEM\n  specs:\n    gitlab (6.1.0)\n    dry-types (1.8.3)\n    kt-paperclip (8.0.0)\n",
+		"config/application.rb":              "",
+		"lib/gitlab.rb":                      "module Gitlab\n  def self.com? = true\nend\n",
+		"lib/gitlab/orphan_helper.rb":        "module Gitlab\n  class OrphanHelper\n  end\nend\n",
+		"app/graphql/types/orphan_type.rb":   "module Types\n  class OrphanType < BaseObject\n  end\nend\n",
+		"app/controllers/home_controller.rb": "class HomeController < ApplicationController\n  def index = Gitlab.com?\nend\n",
+		// still a library's namespace: Paperclip loads its processors by name
+		"lib/paperclip/blur.rb":           "module Paperclip\n  class Blur < Processor\n  end\nend\n",
+		"spec/lib/paperclip/helper_spec.rb": "RSpec.describe 1 do\nend\n", // tests are no namespace of the application
+	})
+	wantFindings(t, evalUnused(toUnusedFiles(parseRepo(t, root)), rules.DefaultConfig()),
+		"unreachable-file|lib/gitlab/orphan_helper.rb",
+		"unreachable-file|app/graphql/types/orphan_type.rb")
+}

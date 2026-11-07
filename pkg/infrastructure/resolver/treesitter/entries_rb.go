@@ -175,8 +175,9 @@ var (
 
 // loadGemNames records the root constants of the gems a Gemfile or its lock
 // file names: the whole name (omniauth -> OmniAuth, kt-paperclip ->
-// KtPaperclip) and the name after a short fork prefix (Paperclip) for sure,
-// the first part of a hyphenated name (twitter-text -> Twitter) as a guess.
+// KtPaperclip) for sure, the name after a short fork prefix (kt-paperclip
+// -> Paperclip, but dry-types is not Types) and the first part of a
+// hyphenated name (twitter-text -> Twitter) as a guess.
 // Gems of the repository itself (path:) are not libraries.
 func (m *manifests) loadGemNames(root, rel string) {
 	b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
@@ -207,9 +208,10 @@ func (m *manifests) loadGemNames(root, rel string) {
 		if len(parts) == 1 {
 			continue
 		}
-		// a fork under a short prefix: kt-paperclip is Paperclip
-		if len(parts[0]) <= 3 {
-			m.rbLibs[rbLibKey(parts[1])] = true
+		// a fork under a short prefix: kt-paperclip is Paperclip, but
+		// dry-types is Dry::Types: a guess too
+		if k := rbLibKey(parts[1]); len(parts[0]) <= 3 && !m.rbLibs[k] {
+			m.rbLibs[k] = false
 		}
 		// twitter-text is Twitter, but api-pagination is not every Api: only
 		// a guess, which the application's own namespace overrides
@@ -246,31 +248,46 @@ func (m *manifests) rbLibrary(u *usageCollector) string {
 	return ""
 }
 
-// rbLibRoot reports whether the root constant r is a library's: a guessed
-// root (twitter-text -> Twitter) is not when the application has a directory
-// of that name (app/services/api/ for Api).
+// rbLibRoot reports whether the root constant r is a library's: Ruby's or
+// Rails' always; a gem's unless the application has a namespace file of
+// that name (lib/gitlab.rb); a guessed root (twitter-text -> Twitter) also
+// not when the application has a directory of that name (app/services/api/
+// for Api).
 func (m *manifests) rbLibRoot(r string) bool {
 	k := rbLibKey(r)
+	if m.rbCore[k] {
+		return true
+	}
 	certain, ok := m.rbLibs[k]
 	if !ok {
 		return false
 	}
-	if certain {
-		return true
-	}
 	m.rbOwnOnce.Do(func() {
-		m.rbOwn = map[string]bool{}
+		m.rbOwn, m.rbNSFile = map[string]bool{}, map[string]bool{}
 		for _, f := range m.sources {
 			if !strings.HasSuffix(f, ".rb") {
 				continue
 			}
-			segs := strings.Split(path.Dir(f), "/")
-			for _, s := range segs[min(len(segs), 2):] { // below app/<kind>/, lib/<x>/
-				m.rbOwn[rbLibKey(s)] = true
+			dir := path.Dir(f)
+			segs := strings.Split(dir, "/")
+			// a namespace directory of the application: app/<kind>/<ns>/
+			// (lib/<ns>/ is where gems are extended, spec/lib/<ns>/ tests)
+			for i := 2; i < len(segs); i++ {
+				if segs[i-2] == "app" {
+					m.rbOwn[rbLibKey(segs[i])] = true
+				}
+			}
+			if path.Base(dir) == "lib" || path.Base(path.Dir(dir)) == "app" {
+				m.rbNSFile[rbLibKey(strings.TrimSuffix(path.Base(f), ".rb"))] = true
 			}
 		}
 	})
-	return !m.rbOwn[k]
+	// the application's own namespace file (lib/gitlab.rb next to the
+	// gitlab gem): the namespace is the application's
+	if m.rbNSFile[k] {
+		return false
+	}
+	return certain || !m.rbOwn[k]
 }
 
 // ---- tool configuration ----------------------------------------------------

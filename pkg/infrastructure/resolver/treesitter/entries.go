@@ -48,7 +48,8 @@ type manifests struct {
 	rbScopes map[string]bool   // dirs with a Gemfile / *.gemspec
 	rbGems   map[string]bool   // dirs with a *.gemspec
 	rbPacks  map[string]string // packwerk pack dir (package.yml) -> its public path
-	rbLibs   map[string]bool   // rbLibKey of the libraries' root constants -> certain (see loadGemNames)
+	rbLibs   map[string]bool   // rbLibKey of the gems' root constants -> certain (see loadGemNames)
+	rbCore   map[string]bool   // rbLibKey of Ruby's, its standard library's and Rails' root constants
 	rbApps   map[string]bool   // dirs whose app/ has Rails' layout (engines, Discourse plugins)
 	rbYAML   map[string]string // constant named by a configuration file or an extensionless script -> the file
 
@@ -65,6 +66,7 @@ type manifests struct {
 
 	rbOwnOnce sync.Once
 	rbOwn     map[string]bool // rbLibKey of the directory names of Ruby sources
+	rbNSFile  map[string]bool // rbLibKey of the namespace files of the application (lib/gitlab.rb)
 }
 
 // manifests returns the (cached) manifests of root.
@@ -174,7 +176,7 @@ type packageJSON struct {
 func loadManifests(ctx context.Context, root string, imp *imports.Multi) *manifests {
 	m := &manifests{
 		tsScopes: map[string]bool{}, pyScopes: map[string]bool{}, goScopes: map[string]bool{},
-		rbScopes: map[string]bool{}, rbGems: map[string]bool{}, rbPacks: map[string]string{}, rbLibs: rbCoreRoots(),
+		rbScopes: map[string]bool{}, rbGems: map[string]bool{}, rbPacks: map[string]string{}, rbLibs: map[string]bool{}, rbCore: rbCoreRoots(),
 		rbApps: map[string]bool{}, rbYAML: map[string]string{},
 		files: map[string]string{}, prefixes: map[string]string{}, opaque: map[string]string{},
 		routing: map[string]string{}, dirs: map[string]map[string]string{}, django: map[string]bool{},

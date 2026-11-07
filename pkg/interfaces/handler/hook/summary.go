@@ -29,6 +29,7 @@ var ruleOrder = map[string]int{
 	"import-cycle": 0, rules.RuleModuleCycle: 1, "layer-violation": 2, "duplicate-code": 3, "god-package": 4, "duplicate-symbol": 5,
 	rules.RuleUnusedExport: 6, rules.RuleUnreachableFile: 7, rules.RuleUnreachablePackage: 8, rules.RuleExternalUnclassified: 9,
 	rules.RuleConcreteDependency: 2, rules.RuleTypeLeak: 2,
+	rules.RuleLowCohesion: 4,
 }
 
 var ruleHints = map[string]string{
@@ -45,6 +46,7 @@ var ruleHints = map[string]string{
 	rules.RuleExternalUnclassified: "not checked against ext: layers; do not take this as a pass",
 	rules.RuleConcreteDependency:   "hold the interface it implements; build the implementation in the composition root",
 	rules.RuleTypeLeak:             "expose the layer's own types or an interface, not the outer layer's",
+	rules.RuleLowCohesion:          "split it along its parts; put new code where its users are",
 }
 
 func severityRank(s string) int {

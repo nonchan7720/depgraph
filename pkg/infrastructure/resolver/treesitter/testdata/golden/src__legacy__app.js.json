@@ -122,6 +122,35 @@
         "target": "src/legacy/app.js",
         "name": "run"
       }
+    ],
+    "declRefs": [
+      {
+        "name": "fs"
+      },
+      {
+        "name": "run"
+      },
+      {
+        "name": "Server"
+      },
+      {
+        "name": "handler"
+      },
+      {
+        "name": "ids"
+      },
+      {
+        "name": "Hidden"
+      },
+      {
+        "name": "counter"
+      },
+      {
+        "name": "inc"
+      },
+      {
+        "name": "gen"
+      }
     ]
   }
 }

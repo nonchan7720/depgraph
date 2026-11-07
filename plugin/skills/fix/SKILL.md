@@ -1,6 +1,6 @@
 ---
 name: fix
-description: Fix the debt depgraph reports (import-cycle, module-cycle, layer-violation, concrete-dependency, type-leak, duplicate-code, duplicate-symbol, god-package, unused-export, unreachable-file, unreachable-package) the way the codebase needs, not by silencing the rule. Use when depgraph findings appear in the context (session start, a prompt, or a failing `depgraph gate`), or when the user asks to clean up what depgraph found.
+description: Fix the debt depgraph reports (import-cycle, module-cycle, layer-violation, concrete-dependency, type-leak, duplicate-code, duplicate-symbol, god-package, low-cohesion, unused-export, unreachable-file, unreachable-package) the way the codebase needs, not by silencing the rule. Use when depgraph findings appear in the context (session start, a prompt, or a failing `depgraph gate`), or when the user asks to clean up what depgraph found.
 argument-hint: "[rule or finding]"
 ---
 
@@ -52,6 +52,10 @@ refactor nobody asked for.
 - **god-package** (warn): imported by many packages while importing many itself. Split it by what
   its importers use; move the stable, dependency-free parts (types, interfaces) into their own
   package.
+- **low-cohesion** (warn): a package (Go) or module (TS / Python file) whose parts nothing inside
+  connects is used by different code for each part. Move each part to the package / module its users
+  need (or a new one named after what it does), keep the names, update the imports. Do not add code
+  that joins the parts just to silence it.
 - **unused-export / unreachable-file / unreachable-package** (warn): code nothing in the project
   uses. If you just wrote it and nothing calls it yet, wire it up or remove it; do not leave
   speculative code. If something outside the import graph really uses it (a plugin loaded by name,

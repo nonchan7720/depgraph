@@ -32,6 +32,15 @@ type Usage struct {
 	// Keep are declared names the file marks as used on purpose (a Python
 	// __all__ entry, a decorated definition a framework registers).
 	Keep []string `json:"keep,omitempty"`
+	// Go: Decls are the package-level names the file declares (functions,
+	// types, variables, constants; exported or not) and Idents the names it
+	// uses, so that the files of a package that refer to each other can be
+	// told from parts nothing connects (low-cohesion).
+	Decls  []string `json:"decls,omitempty"`
+	Idents []string `json:"idents,omitempty"`
+	// DeclRefs (TypeScript, Python): the file's top-level declarations and
+	// the other ones each refers to.
+	DeclRefs []DeclRef `json:"declRefs,omitempty"`
 	// Mentions are source file names in the file's strings ("render.js" in
 	// a Go program that bundles it): the rule matches them against the
 	// project's paths, and the file uses what they name.

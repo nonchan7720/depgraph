@@ -495,6 +495,15 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 	}
 	out = append(out, members...)
 
+	// 5c. Packages / modules holding unrelated parts (cohesion.go).
+	if cfg.Enabled(rules.RuleLowCohesion) {
+		lc, err := r.lowCohesion(ctx, cfg, ignore)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, lc...)
+	}
+
 	// 6. Unused code at project level (unused.go).
 	unused, err := r.evaluateUnused(ctx, cfg)
 	if err != nil {

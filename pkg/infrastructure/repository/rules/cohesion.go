@@ -22,8 +22,10 @@ func (r *Repository) lowCohesion(ctx context.Context, cfg rules.Config, ignore [
 		MATCH (p:Package {project: $project})-[:CONTAINS]->(f:File)
 		WHERE p.external = false AND none(rx IN $ignore WHERE p.key =~ rx) AND coalesce(f.generated, false) = false
 		  AND f.language IN ['go', 'typescript', 'javascript', 'python']
+		OPTIONAL MATCH (f)-[:DECLARES]->(s:Symbol)
+		WITH p, f, collect({name: s.name, kind: s.kind, receiver: s.receiver, methods: s.methods, data: s.data}) AS syms
 		RETURN p.key AS pkg, f.path AS file, f.language AS lang, f.entry AS entry, f.decls AS decls, f.idents AS idents,
-		       f.declRefs AS declRefs, f.uses AS uses, f.exports AS exports
+		       f.declRefs AS declRefs, f.uses AS uses, f.exports AS exports, syms
 	`, ignore, nil)
 	if err != nil {
 		return nil, fmt.Errorf("low cohesion: %w", err)
@@ -34,6 +36,8 @@ func (r *Repository) lowCohesion(ctx context.Context, cfg rules.Config, ignore [
 		decls, idents   []string
 		declRefs        []graph.DeclRef
 		exports         map[string]string // exported name -> local
+		behaviour       bool              // Go: a function or method that is not a constructor or data method
+		behaves         map[string]bool   // TS / Python: declarations that are functions or classes with methods
 	}
 	var files []file
 	users := map[string]map[string][]string{} // unit -> name -> users
@@ -52,6 +56,24 @@ func (r *Repository) lowCohesion(ctx context.Context, cfg rules.Config, ignore [
 		}
 		f.entry = row["entry"] != nil && row["entry"] != ""
 		f.decls, f.idents = toStrings(row["decls"]), toStrings(row["idents"])
+		f.behaves = map[string]bool{}
+		syms, _ := row["syms"].([]any)
+		for _, x := range syms {
+			s, _ := x.(map[string]any)
+			name, _ := s["name"].(string)
+			kind, _ := s["kind"].(string)
+			data, _ := s["data"].(bool)
+			switch {
+			case name == "":
+			case kind == "method":
+				f.behaviour = f.behaviour || !rules.IsDataMethod(name)
+			case kind == "function":
+				f.behaviour = f.behaviour || !strings.HasPrefix(name, "New")
+				f.behaves[name] = true
+			case kind == "class":
+				f.behaves[name] = !data && len(toStrings(s["methods"])) > 0
+			}
+		}
 		for _, s := range toStrings(row["declRefs"]) {
 			if d, ok := graph.DecodeDeclRef(s); ok {
 				f.declRefs = append(f.declRefs, d)
@@ -109,7 +131,7 @@ func (r *Repository) lowCohesion(ctx context.Context, cfg rules.Config, ignore [
 		u := rules.CohesionUnit{Key: f.path, What: "module", Users: users[f.path]}
 		at := map[string]int{}
 		for i, d := range f.declRefs {
-			u.Parts = append(u.Parts, rules.CohesionPart{ID: d.Name, Names: []string{d.Name}})
+			u.Parts = append(u.Parts, rules.CohesionPart{ID: d.Name, Names: []string{d.Name}, Data: !f.behaves[d.Name]})
 			at[d.Name] = i
 		}
 		for i, d := range f.declRefs {
@@ -128,7 +150,7 @@ func (r *Repository) lowCohesion(ctx context.Context, cfg rules.Config, ignore [
 		u := rules.CohesionUnit{Key: pkg, What: "package", Users: users[pkg]}
 		declaredIn := map[string]int{}
 		for i, f := range fs {
-			u.Parts = append(u.Parts, rules.CohesionPart{ID: f.path[strings.LastIndexByte(f.path, '/')+1:], Names: f.decls})
+			u.Parts = append(u.Parts, rules.CohesionPart{ID: f.path[strings.LastIndexByte(f.path, '/')+1:], Names: f.decls, Data: !f.behaviour})
 			for _, d := range f.decls {
 				declaredIn[d] = i
 			}

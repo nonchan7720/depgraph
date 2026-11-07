@@ -14,7 +14,7 @@ import (
 const RuleLowCohesion = "low-cohesion"
 
 func init() {
-	builtin = append(builtin, Rule{Name: RuleLowCohesion, Severity: SeverityWarn,
+	builtin = append(builtin, Rule{Name: RuleLowCohesion, Severity: SeverityInfo,
 		Description: "a package / module whose parts nothing inside connects are used by different code: more than one responsibility"})
 }
 
@@ -34,6 +34,10 @@ type CohesionUnit struct {
 type CohesionPart struct {
 	ID    string
 	Names []string
+	// Data: the part declares data only (types without behaviour,
+	// constants, constructors): a unit of data parts (entities, DTOs) is
+	// not reported.
+	Data bool
 }
 
 // minCohesionNames: a unit with fewer names used from outside is too small
@@ -47,7 +51,7 @@ func LowCohesion(units []CohesionUnit) []Finding {
 	var out []Finding
 	for _, u := range units {
 		groups := cohesionGroups(u)
-		if len(groups) < 2 {
+		if len(groups) < 2 || !slices.ContainsFunc(groups, func(g cohesionGroup) bool { return !g.data }) {
 			continue
 		}
 		used := 0
@@ -84,6 +88,7 @@ func LowCohesion(units []CohesionUnit) []Finding {
 
 type cohesionGroup struct {
 	parts, names, users []string
+	data                bool // every part is data
 }
 
 // cohesionGroups are the connected groups of parts of u that are used from
@@ -111,9 +116,10 @@ func cohesionGroups(u CohesionUnit) []cohesionGroup {
 		r := find(i)
 		g := byRoot[r]
 		if g == nil {
-			g = &cohesionGroup{}
+			g = &cohesionGroup{data: true}
 			byRoot[r] = g
 		}
+		g.data = g.data && p.Data
 		g.parts = append(g.parts, p.ID)
 		for _, n := range p.Names {
 			if users := u.Users[n]; len(users) > 0 {

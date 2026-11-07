@@ -17,10 +17,15 @@ func TestEvaluateLowCohesion(t *testing.T) {
 	ctx, st := connect(t)
 	key := fmt.Sprintf("zz_test_%d_cohesion", time.Now().UnixNano())
 	gof := func(path string, decls, idents []string, uses ...graph.Use) *graph.FileGraph {
-		return &graph.FileGraph{Path: path, Package: graph.PackageKey(path), Language: graph.Go,
+		fg := &graph.FileGraph{Path: path, Package: graph.PackageKey(path), Language: graph.Go,
 			Usage: &graph.Usage{Scope: ".", Decls: decls, Idents: idents, Uses: uses}}
+		for _, d := range decls { // functions, unless a test says otherwise
+			fg.Symbols = append(fg.Symbols, graph.Symbol{Name: d, Kind: "function", Exported: true})
+		}
+		return fg
 	}
 	use := func(target, name string) graph.Use { return graph.Use{Target: target, Name: name} }
+	withSyms := func(fg *graph.FileGraph, syms ...graph.Symbol) *graph.FileGraph { fg.Symbols = syms; return fg }
 	upsertAll(ctx, t, st, key, []*graph.FileGraph{
 		gof("pkg/util/parse.go", []string{"Parse", "token"}, []string{"Lex", "token"}),
 		gof("pkg/util/lex.go", []string{"Lex"}, nil),
@@ -32,9 +37,19 @@ func TestEvaluateLowCohesion(t *testing.T) {
 		// used whole by a dot import: not reported
 		gof("pkg/dot/a.go", []string{"A"}, nil), gof("pkg/dot/b.go", []string{"B"}, nil), gof("pkg/dot/c.go", []string{"C"}, nil),
 		gof("pkg/x/x.go", nil, nil, use("pkg/dot", "A"), use("pkg/dot", "*")),
+		// entities, one per consumer: data, not two responsibilities
+		withSyms(gof("pkg/model/user.go", []string{"User", "NewUser"}, nil),
+			graph.Symbol{Name: "User", Kind: "struct", Exported: true}, graph.Symbol{Name: "NewUser", Kind: "function", Exported: true},
+			graph.Symbol{Name: "String", Kind: "method", Exported: true, Receiver: "User"}),
+		withSyms(gof("pkg/model/order.go", []string{"Order", "Status"}, nil), graph.Symbol{Name: "Order", Kind: "struct", Exported: true}),
+		gof("pkg/svcuser/s.go", nil, nil, use("pkg/model", "User"), use("pkg/model", "NewUser")),
+		gof("pkg/svcorder/s.go", nil, nil, use("pkg/model", "Order"), use("pkg/model", "Status")),
 		gof("pkg/y/y.go", nil, nil, use("pkg/dot", "B"), use("pkg/dot", "C")),
 		// TypeScript: render and parse halves of one module
-		{Path: "web/lib/text.ts", Package: "web/lib", Language: graph.TypeScript, Usage: &graph.Usage{Scope: ".", DeclRefs: []graph.DeclRef{
+		{Path: "web/lib/text.ts", Package: "web/lib", Language: graph.TypeScript, Symbols: []graph.Symbol{
+			{Name: "split", Kind: "function"}, {Name: "join", Kind: "function"}, {Name: "renderHtml", Kind: "function"},
+			{Name: "renderText", Kind: "function"}, {Name: "escape", Kind: "function"}, {Name: "SEP", Kind: "variable"},
+		}, Usage: &graph.Usage{Scope: ".", DeclRefs: []graph.DeclRef{
 			{Name: "SEP"}, {Name: "split", Refs: []string{"SEP"}}, {Name: "join", Refs: []string{"SEP"}},
 			{Name: "renderHtml"}, {Name: "escape"}, {Name: "renderText", Refs: []string{"escape"}},
 		}}},

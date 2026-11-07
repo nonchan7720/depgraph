@@ -577,7 +577,7 @@ depgraph が持つ名前の一覧は使わず、何も実行しません:
 | Go | import 元モジュールの `go.mod`（または `go.work`）が require / replace しているモジュール | 先頭要素にドットを含まないパス（go コマンドの標準ライブラリの規則） |
 | TypeScript / JavaScript | `node_modules` に解決されたもの。未インストールなら、そのファイルか上位の `package.json` が宣言しているもの | esbuild が組み込みに解決した Node の組み込みモジュール（`punycode` は組み込み、`punycode/` はインストール済みパッケージ） |
 | Python | `languages.python` が指すバージョンの標準ライブラリに無いもの。判定にはプロジェクトの型チェッカーが持つ typeshed を使う（外部の import は標準ライブラリかインストール済みのパッケージのどちらか） | そのバージョンの標準ライブラリにあるもの |
-| Ruby | バンドルの `Gemfile.lock` がロックしている gem の名前（`activerecord`、`aws-sdk-s3` の `Aws`）に一致する `require` や定数（トップレベルの名前で判定：`ActiveRecord::Base` の `ActiveRecord`）。Bundler が読み込むもの。バンドルがロックしている default gem（`json`）もサードパーティになるので、外すなら `!ext:JSON` | それ以外は不明。ロックされた gem のものらしい定数（`ActionController` と `actionpack`）は `external-unclassified` に一覧を出し、Ruby 自身のものらしい定数（`Hash`）は出さない（見分けるには Ruby のバージョンごとの一覧が要るため） |
+| Ruby | `Gemfile` が求める gem（バンドルの `Gemfile.lock` の `DEPENDENCIES`：`rails`、`sidekiq`、`sidekiq/api`）の名前に一致する `require` や定数（トップレベルの名前で判定：`ActiveRecord::Base` の `ActiveRecord`）。アプリケーションが自ら依存すると決めたもの | それ以外は不明。他の gem の依存としてだけロックされた gem（`rails` 配下の `activerecord`、`json`・`net-http` のような default gem も）は `external-unclassified` に一覧を出すので、検査するなら `ext:` パターンに名前を書く。名前では確かめられないが gem のものらしい定数（`actionpack` の `ActionController`、`aws-sdk-s3` の `Aws`）も一覧に出し、Ruby 自身のものらしい定数（`Hash`・`IO`）は出さない（見分けるには Ruby のバージョンごとの一覧が要るため） |
 
 import ごとに判定結果と根拠を記録します（`depgraph parse` で見られます）。サードパーティならワイルドカードにマッチするのに判定できなかった
 import は、違反としては報告せず、黙って捨てることもしません。`external-unclassified`（info）が言語ごとに根拠つきで一覧にします。

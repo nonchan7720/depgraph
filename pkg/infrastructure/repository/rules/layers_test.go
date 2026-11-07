@@ -382,17 +382,18 @@ func TestEvaluatePythonExternalLayers(t *testing.T) {
 }
 
 // Ruby: requires and constants are classified from the bundle's
-// Gemfile.lock; a constant that is probably a gem's but not by its name is
-// listed, one that is likely Ruby's own is not.
+// Gemfile.lock: a gem the Gemfile asks for is third-party; a gem locked only
+// as another's dependency and a constant that is probably a gem's but not
+// by its name are listed; one that is likely Ruby's own is not.
 func TestEvaluateRubyExternalLayers(t *testing.T) {
 	ctx, st := connect(t)
 	root := t.TempDir()
-	writeTree(t, root, map[string]string{"Gemfile.lock": "GEM\n  specs:\n    actionpack (7.1.3)\n    activerecord (7.1.3)\n    sidekiq (7.2.0)\n"})
+	writeTree(t, root, map[string]string{"Gemfile.lock": "GEM\n  specs:\n    actionpack (7.1.3)\n    activerecord (7.1.3)\n    rails (7.1.3)\n      actionpack (= 7.1.3)\n      activerecord (= 7.1.3)\n    sidekiq (7.2.0)\n\nDEPENDENCIES\n  rails\n  sidekiq\n"})
 	key := fmt.Sprintf("zz_test_%d_rblayers", time.Now().UnixNano())
 	upsertAll(ctx, t, st, key, []*graph.FileGraph{
 		{Path: "app/domain/order.rb", Package: "app/domain", Language: graph.Ruby,
 			Imports: []graph.Import{{Spec: "sidekiq", Target: "ext:sidekiq", External: true}},
-			Usage:   &graph.Usage{Scope: ".", ExtConstants: []string{"ActionController", "ActiveRecord", "Hash"}}},
+			Usage:   &graph.Usage{Scope: ".", ExtConstants: []string{"ActionController", "ActiveRecord", "Hash", "Rails"}}},
 	})
 	c := rules.DefaultConfig()
 	c.DefaultLayers = false
@@ -405,7 +406,7 @@ func TestEvaluateRubyExternalLayers(t *testing.T) {
 	}
 	got := messages(byRule(fs, rules.RuleLayerViolation))
 	want := []string{
-		"app/domain -> ext:ActiveRecord (domain must not import frameworks)",
+		"app/domain -> ext:Rails (domain must not import frameworks)",
 		"app/domain -> ext:sidekiq (domain must not import frameworks)",
 	}
 	if !slices.Equal(got, want) {
@@ -413,6 +414,7 @@ func TestEvaluateRubyExternalLayers(t *testing.T) {
 	}
 	un := byRule(fs, rules.RuleExternalUnclassified)
 	if len(un) != 1 || un[0].ID != "ruby" || !strings.Contains(un[0].Message, "ext:ActionController (probably gem actionpack") ||
+		!strings.Contains(un[0].Message, "ext:ActiveRecord (gem activerecord is locked only as a dependency") ||
 		strings.Contains(un[0].Message, "Hash") {
 		t.Errorf("unclassified = %+v", un)
 	}

@@ -66,7 +66,7 @@ type usageCollector struct {
 
 	goImports   []goImport
 	goSelectors []goSelector
-	tsPrefixes  []string // repo-relative directories every file of which is used
+	dirPrefixes []string // repo-relative directories every file of which is used
 }
 
 func (u *usageCollector) use(spec, name string) {
@@ -200,7 +200,7 @@ func (r *Resolver) finishUsage(ctx context.Context, root string, fg *graph.FileG
 	if fg.Language == graph.Ruby {
 		u.rbGlobUses(root, m.scope(fg.Path, fg.Language))
 	}
-	us = append(us, u.tsPrefixUses(root)...)
+	us = append(us, u.dirPrefixUses(root)...)
 
 	entry := m.entry(fg.Path, fg.Language, u)
 	fg.Usage = &graph.Usage{

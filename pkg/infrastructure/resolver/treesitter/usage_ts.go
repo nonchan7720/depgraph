@@ -351,13 +351,14 @@ func (u *usageCollector) tsPrefix(p string) {
 	if d == ".." || strings.HasPrefix(d, "../") {
 		return
 	}
-	u.tsPrefixes = append(u.tsPrefixes, d)
+	u.dirPrefixes = append(u.dirPrefixes, d)
 }
 
-// tsPrefixUses turns the recorded directory prefixes into uses.
-func (u *usageCollector) tsPrefixUses(root string) []graph.Use {
+// dirPrefixUses turns the recorded directory prefixes (dynamic imports, Go
+// embeds, Ruby globs) into uses.
+func (u *usageCollector) dirPrefixUses(root string) []graph.Use {
 	var out []graph.Use
-	for _, d := range u.tsPrefixes {
+	for _, d := range u.dirPrefixes {
 		if isDir(root, d) {
 			t := d + "/"
 			if d == "." {

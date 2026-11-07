@@ -518,8 +518,8 @@ func (m *manifests) loadRubyScript(root, rel string) {
 		return
 	}
 	b := append(head[:n], rest...)
-	for _, sm := range rbTemplConst.FindAllSubmatch(rbStringRe.ReplaceAll(b, []byte(`""`)), -1) {
-		if c := strings.TrimPrefix(string(sm[1]), "::"); m.rbYAML[c] == "" {
+	for _, name := range rbCodeConstants(string(b)) {
+		if c := strings.TrimPrefix(name, "::"); m.rbYAML[c] == "" {
 			m.rbYAML[c] = rel
 		}
 	}

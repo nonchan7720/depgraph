@@ -360,7 +360,7 @@ func (u *usageCollector) rbGlobUses(root, scope string) {
 		}
 		for _, d := range cands {
 			if d != "." && d != ".." && !strings.HasPrefix(d, "../") {
-				u.tsPrefixes = append(u.tsPrefixes, d)
+				u.dirPrefixes = append(u.dirPrefixes, d)
 			}
 		}
 	}
@@ -550,6 +550,16 @@ var (
 	rbTemplConst = regexp.MustCompile(`(?:^|[^\w:.@$])((?:::)?[A-Z]\w*(?:::[A-Z]\w*)*)`)
 )
 
+// rbCodeConstants are the constants Ruby code that is not parsed names (the
+// code of a view, an extensionless script), outside its string literals.
+func rbCodeConstants(code string) []string {
+	var out []string
+	for _, m := range rbTemplConst.FindAllStringSubmatch(rbStringRe.ReplaceAllString(code, `""`), -1) {
+		out = append(out, m[1])
+	}
+	return out
+}
+
 // rbTemplateCode is the Ruby code of an ERB / Haml / Slim template.
 func rbTemplateCode(rel string, src []byte) []string {
 	var code []string
@@ -596,9 +606,8 @@ func (r *Resolver) resolveRubyTemplate(ctx context.Context, root, rel string) (*
 	x := &extractor{src: src, fg: fg}
 	u := &usageCollector{x: x, rel: fg.Path, lang: graph.Ruby, template: true}
 	for _, c := range rbTemplateCode(rel, src) {
-		c = rbStringRe.ReplaceAllString(c, `""`)
-		for _, m := range rbTemplConst.FindAllStringSubmatch(c, -1) {
-			u.rbConst(nil, m[1])
+		for _, name := range rbCodeConstants(c) {
+			u.rbConst(nil, name)
 		}
 	}
 	reqs := u.requests()

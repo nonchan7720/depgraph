@@ -361,7 +361,7 @@
               "type": "boolean"
             },
             "severity": {
-              "default": "warn",
+              "default": "info",
               "description": "Severity of the rule's findings.",
               "enum": [
                 "error",

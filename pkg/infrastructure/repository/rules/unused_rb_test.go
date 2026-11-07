@@ -251,7 +251,7 @@ func TestUnusedRubyOwnNamespaceNamedLikeAGem(t *testing.T) {
 		"app/graphql/types/orphan_type.rb":   "module Types\n  class OrphanType < BaseObject\n  end\nend\n",
 		"app/controllers/home_controller.rb": "class HomeController < ApplicationController\n  def index = Gitlab.com?\nend\n",
 		// still a library's namespace: Paperclip loads its processors by name
-		"lib/paperclip/blur.rb":           "module Paperclip\n  class Blur < Processor\n  end\nend\n",
+		"lib/paperclip/blur.rb":             "module Paperclip\n  class Blur < Processor\n  end\nend\n",
 		"spec/lib/paperclip/helper_spec.rb": "RSpec.describe 1 do\nend\n", // tests are no namespace of the application
 	})
 	wantFindings(t, evalUnused(toUnusedFiles(parseRepo(t, root)), rules.DefaultConfig()),

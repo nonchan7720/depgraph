@@ -549,7 +549,7 @@ store:                      # Neo4j の用意の仕方（Neo4j 参照）。フ�
 | パターン | マッチするもの |
 |---|---|
 | `ext:gorm.io/gorm` | そのパッケージと配下（`gorm.io/gorm/clause`。Python の import ではサブモジュールも: `ext:sqlalchemy` は `sqlalchemy.orm` にマッチ。一方 `lodash.debounce` は `ext:lodash` の配下ではない）。標準ライブラリも含む（`ext:net/http`、`ext:database/sql`） |
-| `ext:*`、`ext:github.com/aws/*`、`ext:@nestjs/*` | パターンによるサードパーティのパッケージ（`*` は `/` を含む任意の文字列、`?` は 1 文字）。ワイルドカードは import 元ファイルの言語の標準ライブラリ（Go の `fmt`、Node の `fs` / `node:*`、Python の `json`、Ruby の `set`。`yaml` は Ruby では標準ライブラリ、npm では外部パッケージ）には決してマッチしません。標準ライブラリはフレームワークではないため |
+| `ext:*`、`ext:github.com/aws/*`、`ext:@nestjs/*` | サードパーティと分かっているパッケージをパターンで指定（`*` は `/` を含む任意の文字列、`?` は 1 文字）。サードパーティかどうかの判定は下記 |
 | `!<パターン>` | レイヤーから除外する（`"!ext:github.com/google/uuid"`、`"!pkg/domain/legacy/**"`） |
 
 ```yaml
@@ -561,11 +561,17 @@ forbidden:
   domain: [frameworks, http]   # internal/domain -> ext:gorm.io/gorm (domain must not import frameworks)
 ```
 
-何が標準ライブラリかは、実行する言語のバージョンに依存しません。対応するいずれかのバージョンで標準ライブラリである名前すべてです
-（Python 3.12〜3.14 と、それ以降削除されたモジュールも含む / Ruby の default gem と bundled gem / Node の組み込みモジュール /
-Go の先頭要素にドットを含まないパス）。そのためワイルドカードは、Gemfile に書く必要がある Ruby 3.4 の `csv` も、Python の
-`distutils` も報告しません。一度でも標準ライブラリだった名前はフレームワークではないためです。そうしたパッケージをレイヤーに
-入れるには名前をそのまま書きます（`ext:csv`）。
+ワイルドカードがマッチするのは、サードパーティと分かっている import だけです。判定はプロジェクト自身のファイルと解決結果から行い、
+depgraph が持つ名前の一覧は使わず、何も実行しません:
+
+| 言語 | サードパーティ | サードパーティではない |
+|---|---|---|
+| Go | import 元モジュールの `go.mod`（または `go.work`）が require / replace しているモジュール | 先頭要素にドットを含まないパス（go コマンドの標準ライブラリの規則） |
+| TypeScript / JavaScript | `node_modules` に解決されたもの。未インストールなら、そのファイルか上位の `package.json` が宣言しているもの | esbuild が組み込みに解決した Node の組み込みモジュール（`punycode` は組み込み、`punycode/` はインストール済みパッケージ） |
+| Python、Ruby | まだ判定しない | |
+
+import ごとに判定結果と根拠を記録します（`depgraph parse` で見られます）。サードパーティならワイルドカードにマッチするのに判定できなかった
+import は、違反としては報告せず、黙って捨てることもしません。`external-unclassified`（info）が言語ごとに根拠つきで一覧にします。
 
 ### モノレポ（`components`）
 

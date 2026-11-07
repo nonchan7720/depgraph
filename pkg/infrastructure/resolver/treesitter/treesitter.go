@@ -421,7 +421,7 @@ func (r *Resolver) resolveImports(ctx context.Context, root string, fg *graph.Fi
 			im.Target = res.Target
 		case imports.External:
 			im.Target, im.External = res.Target, true
-			im.Std = imports.IsStdlib(fg.Language, res.Target)
+			im.Class, im.Basis = res.Class, res.Basis
 		default:
 			im.Unresolved, im.Reason = true, res.Reason
 		}

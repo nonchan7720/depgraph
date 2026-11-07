@@ -118,31 +118,36 @@
       "spec": "fmt",
       "target": "ext:fmt",
       "external": true,
-      "std": true
+      "class": "standard",
+      "basis": "Go standard library (no dot in the first path element)"
     },
     {
       "spec": "context",
       "target": "ext:context",
       "external": true,
-      "std": true
+      "class": "standard",
+      "basis": "Go standard library (no dot in the first path element)"
     },
     {
       "spec": "embed",
       "target": "ext:embed",
       "external": true,
-      "std": true
+      "class": "standard",
+      "basis": "Go standard library (no dot in the first path element)"
     },
     {
       "spec": "math",
       "target": "ext:math",
       "external": true,
-      "std": true
+      "class": "standard",
+      "basis": "Go standard library (no dot in the first path element)"
     },
     {
       "spec": "strings",
       "target": "ext:strings",
       "external": true,
-      "std": true
+      "class": "standard",
+      "basis": "Go standard library (no dot in the first path element)"
     },
     {
       "spec": "example.com/corpus",
@@ -162,7 +167,8 @@
     {
       "spec": "github.com/acme/ext/v2",
       "target": "ext:github.com/acme/ext/v2",
-      "external": true
+      "external": true,
+      "basis": "go.mod does not require it"
     }
   ],
   "usage": {

@@ -61,11 +61,22 @@ type Import struct {
 	// type checker reports it; depgraph does not).
 	Unresolved bool   `json:"unresolved,omitempty"`
 	Reason     string `json:"reason,omitempty"` // why it is Unresolved
-	// Std: an External import of the language's standard library (fmt,
-	// node:fs, os.path, json): a wildcard external layer pattern does not
-	// match it.
-	Std bool `json:"std,omitempty"`
+	// Class says what an External package is, decided from the project's
+	// own files and the resolution only: ClassThirdParty (a module the
+	// project requires, a package installed in node_modules or declared in
+	// package.json), ClassStandard (the Go standard library, a Node
+	// built-in), or "" when that is not known (always for Python and Ruby).
+	// Only third-party packages match a wildcard external layer pattern.
+	Class string `json:"class,omitempty"`
+	// Basis says why ("required by go.mod", "installed in node_modules").
+	Basis string `json:"basis,omitempty"`
 }
+
+// Classes of external packages (Import.Class).
+const (
+	ClassThirdParty = "third-party"
+	ClassStandard   = "standard"
+)
 
 // Reference is a resolved edge between two symbols (filled by LSP/SCIP).
 type Reference struct {

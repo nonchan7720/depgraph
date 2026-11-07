@@ -132,6 +132,27 @@
           },
           "type": "object"
         },
+        "external-unclassified": {
+          "additionalProperties": false,
+          "description": "external imports an ext:* layer pattern could not classify (third-party or not), listed instead of dropped",
+          "properties": {
+            "enabled": {
+              "default": true,
+              "description": "false turns the rule off.",
+              "type": "boolean"
+            },
+            "severity": {
+              "default": "info",
+              "description": "Severity of the rule's findings.",
+              "enum": [
+                "error",
+                "warn",
+                "info"
+              ]
+            }
+          },
+          "type": "object"
+        },
         "god-package": {
           "additionalProperties": false,
           "description": "a hub: imported by many packages and importing many",

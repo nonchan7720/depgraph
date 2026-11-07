@@ -13,7 +13,6 @@ import (
 	"github.com/nonchan7720/depgraph/pkg/domain/graph"
 	"github.com/nonchan7720/depgraph/pkg/domain/rules"
 	graphrepo "github.com/nonchan7720/depgraph/pkg/infrastructure/repository/graph"
-	"github.com/nonchan7720/depgraph/pkg/infrastructure/resolver/imports"
 )
 
 func upsertAll(ctx context.Context, t *testing.T, st *graphrepo.Store, key string, files []*graph.FileGraph) {
@@ -55,14 +54,18 @@ func messages(fs []rules.Finding) []string {
 func TestEvaluateExternalLayers(t *testing.T) {
 	ctx, st := connect(t)
 	key := fmt.Sprintf("zz_test_%d_extlayers", time.Now().UnixNano())
-	ext := func(name string, std bool) graph.Import {
-		return graph.Import{Spec: name, Target: "ext:" + name, External: true, Std: std}
+	ext := func(name string, thirdParty bool) graph.Import {
+		im := graph.Import{Spec: name, Target: "ext:" + name, External: true}
+		if thirdParty {
+			im.Class = graph.ClassThirdParty
+		}
+		return im
 	}
 	upsertAll(ctx, t, st, key, []*graph.FileGraph{
 		{Path: "pkg/domain/user.go", Package: "pkg/domain", Language: graph.Go, Imports: []graph.Import{
-			ext("fmt", true), ext("net/http", true), ext("gorm.io/gorm", false), ext("github.com/google/uuid", false),
+			ext("fmt", false), ext("net/http", false), ext("gorm.io/gorm", true), ext("github.com/google/uuid", true),
 		}},
-		{Path: "pkg/infra/db.go", Package: "pkg/infra", Language: graph.Go, Imports: []graph.Import{ext("gorm.io/gorm", false)}},
+		{Path: "pkg/infra/db.go", Package: "pkg/infra", Language: graph.Go, Imports: []graph.Import{ext("gorm.io/gorm", true)}},
 	})
 	c := rules.DefaultConfig()
 	c.DefaultLayers = false
@@ -93,7 +96,7 @@ func TestLayerViolationsMatchTheDomain(t *testing.T) {
 	ctx, st := connect(t)
 	rng := rand.New(rand.NewPCG(7, 11))
 	inRepo := []string{"app/domain", "app/domain/legacy", "app/usecase", "app/infra/db", "app/infra/http", "svc/domain", "svc/infra", "tools"}
-	external := []rules.PackageRef{ // Std / Python: set per importer below
+	external := []rules.PackageRef{ // ThirdParty / Python: set per import below
 		{Key: "ext:fmt", External: true},
 		{Key: "ext:net/http", External: true},
 		{Key: "ext:gorm.io/gorm", External: true},
@@ -140,8 +143,14 @@ func TestLayerViolationsMatchTheDomain(t *testing.T) {
 			}
 			for _, to := range external {
 				if rng.Float64() < 0.5 {
-					fg.Imports = append(fg.Imports, graph.Import{Spec: to.Key[4:], Target: to.Key, External: true})
-					to.Std, to.Python = imports.IsStdlib(lang, to.Key), lang == graph.Python
+					im := graph.Import{Spec: to.Key[4:], Target: to.Key, External: true}
+					// what the resolver may have classified: some imports
+					// third-party, the others standard or unknown
+					if rng.Float64() < 0.6 {
+						im.Class = graph.ClassThirdParty
+					}
+					fg.Imports = append(fg.Imports, im)
+					to.ThirdParty, to.Python = im.Class == graph.ClassThirdParty, lang == graph.Python
 					want = appendReported(want, pairs, rules.PackageRef{Key: from}, to)
 				}
 			}
@@ -179,12 +188,12 @@ func appendReported(out []string, pairs []rules.LayerPair, from, to rules.Packag
 	return out
 }
 
-// Whether an external package is the standard library depends on the
-// language of the importing file, not on the package node (ext:yaml is
-// Ruby's standard library and an npm package), whatever order the files
-// were stored in; and it does not depend on what the graph stored (a graph
-// from before std existed).
-func TestEvaluateExternalLayersPerLanguage(t *testing.T) {
+// A wildcard follows the class the resolver gave each import, not the
+// package node: ext:yaml is an npm package one file imports and a Ruby
+// library another one requires, whatever order they were stored in; an
+// import without a class (an older graph, an unclassified language) is
+// never matched by a wildcard.
+func TestEvaluateExternalLayersPerImport(t *testing.T) {
 	ctx, st := connect(t)
 	c := rules.DefaultConfig()
 	c.DefaultLayers = false
@@ -194,10 +203,9 @@ func TestEvaluateExternalLayersPerLanguage(t *testing.T) {
 	}
 	c.ForbiddenLayers = [][2]string{{"domain", "frameworks"}}
 	rb := &graph.FileGraph{Path: "lib/a.rb", Package: "lib", Language: graph.Ruby,
-		Imports: []graph.Import{{Spec: "yaml", Target: "ext:yaml", External: true, Std: true}}}
-	ts := &graph.FileGraph{Path: "web/b.ts", Package: "web", Language: graph.TypeScript,
 		Imports: []graph.Import{{Spec: "yaml", Target: "ext:yaml", External: true}}}
-	// stored without std
+	ts := &graph.FileGraph{Path: "web/b.ts", Package: "web", Language: graph.TypeScript,
+		Imports: []graph.Import{{Spec: "yaml", Target: "ext:yaml", External: true, Class: graph.ClassThirdParty, Basis: "installed in node_modules"}}}
 	gofile := &graph.FileGraph{Path: "go/c.go", Package: "go", Language: graph.Go,
 		Imports: []graph.Import{{Spec: "fmt", Target: "ext:fmt", External: true}}}
 	for i, files := range [][]*graph.FileGraph{{rb, ts, gofile}, {ts, rb, gofile}} {
@@ -212,5 +220,63 @@ func TestEvaluateExternalLayersPerLanguage(t *testing.T) {
 		if !slices.Equal(got, want) {
 			t.Errorf("order %d: %q, want %q", i, got, want)
 		}
+	}
+}
+
+// An import a wildcard would match if it were known to be third-party is
+// not silently dropped: one info finding per language lists them with why
+// they could not be classified. Imports a layer names exactly, or leaves
+// out, are decided and not listed; nothing is listed without a wildcard.
+func TestEvaluateExternalUnclassified(t *testing.T) {
+	ctx, st := connect(t)
+	key := fmt.Sprintf("zz_test_%d_unclassified", time.Now().UnixNano())
+	upsertAll(ctx, t, st, key, []*graph.FileGraph{
+		{Path: "app/domain/a.py", Package: "app/domain", Language: graph.Python, Imports: []graph.Import{
+			{Spec: "yaml", Target: "ext:yaml", External: true},
+			{Spec: "requests", Target: "ext:requests", External: true},
+			{Spec: "sqlalchemy.orm", Target: "ext:sqlalchemy.orm", External: true}, // named exactly
+			{Spec: "attr", Target: "ext:attr", External: true},                     // left out
+		}},
+		{Path: "app/domain/b.go", Package: "app/domain", Language: graph.Go, Imports: []graph.Import{
+			{Spec: "github.com/x/y", Target: "ext:github.com/x/y", External: true, Basis: "go.mod does not require it"},
+			{Spec: "fmt", Target: "ext:fmt", External: true, Class: graph.ClassStandard, Basis: "Go standard library"},
+		}},
+		// not in a layer that must not import frameworks
+		{Path: "app/infra/c.py", Package: "app/infra", Language: graph.Python, Imports: []graph.Import{
+			{Spec: "boto3", Target: "ext:boto3", External: true},
+		}},
+	})
+	c := rules.DefaultConfig()
+	c.DefaultLayers = false
+	c.Layers = []rules.Layer{
+		{Name: "domain", Packages: []string{"app/domain/**"}},
+		{Name: "frameworks", Packages: []string{"ext:*", "ext:sqlalchemy", "!ext:attr"}},
+	}
+	c.ForbiddenLayers = [][2]string{{"domain", "frameworks"}}
+	fs, err := New(st, key).Evaluate(ctx, c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := byRule(fs, rules.RuleExternalUnclassified)
+	if len(got) != 2 {
+		t.Fatalf("findings = %+v", got)
+	}
+	for _, f := range got {
+		if f.Severity != "info" {
+			t.Errorf("%s: severity %s", f.ID, f.Severity)
+		}
+	}
+	if got[0].ID != "go" || !strings.Contains(got[0].Message, "ext:github.com/x/y (go.mod does not require it)") {
+		t.Errorf("go: %+v", got[0])
+	}
+	if got[1].ID != "python" || !strings.Contains(got[1].Message, "2 imports") ||
+		!strings.Contains(got[1].Message, "ext:requests") || !strings.Contains(got[1].Message, "ext:yaml") ||
+		strings.Contains(got[1].Message, "sqlalchemy") || strings.Contains(got[1].Message, "ext:attr") {
+		t.Errorf("python: %+v", got[1])
+	}
+
+	c.Layers[1].Packages = []string{"ext:sqlalchemy"} // no wildcard: nothing to classify
+	if fs, err := New(st, key).Evaluate(ctx, c); err != nil || len(byRule(fs, rules.RuleExternalUnclassified)) != 0 {
+		t.Errorf("without a wildcard: %v, %v", byRule(fs, rules.RuleExternalUnclassified), err)
 	}
 }

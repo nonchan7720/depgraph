@@ -7,9 +7,12 @@ import (
 
 func TestLayerSetContains(t *testing.T) {
 	in := func(k string) PackageRef { return PackageRef{Key: k} }
-	ext := func(name string) PackageRef { return PackageRef{Key: "ext:" + name, External: true} }
-	std := func(name string) PackageRef { return PackageRef{Key: "ext:" + name, External: true, Std: true} }
-	py := func(name string) PackageRef { return PackageRef{Key: "ext:" + name, External: true, Python: true} }
+	ext := func(name string) PackageRef { return PackageRef{Key: "ext:" + name, External: true, ThirdParty: true} }
+	// the standard library, or an external package not known to be third-party
+	std := func(name string) PackageRef { return PackageRef{Key: "ext:" + name, External: true} }
+	py := func(name string) PackageRef {
+		return PackageRef{Key: "ext:" + name, External: true, ThirdParty: true, Python: true}
+	}
 	for _, tc := range []struct {
 		patterns []string
 		pkg      PackageRef
@@ -124,10 +127,10 @@ func TestLayerPairReportsExternal(t *testing.T) {
 		to   PackageRef
 		want string
 	}{
-		{PackageRef{Key: "ext:gorm.io/gorm", External: true}, "frameworks"},
-		{PackageRef{Key: "ext:github.com/google/uuid", External: true}, ""},
-		{PackageRef{Key: "ext:fmt", External: true, Std: true}, ""},
-		{PackageRef{Key: "ext:net/http", External: true, Std: true}, "http"},
+		{PackageRef{Key: "ext:gorm.io/gorm", External: true, ThirdParty: true}, "frameworks"},
+		{PackageRef{Key: "ext:github.com/google/uuid", External: true, ThirdParty: true}, ""},
+		{PackageRef{Key: "ext:fmt", External: true}, ""},
+		{PackageRef{Key: "ext:net/http", External: true}, "http"},
 		{PackageRef{Key: "pkg/domain/order"}, ""},
 	} {
 		if got := strings.Join(reported(tc.to), ","); got != tc.want {

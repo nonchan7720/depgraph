@@ -46,7 +46,8 @@
       "spec": "fmt",
       "target": "ext:fmt",
       "external": true,
-      "std": true
+      "class": "standard",
+      "basis": "Go standard library (no dot in the first path element)"
     }
   ],
   "usage": {

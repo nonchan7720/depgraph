@@ -54,7 +54,8 @@
     {
       "spec": "react",
       "target": "ext:react",
-      "external": true
+      "external": true,
+      "basis": "not installed"
     },
     {
       "spec": "./Button",

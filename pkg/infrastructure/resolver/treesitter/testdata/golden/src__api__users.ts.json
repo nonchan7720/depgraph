@@ -203,7 +203,8 @@
     {
       "spec": "express",
       "target": "ext:express",
-      "external": true
+      "external": true,
+      "basis": "not installed"
     },
     {
       "spec": "./shared",
@@ -232,7 +233,8 @@
     {
       "spec": "@scope/pkg/sub",
       "target": "ext:@scope/pkg",
-      "external": true
+      "external": true,
+      "basis": "not installed"
     },
     {
       "spec": "./shared",

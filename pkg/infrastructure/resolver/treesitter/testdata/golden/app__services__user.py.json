@@ -72,26 +72,22 @@
     {
       "spec": "os",
       "target": "ext:os",
-      "external": true,
-      "std": true
+      "external": true
     },
     {
       "spec": "os.path",
       "target": "ext:os.path",
-      "external": true,
-      "std": true
+      "external": true
     },
     {
       "spec": "json",
       "target": "ext:json",
-      "external": true,
-      "std": true
+      "external": true
     },
     {
       "spec": "sys",
       "target": "ext:sys",
-      "external": true,
-      "std": true
+      "external": true
     },
     {
       "spec": "..models",
@@ -126,8 +122,7 @@
     {
       "spec": "typing",
       "target": "ext:typing",
-      "external": true,
-      "std": true
+      "external": true
     },
     {
       "spec": "numpy",

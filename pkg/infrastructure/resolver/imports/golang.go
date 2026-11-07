@@ -30,11 +30,15 @@ type goModule struct {
 	path     string            // module path
 	dir      string            // repo-relative dir ("." for the root)
 	replaces map[string]string // module path -> repo-relative dir (local replaces of this go.mod)
+	// provides: module paths that come from outside the repository (require,
+	// and replace with a module or a directory outside it) -> why
+	provides map[string]string
 }
 
 type goWork struct {
 	dir      string
 	replaces map[string]string
+	provides map[string]string
 }
 
 type goRoot struct {
@@ -71,7 +75,38 @@ func (g *Go) Resolve(ctx context.Context, root, fromFile, spec string) Result {
 	if mod, dir, ok := longestPrefix(spec, r.pathDirs); ok {
 		return r.check(root, spec, mod, dir)
 	}
-	return external(spec)
+	return r.classify(fromDir, spec)
+}
+
+// classify an external Go import: provided by a module the importing module
+// (or its go.work) requires or replaces => third-party; a path whose first
+// element has no dot => the standard library (the go command's rule: such a
+// path is never fetched); else not known (the go command reports it).
+func (r *goRoot) classify(fromDir, spec string) Result {
+	res := external(spec)
+	var provides []map[string]string
+	m := r.owner(fromDir)
+	if m != nil {
+		provides = append(provides, m.provides)
+	}
+	for _, w := range r.works {
+		if within(fromDir, w.dir) {
+			provides = append(provides, w.provides)
+		}
+	}
+	for _, p := range provides {
+		if _, why, ok := longestPrefix(spec, p); ok {
+			return res.classed(ClassThirdParty, why)
+		}
+	}
+	first, _, _ := strings.Cut(spec, "/")
+	if !strings.Contains(first, ".") {
+		return res.classed(ClassStandard, "Go standard library (no dot in the first path element)")
+	}
+	if m == nil {
+		return res.classed("", "no go.mod requires it")
+	}
+	return res.classed("", path.Join(m.dir, "go.mod")+" does not require it")
 }
 
 // check maps spec (inside module modPath rooted at modDir) to its package
@@ -181,9 +216,9 @@ func (r *goRoot) addWork(root, rel string) {
 			}
 		}
 	}
-	w := goWork{dir: dir, replaces: map[string]string{}}
+	w := goWork{dir: dir, replaces: map[string]string{}, provides: map[string]string{}}
 	for _, rep := range wf.Replace {
-		addReplace(root, dir, rep, w.replaces)
+		addReplace(root, dir, rep, w.replaces, w.provides, rel)
 	}
 	r.works = append(r.works, w)
 }
@@ -214,24 +249,29 @@ func readGoMod(root, dir string) *goModule {
 			return nil
 		}
 	}
-	m := &goModule{dir: dir, replaces: map[string]string{}}
+	m := &goModule{dir: dir, replaces: map[string]string{}, provides: map[string]string{}}
 	if f.Module != nil {
 		m.path = f.Module.Mod.Path
 	}
+	for _, req := range f.Require {
+		m.provides[req.Mod.Path] = "required by " + name
+	}
 	for _, rep := range f.Replace {
-		addReplace(root, dir, rep, m.replaces)
+		addReplace(root, dir, rep, m.replaces, m.provides, name)
 	}
 	return m
 }
 
-// addReplace records a replace whose target is a directory inside root.
-func addReplace(root, fromDir string, rep *modfile.Replace, into map[string]string) {
-	if rep.New.Version != "" { // module replacement, not a directory
-		return
+// addReplace records a replace: a directory inside root in into, anything
+// else (a module, a directory outside the repository) in provides.
+func addReplace(root, fromDir string, rep *modfile.Replace, into, provides map[string]string, file string) {
+	if rep.New.Version == "" { // a directory
+		if d, ok := localDir(root, fromDir, rep.New.Path); ok {
+			into[rep.Old.Path] = d
+			return
+		}
 	}
-	if d, ok := localDir(root, fromDir, rep.New.Path); ok {
-		into[rep.Old.Path] = d
-	}
+	provides[rep.Old.Path] = "replaced in " + file
 }
 
 // localDir resolves a go.mod / go.work directory path (relative to fromDir,

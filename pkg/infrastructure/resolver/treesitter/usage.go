@@ -166,6 +166,18 @@ func (r *Resolver) finishUsage(ctx context.Context, root string, fg *graph.FileG
 		}
 	}
 	m := r.manifests(ctx, root)
+	if fg.Language == graph.TypeScript || fg.Language == graph.JavaScript {
+		// a package that is not installed is third-party when a package.json
+		// of the file declares it
+		for i := range fg.Imports {
+			im := &fg.Imports[i]
+			if im.External && im.Class == "" {
+				if by := m.declaredBy(fg.Path, strings.TrimPrefix(im.Target, imports.ExternalPrefix)); by != "" {
+					im.Class, im.Basis = graph.ClassThirdParty, "declared in "+by
+				}
+			}
+		}
+	}
 	us := append([]graph.Use(nil), u.direct...)
 	for _, p := range u.pending {
 		res, ok := bySpec[p.spec]
@@ -237,7 +249,7 @@ func (m *manifests) unknownTarget(fg *graph.FileGraph, spec string, res imports.
 		return true
 	}
 	pkg := npmPackageName(spec)
-	return !imports.NodeBuiltins[pkg] && m.undeclared(fg.Path, pkg)
+	return !nodeBuiltins[pkg] && m.undeclared(fg.Path, pkg)
 }
 
 // npmPackageName is the package of a bare spec ("@a/b" of "@a/b/c", "x" of "x/y").
@@ -248,6 +260,17 @@ func npmPackageName(spec string) string {
 	}
 	return parts[0]
 }
+
+var nodeBuiltins = func() map[string]bool {
+	m := map[string]bool{}
+	for n := range strings.FieldsSeq(`assert async_hooks buffer child_process cluster console constants
+		crypto dgram diagnostics_channel dns domain events fs http http2 https inspector module net os
+		path perf_hooks process punycode querystring readline repl stream string_decoder sys timers tls
+		trace_events tty url util v8 vm wasi worker_threads zlib test sqlite`) {
+		m[n] = true
+	}
+	return m
+}()
 
 func isDir(root, rel string) bool {
 	st, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel)))

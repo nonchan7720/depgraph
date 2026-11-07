@@ -27,8 +27,7 @@
     {
       "spec": "csv",
       "target": "ext:csv",
-      "external": true,
-      "std": true
+      "external": true
     },
     {
       "spec": "../../lib/exporter",

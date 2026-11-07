@@ -641,7 +641,7 @@ keeps a domain free of frameworks:
 | pattern | matches |
 |---|---|
 | `ext:gorm.io/gorm` | that package and what is under it (`gorm.io/gorm/clause`; in Python imports also its submodules: `ext:sqlalchemy` matches `sqlalchemy.orm`, while `lodash.debounce` is not under `ext:lodash`), the standard library included (`ext:net/http`, `ext:database/sql`) |
-| `ext:*`, `ext:github.com/aws/*`, `ext:@nestjs/*` | third-party packages by a pattern (`*` is any run of characters, `/` included; `?` one character). A wildcard never matches the standard library of the importing file's language (Go's `fmt`, Node's `fs` / `node:*`, Python's `json`, Ruby's `set`; `yaml` is Ruby's standard library and an npm package): it is not a framework |
+| `ext:*`, `ext:github.com/aws/*`, `ext:@nestjs/*` | packages known to be third-party, by a pattern (`*` is any run of characters, `/` included; `?` one character). See below for how an import is known to be third-party |
 | `!<pattern>` | leaves packages out of the layer (`"!ext:github.com/google/uuid"`, `"!pkg/domain/legacy/**"`) |
 
 ```yaml
@@ -653,12 +653,18 @@ forbidden:
   domain: [frameworks, http]   # internal/domain -> ext:gorm.io/gorm (domain must not import frameworks)
 ```
 
-What is the standard library does not depend on the language version you run: it is every name
-that is the standard library in some supported version (Python 3.12 to 3.14 with the modules removed
-since kept, Ruby's default and bundled gems, Node's built-in modules, Go's paths without a dot in their
-first element). So a wildcard never reports Ruby 3.4's `csv` even where the Gemfile has to list it, nor
-Python's `distutils`: a name that was ever the standard library is no framework. Name such a package
-exactly (`ext:csv`) to put it in a layer.
+A wildcard matches only an import known to be third-party. That is decided from the project's own
+files and the resolution, never by a list of names shipped with depgraph, and nothing is executed:
+
+| language | third-party | not third-party |
+|---|---|---|
+| Go | a module the importing module's `go.mod` (or its `go.work`) requires or replaces | a path whose first element has no dot (the go command's rule for the standard library) |
+| TypeScript / JavaScript | resolved into `node_modules`, or declared in a `package.json` of the file or above it when not installed | a Node built-in, as esbuild resolves it (`punycode` is the built-in, `punycode/` the installed package) |
+| Python, Ruby | not classified yet | |
+
+Each import records its class and why (`depgraph parse` shows them). An import a wildcard would match
+if it were third-party but that could not be classified is not reported as a violation, and not dropped
+either: `external-unclassified` (info) lists them per language with the reason.
 
 ### Monorepos (`components`)
 

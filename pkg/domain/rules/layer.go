@@ -18,8 +18,9 @@ type PackageRef struct {
 	Key string
 	// External: outside the repository (Key starts with ExternalPrefix).
 	External bool
-	// Std: an external package of the language's standard library.
-	Std bool
+	// ThirdParty: an external package the project is known to get from a
+	// third party (graph.ClassThirdParty); only these match a wildcard.
+	ThirdParty bool
 	// Python: an external package imported by Python code, whose
 	// submodules are dotted (sqlalchemy.orm under sqlalchemy).
 	Python bool
@@ -35,8 +36,8 @@ type PackageRef struct {
 //	                             (ext:net/http)
 //	ext:*  ext:github.com/aws/*  external packages by a pattern where * is any
 //	                             run of characters (/ included) and ? one:
-//	                             third-party packages only, never the standard
-//	                             library
+//	                             only packages known to be third-party
+//	                             (PackageRef.ThirdParty)
 //	!<pattern>                   leaves the packages of pattern out
 //
 // The regular expressions mean the same in Go and in the store (see Glob).
@@ -46,7 +47,8 @@ type LayerSet struct {
 	// ExtRx: external packages named exactly (standard library included);
 	// PyExtRx the same for Python imports (dotted submodules too).
 	ExtRx, PyExtRx []string
-	// LibRx: external packages matched by a wildcard (third-party only).
+	// LibRx: external packages matched by a wildcard (known third-party
+	// packages only).
 	LibRx []string
 	// ExtNotRx / PyExtNotRx: external packages left out.
 	ExtNotRx, PyExtNotRx []string
@@ -61,7 +63,7 @@ func (s LayerSet) Contains(p PackageRef) bool {
 	if p.Python {
 		exact, not = s.PyExtRx, s.PyExtNotRx
 	}
-	return !anyRx(not, p.Key) && (anyRx(exact, p.Key) || (!p.Std && anyRx(s.LibRx, p.Key)))
+	return !anyRx(not, p.Key) && (anyRx(exact, p.Key) || (p.ThirdParty && anyRx(s.LibRx, p.Key)))
 }
 
 // Params is s as a map for a store query.
@@ -190,3 +192,18 @@ func scopeLayerPattern(dir, p string) string {
 	}
 	return body
 }
+
+// RuleExternalUnclassified: imports a wildcard external pattern would match
+// if they were known to be third-party, but whose class could not be decided
+// from the project's files. They are not reported as layer violations (that
+// could be a false positive); this lists them, so that nothing is dropped
+// silently.
+const RuleExternalUnclassified = "external-unclassified"
+
+func init() {
+	builtin = append(builtin, Rule{Name: RuleExternalUnclassified, Severity: SeverityInfo,
+		Description: "external imports an ext:* layer pattern could not classify (third-party or not), listed instead of dropped"})
+}
+
+// HasWildcard reports whether the layer has a wildcard external pattern.
+func (s LayerSet) HasWildcard() bool { return len(s.LibRx) > 0 }

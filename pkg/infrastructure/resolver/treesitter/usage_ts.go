@@ -30,7 +30,6 @@ type tsBinding struct {
 func (u *usageCollector) tsFile(root *gts.Node) {
 	x := u.x
 	bind := map[string]tsBinding{}
-	u.tsBind = bind
 	// 1. imports and re-exports (top level only)
 	for i := 0; i < root.NamedChildCount(); i++ {
 		n := root.NamedChild(i)

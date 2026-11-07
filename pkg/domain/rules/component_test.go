@@ -103,7 +103,6 @@ func TestLayerPairsExplicitRootLayersApplyEverywhere(t *testing.T) {
 		{Name: "frontend", Packages: []string{"frontend/**"}},
 	}
 	c.ForbiddenLayers = [][2]string{{"frontend", "backend"}}
-	c.AbstractLayers = nil // the default pairs name the default layers
 	if got := violations(t, c, "frontend/src/api", "backend/internal/domain"); !slices.Equal(got, []string{"frontend->backend"}) {
 		t.Errorf("cross-component import: %v", got)
 	}

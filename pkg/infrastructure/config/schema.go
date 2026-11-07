@@ -20,10 +20,8 @@ func stringList(desc string) jsonObj {
 	return o
 }
 
-const (
-	layersDesc   = "Layer name -> package patterns: path globs (path segments; ** any number of segments); ext:<name> for an external package and what is under it (ext:gorm.io/gorm, ext:net/http: the standard library too); ext:<pattern> with * / ? for third-party packages (ext:* is every one, never the standard library); !<pattern> leaves packages out (\"!ext:github.com/google/uuid\")."
-	abstractDesc = "Layer -> layers whose types it may hold only as interfaces / abstract classes (imports stay allowed): a struct field or constructor parameter of an implementation is a concrete-dependency. Names must be defined in layers (or be default layers)."
-)
+// layersDesc describes the patterns of a layer (rules.LayerSet).
+const layersDesc = "Layer name -> package patterns: path globs (path segments; ** any number of segments); ext:<name> for an external package and what is under it (ext:gorm.io/gorm, ext:net/http: the standard library too); ext:<pattern> with * / ? for third-party packages (ext:* is every one, never the standard library); !<pattern> leaves packages out (\"!ext:github.com/google/uuid\")."
 
 // unusedOptionDesc are the options shared by the unused-code rules.
 var unusedOptionDesc = map[string]string{
@@ -47,12 +45,6 @@ func optionSchema(rule, option string) jsonObj {
 	case "similarity":
 		return jsonObj{"type": "number", "exclusiveMinimum": 0, "maximum": 1, "default": rules.DefaultCloneOptions().MinSimilarity,
 			"description": "Minimum Jaccard similarity of the bodies' fingerprints (1: the same shape)."}
-	case "maxLines":
-		return jsonObj{"type": "integer", "minimum": 0, "default": rules.DefaultLargePackageOptions().MaxLines,
-			"description": "Report a Go package with more lines than this (test and generated files left out; 0: off). A directory of another language is a set of modules, not one namespace: only layers limits it."}
-	case "layers":
-		return jsonObj{"type": "object", "additionalProperties": jsonObj{"type": "integer", "minimum": 1},
-			"description": "Layer name (of the root's layers) -> the limit of each of its packages, in every language: an outer layer that should stay thin. The smallest limit of a package's layers applies, before maxLines."}
 	case "ignore":
 		if rules.IsUnusedRule(rule) {
 			return stringList(unusedOptionDesc[option])
@@ -97,9 +89,8 @@ func Schema() []byte {
 		"properties": jsonObj{
 			"project": jsonObj{"type": "string", "minLength": 1,
 				"description": "Project key in the database (default: the directory name of the root; @<worktree> is added in a linked git worktree)."},
-			"layers":    globMap(layersDesc + " Replaces the default layers and their forbidden and abstract pairs."),
+			"layers":    globMap(layersDesc + " Replaces the default layers and their forbidden pairs."),
 			"forbidden": globMap("Layer -> layers it must not import. Names must be defined in layers (or be default layers)."),
-			"abstract":  globMap(abstractDesc),
 			"rules": jsonObj{"type": "object", "additionalProperties": false,
 				"description": "Per rule: enabled, severity and the rule's options.", "properties": rs},
 			"ignore": stringList("Package globs excluded from every rule (they are still scanned and shown in the UI)."),
@@ -107,9 +98,8 @@ func Schema() []byte {
 				"description": "Parts of a monorepo with layers of their own: directory (relative to this file) or a pattern over directories (packages/*: one component per directory, * and ? but no **) -> its layers and forbidden pairs, with package globs relative to that directory. The default layers are not applied inside a component; layers declared at the root apply everywhere. A directory's own .depgraph.yml does the same.",
 				"additionalProperties": jsonObj{"type": "object", "additionalProperties": false,
 					"properties": jsonObj{
-						"layers":    globMap(layersDesc + " Package globs are relative to the component's directory. Replaces the default layers and their forbidden and abstract pairs."),
+						"layers":    globMap(layersDesc + " Package globs are relative to the component's directory. Replaces the default layers and their forbidden pairs."),
 						"forbidden": globMap("Layer -> layers it must not import, within one component directory. Names must be defined in layers (or be default layers)."),
-						"abstract":  globMap(abstractDesc + " Within one component directory."),
 					}}},
 			"store": jsonObj{"type": "object", "additionalProperties": false,
 				"description": "How Neo4j is provided. Flags and environment variables take precedence.",

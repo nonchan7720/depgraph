@@ -72,7 +72,6 @@ func TestEvaluateExternalLayers(t *testing.T) {
 		{Name: "http", Packages: []string{"ext:net/http"}},
 	}
 	c.ForbiddenLayers = [][2]string{{"domain", "frameworks"}, {"domain", "http"}}
-	c.AbstractLayers = nil
 	fs, err := New(st, key).Evaluate(ctx, c)
 	if err != nil {
 		t.Fatal(err)
@@ -113,7 +112,6 @@ func TestLayerViolationsMatchTheDomain(t *testing.T) {
 		{Name: "http", Packages: []string{"ext:net/http", "app/infra/http"}},
 	}
 	c.ForbiddenLayers = [][2]string{{"domain", "infra"}, {"domain", "frameworks"}, {"domain", "http"}, {"usecase", "infra"}, {"infra", "http"}}
-	c.AbstractLayers = nil
 	c.Components = []rules.Component{{Dir: "svc", Layers: []rules.Layer{
 		{Name: "core", Packages: []string{"domain/**"}}, {Name: "outer", Packages: []string{"infra/**", "ext:*"}},
 	}, ForbiddenLayers: [][2]string{{"core", "outer"}}}}
@@ -181,114 +179,6 @@ func appendReported(out []string, pairs []rules.LayerPair, from, to rules.Packag
 	return out
 }
 
-// concrete-dependency: a use case holding an implementation of the
-// repository layer (a struct with methods, a non-abstract class with
-// methods) is reported once per type; interfaces, abstract classes and data
-// structs are not.
-func TestEvaluateConcreteDependency(t *testing.T) {
-	ctx, st := connect(t)
-	key := fmt.Sprintf("zz_test_%d_concrete", time.Now().UnixNano())
-	dep := func(holder, member string, line int, target, typ string) graph.TypeDep {
-		return graph.TypeDep{Holder: holder, Member: member, Line: line, Target: target, Type: typ}
-	}
-	upsertAll(ctx, t, st, key, []*graph.FileGraph{
-		{Path: "app/usecase/user.go", Package: "app/usecase", Language: graph.Go,
-			Imports: []graph.Import{{Spec: "m/app/repository", Target: "app/repository"}},
-			Symbols: []graph.Symbol{{Name: "UserUsecase", Kind: "struct", Exported: true}},
-			TypeDeps: []graph.TypeDep{
-				dep("UserUsecase", "repo", 8, "app/repository", "MySQLUserRepo"),
-				dep("NewUserUsecase", "repo", 12, "app/repository", "MySQLUserRepo"),
-				dep("UserUsecase", "users", 9, "app/repository", "UserRepository"),
-				dep("UserUsecase", "opts", 10, "app/repository", "Options"),
-				dep("UserUsecase", "row", 11, "app/repository", "Row"),
-			}},
-		{Path: "app/repository/mysql.go", Package: "app/repository", Language: graph.Go, Symbols: []graph.Symbol{
-			{Name: "MySQLUserRepo", Kind: "struct", Exported: true},
-			{Name: "Options", Kind: "struct", Exported: true},
-			{Name: "UserRepository", Kind: "interface", Exported: true},
-		}},
-		// the methods of a Go type may be in another file of its package
-		{Path: "app/repository/mysql_find.go", Package: "app/repository", Language: graph.Go, Symbols: []graph.Symbol{
-			{Name: "Find", Kind: "method", Exported: true, Receiver: "MySQLUserRepo"},
-			// what data implements (fmt.Stringer, json.Marshaler, ...) is not behaviour
-			{Name: "Row", Kind: "struct", Exported: true},
-			{Name: "String", Kind: "method", Exported: true, Receiver: "Row"},
-			{Name: "MarshalJSON", Kind: "method", Exported: true, Receiver: "Row"},
-		}},
-		// a test's helper method or its own type of the same name is not the package's
-		{Path: "app/repository/mysql_test.go", Package: "app/repository", Language: graph.Go, Symbols: []graph.Symbol{
-			{Name: "helper", Kind: "method", Receiver: "Options"},
-			{Name: "UserRepository", Kind: "struct", Exported: true},
-			{Name: "fake", Kind: "method", Receiver: "UserRepository"},
-		}},
-		{Path: "web/usecase/order.ts", Package: "web/usecase", Language: graph.TypeScript, TypeDeps: []graph.TypeDep{
-			dep("OrderService", "repo", 3, "web/repository/order.ts", "HttpOrderRepo"),
-			dep("OrderService", "base", 4, "web/repository/order.ts", "BaseRepo"),
-			// a default import: the class the file exports as default
-			dep("OrderService", "sql", 5, "web/repository/sql.ts", "default"),
-		}},
-		{Path: "web/repository/sql.ts", Package: "web/repository", Language: graph.TypeScript,
-			Symbols: []graph.Symbol{{Name: "SqlOrderRepo", Kind: "class", Exported: true, Methods: 1}},
-			Usage:   &graph.Usage{Exports: []graph.ExportName{{Name: "default", Local: "SqlOrderRepo"}}}},
-		{Path: "web/repository/order.ts", Package: "web/repository", Language: graph.TypeScript, Symbols: []graph.Symbol{
-			{Name: "HttpOrderRepo", Kind: "class", Exported: true, Methods: 2},
-			{Name: "BaseRepo", Kind: "class", Exported: true, Methods: 2, Abstract: true},
-		}},
-	})
-	fs, err := New(st, key).Evaluate(ctx, rules.DefaultConfig())
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := byRule(fs, rules.RuleConcreteDependency)
-	var ids []string
-	for _, f := range got {
-		ids = append(ids, f.ID)
-		if f.Severity != "warn" {
-			t.Errorf("%s: severity %s", f.ID, f.Severity)
-		}
-	}
-	want := []string{"app/usecase -> app/repository.MySQLUserRepo", "web/usecase -> web/repository.HttpOrderRepo",
-		"web/usecase -> web/repository.SqlOrderRepo"}
-	if !slices.Equal(ids, want) {
-		t.Fatalf("concrete dependencies = %q, want %q", ids, want)
-	}
-	if !strings.Contains(got[0].Message, "app/usecase/user.go:8 UserUsecase.repo, and 1 more") {
-		t.Errorf("message = %q", got[0].Message)
-	}
-
-	c := rules.DefaultConfig()
-	c.Settings = map[string]rules.RuleSetting{rules.RuleConcreteDependency: {Disabled: true}}
-	if fs, err := New(st, key).Evaluate(ctx, c); err != nil || len(byRule(fs, rules.RuleConcreteDependency)) != 0 {
-		t.Errorf("disabled: %v, %v", byRule(fs, rules.RuleConcreteDependency), err)
-	}
-}
-
-// large-package counts the lines of a package's source files, without tests
-// and generated files.
-func TestEvaluateLargePackage(t *testing.T) {
-	ctx, st := connect(t)
-	key := fmt.Sprintf("zz_test_%d_large", time.Now().UnixNano())
-	upsertAll(ctx, t, st, key, []*graph.FileGraph{
-		{Path: "pkg/cmd/a.go", Package: "pkg/cmd", Language: graph.Go, Lines: 70},
-		{Path: "pkg/cmd/b.go", Package: "pkg/cmd", Language: graph.Go, Lines: 40},
-		{Path: "pkg/cmd/a_test.go", Package: "pkg/cmd", Language: graph.Go, Lines: 900},
-		{Path: "pkg/cmd/gen.go", Package: "pkg/cmd", Language: graph.Go, Lines: 900, Usage: &graph.Usage{Generated: true}},
-		{Path: "pkg/small/a.go", Package: "pkg/small", Language: graph.Go, Lines: 99},
-		{Path: "web/src/a.ts", Package: "web/src", Language: graph.TypeScript, Lines: 500},
-	})
-	c := rules.DefaultConfig()
-	c.LargePackage.MaxLines = 100
-	fs, err := New(st, key).Evaluate(ctx, c)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := messages(byRule(fs, rules.RuleLargePackage))
-	want := []string{"pkg/cmd has 110 lines in 2 files (limit 100): split it by responsibility"}
-	if !slices.Equal(got, want) {
-		t.Errorf("large packages = %q, want %q", got, want)
-	}
-}
-
 // Whether an external package is the standard library depends on the
 // language of the importing file, not on the package node (ext:yaml is
 // Ruby's standard library and an npm package), whatever order the files
@@ -303,7 +193,6 @@ func TestEvaluateExternalLayersPerLanguage(t *testing.T) {
 		{Name: "frameworks", Packages: []string{"ext:*"}},
 	}
 	c.ForbiddenLayers = [][2]string{{"domain", "frameworks"}}
-	c.AbstractLayers = nil
 	rb := &graph.FileGraph{Path: "lib/a.rb", Package: "lib", Language: graph.Ruby,
 		Imports: []graph.Import{{Spec: "yaml", Target: "ext:yaml", External: true, Std: true}}}
 	ts := &graph.FileGraph{Path: "web/b.ts", Package: "web", Language: graph.TypeScript,

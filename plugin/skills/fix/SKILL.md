@@ -1,6 +1,6 @@
 ---
 name: fix
-description: Fix the debt depgraph reports (import-cycle, module-cycle, layer-violation, concrete-dependency, duplicate-code, duplicate-symbol, god-package, large-package, unused-export, unreachable-file, unreachable-package) the way the codebase needs, not by silencing the rule. Use when depgraph findings appear in the context (session start, a prompt, or a failing `depgraph gate`), or when the user asks to clean up what depgraph found.
+description: Fix the debt depgraph reports (import-cycle, module-cycle, layer-violation, duplicate-code, duplicate-symbol, god-package, unused-export, unreachable-file, unreachable-package) the way the codebase needs, not by silencing the rule. Use when depgraph findings appear in the context (session start, a prompt, or a failing `depgraph gate`), or when the user asks to clean up what depgraph found.
 argument-hint: "[rule or finding]"
 ---
 
@@ -35,11 +35,6 @@ refactor nobody asked for.
   layer rules only when the user confirms the architecture changed. When the imported package is
   external (`ext:...`, a framework in an inner layer), keep the framework in an adapter of the outer
   layer behind an interface the inner layer declares, and pass plain types across.
-- **concrete-dependency** (warn): a struct / class holds an implementation (a struct or class with
-  methods) of a layer it may use only through abstractions (`.depgraph.yml` `abstract`). Declare the
-  interface the holder needs on the holder's side (or use the existing port of that package), type
-  the field / constructor parameter with it, and let the composition root (`main`, `cmd/`, the DI
-  setup) pass the implementation in. Do not just rename or wrap the concrete type.
 - **duplicate-code** (warn): the same logic in several places, also under different names. Keep one
   implementation in the place both callers can import, and call it from both. Before writing new
   code, search for an existing function that does the job; this rule exists because agents
@@ -49,10 +44,6 @@ refactor nobody asked for.
 - **god-package** (warn): imported by many packages while importing many itself. Split it by what
   its importers use; move the stable, dependency-free parts (types, interfaces) into their own
   package.
-- **large-package** (warn): a package over its line limit. Do not add more to it: put new code
-  where its responsibility belongs, and split the package along what its callers use. In an outer
-  layer (handlers, commands), move the logic into the use case it belongs to and keep the outer code
-  to parsing input and presenting output.
 - **unused-export / unreachable-file / unreachable-package** (warn): code nothing in the project
   uses. If you just wrote it and nothing calls it yet, wire it up or remove it; do not leave
   speculative code. If something outside the import graph really uses it (a plugin loaded by name,

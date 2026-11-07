@@ -30,16 +30,3 @@ func TestPackageKey(t *testing.T) {
 		}
 	}
 }
-
-func TestTypeDepEncode(t *testing.T) {
-	d := TypeDep{Holder: "UserService", Member: "repo", Line: 12, Target: "app/repository", Type: "MySQLRepo"}
-	got, ok := DecodeTypeDep(d.Encode())
-	if !ok || got != d {
-		t.Errorf("round trip = %+v, %v", got, ok)
-	}
-	for _, bad := range []string{"", "a\x1fb", "a\x1fb\x1fx\x1ft\x1fT", "a\x1fb\x1f1\x1f\x1fT"} {
-		if _, ok := DecodeTypeDep(bad); ok {
-			t.Errorf("DecodeTypeDep(%q) accepted", bad)
-		}
-	}
-}

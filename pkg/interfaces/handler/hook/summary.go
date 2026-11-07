@@ -26,9 +26,8 @@ func DefaultLimits() Limits {
 }
 
 var ruleOrder = map[string]int{
-	"import-cycle": 0, rules.RuleModuleCycle: 1, "layer-violation": 2, rules.RuleConcreteDependency: 3, "duplicate-code": 4,
-	"god-package": 5, rules.RuleLargePackage: 6, "duplicate-symbol": 7,
-	rules.RuleUnusedExport: 8, rules.RuleUnreachableFile: 9, rules.RuleUnreachablePackage: 10,
+	"import-cycle": 0, rules.RuleModuleCycle: 1, "layer-violation": 2, "duplicate-code": 3, "god-package": 4, "duplicate-symbol": 5,
+	rules.RuleUnusedExport: 6, rules.RuleUnreachableFile: 7, rules.RuleUnreachablePackage: 8,
 }
 
 var ruleHints = map[string]string{
@@ -37,10 +36,7 @@ var ruleHints = map[string]string{
 	"layer-violation":     "must fix; respect layer boundaries",
 	"duplicate-code":      "extract and reuse the shared logic; do not add another copy",
 	"god-package":         "avoid adding more dependents",
-
-	rules.RuleConcreteDependency: "hold an interface, not the implementation; wire it in at the composition root",
-	rules.RuleLargePackage:       "split by responsibility; do not add more code here",
-	"duplicate-symbol":           "reuse or consolidate instead of re-implementing",
+	"duplicate-symbol":    "reuse or consolidate instead of re-implementing",
 
 	rules.RuleUnusedExport:       "nothing uses these: delete them instead of building on them",
 	rules.RuleUnreachableFile:    "no entry point imports these: delete or wire them up",

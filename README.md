@@ -470,11 +470,9 @@ external, so it never shows up as a dependency. `watch` rescans when one of thes
 |---|---|---|
 | `import-cycle` | error | import cycle between packages: for every import on a cycle of at most 8 packages, the shortest cycle through it (up to 50) |
 | `module-cycle` | error | import cycle between the modules of a monorepo (Go modules, npm workspace packages, Python projects, Ruby applications / gems / engines / packwerk packs: directories with `go.mod`, `package.json`, `pyproject.toml`, `setup.py`, `setup.cfg`, `Gemfile`, `*.gemspec` or `package.yml`, plus [components](#monorepos-components)) through directories that do not form a cycle themselves (`packages/web/src/a -> packages/kit/src -> packages/web/src/b`). One import is listed per hop; a cycle `import-cycle` already reports is not repeated |
-| `layer-violation` | error | a package imports a layer it must not import (`handler → repository`, ... or your own layers). Layers may name external packages, so a domain that imports a framework is one too (see [Inside the layers](#inside-the-layers-frameworks-abstractions-size)) |
-| `concrete-dependency` | warn | a struct / class holds an implementation of a layer it may use only through interfaces (`abstract:`): a field or constructor parameter typed with a struct / class that has methods, where the import itself is allowed (`usecase` holding `*repository.MySQLUserRepo` instead of `repository.UserRepository`). Go, TypeScript, Python |
+| `layer-violation` | error | a package imports a layer it must not import (`handler → repository`, ... or your own layers). Layers may name external packages, so a domain that imports a framework is one too (see [Frameworks](#frameworks-external-packages-in-layers)) |
 | `duplicate-code` | warn | the same logic in several places, whatever the names: identical, or a copy changed a little (see below) |
 | `god-package` | warn | a hub: imported by 10 or more packages and importing 3 or more in-repo packages. A package many depend on that depends on nothing in the repository (a domain model) is stable, not a god package (Stable Dependencies Principle) |
-| `large-package` | warn | a package with more lines of code than its limit (tests and generated files left out): 5000 for a Go package, and the limits you set per layer for every language (`handler: 1500` keeps the outer layer thin) |
 | `duplicate-symbol` | warn | an exported function/class with the same name exists in several files (the files of one Go package count once: they can only share a name through build constraints; Ruby is left out, reopening a class is how Ruby extends it) |
 | `unused-export` | warn | an exported declaration nothing in the project uses, not even its own file (Go: exported functions and types of non-main packages, not methods; TS/JS: `export`ed declarations, followed through re-exports and barrels; Python: public module-level functions and classes; Ruby: classes, modules with something in them and `Struct.new` / `Class.new` constants, never methods) |
 | `unreachable-file` | warn | a TS/JS/Python/Ruby file no entry point reaches through imports; one finding per file nothing imports, listing the files only it leads to |
@@ -593,16 +591,12 @@ forbidden:                  # layer -> layers it must not import
   services: [interfaces]
   infrastructure: [interfaces, services]
 
-abstract:                   # layer -> layers it may hold only as interfaces
-  services: [infrastructure]
-
 rules:                      # per rule: enabled, severity (error | warn | info), options
   import-cycle: {severity: error}
   layer-violation: {severity: error}
   god-package: {severity: warn, fanIn: 10, fanOut: 3}
   duplicate-symbol: {enabled: false}
   duplicate-code: {minTokens: 50, similarity: 0.8}   # body size and fingerprint similarity
-  large-package: {maxLines: 5000, layers: {interfaces: 1500}}  # lines per package (Go) / per layer
   # duplicate-symbol: {ignore: [main, New, "Test*", "*Handler"]}  # names not checked (replaces the defaults)
   unused-export: {ignore: ["pkg/api/**"]}            # paths not reported (a library's public API)
   unreachable-file: {entries: ["plugins/**"]}       # entry points depgraph cannot see
@@ -625,28 +619,24 @@ store:                      # how Neo4j is provided (see Neo4j); flags and env t
   `Test*` every name starting with `Test` (a prefix), `*Handler` every name ending in `Handler`.
 - A package may be in several layers. An import is a violation only when it crosses the pair:
   it is not reported when both packages are in the forbidden layer, or both in the importing one.
-- `layers` replaces the default layers, and with them the default forbidden and abstract pairs;
-  `forbidden` or `abstract` alone refers to the default layers.
+- `layers` replaces the default layers, and with them the default forbidden pairs; `forbidden`
+  alone refers to the default layers.
 - `ignore` excludes packages from the findings (cycles through them, fan-in from them, ...);
   unlike `.depgraphignore` they are still scanned and shown in the UI.
-- Decoding is strict: an unknown key, rule, option, severity or a `forbidden` / `abstract` entry
-  naming an undefined layer is an error that names the file, instead of a setting silently ignored.
+- Decoding is strict: an unknown key, rule, option, severity or a `forbidden` entry naming an
+  undefined layer is an error that names the file, instead of a setting silently ignored.
 
 Without `.depgraph.yml` the defaults are the layers `controller`, `db`, `domain`, `handler`,
 `infra`, `repository` and `usecase`, each matching a path segment of that name (plus
 `controllers`, `handlers`, `infrastructure`, `repositories`, `usecases`), with the forbidden
 pairs `handler → repository / infra / db`, `controller → repository / db`,
-`domain → infra / handler / repository` and `usecase → handler`, and the abstract pairs
-`usecase → repository / infra / db`.
+`domain → infra / handler / repository` and `usecase → handler`.
 This repository's own [`.depgraph.yml`](.depgraph.yml) is an example.
 
-### Inside the layers: frameworks, abstractions, size
+### Frameworks: external packages in layers
 
-The direction of imports is the Dependency Rule, but a clean architecture asks more of the code
-inside the boundaries. depgraph checks three things the import graph alone does not show:
-
-**Frameworks (external packages in layers).** A layer pattern that starts with `ext:` matches
-packages outside the repository, so `forbidden` keeps a domain free of frameworks:
+A layer pattern that starts with `ext:` matches packages outside the repository, so `forbidden`
+keeps a domain free of frameworks:
 
 | pattern | matches |
 |---|---|
@@ -663,39 +653,12 @@ forbidden:
   domain: [frameworks, http]   # internal/domain -> ext:gorm.io/gorm (domain must not import frameworks)
 ```
 
-**Dependency inversion (`abstract:`).** A use case may import the package of its repository (it
-declares the port there), and still hold the MySQL implementation instead of the port. `abstract:`
-names, per layer, the layers whose types it may hold only as abstractions; `concrete-dependency`
-reports a field or a constructor parameter (Go: struct fields and the parameters of `New*`
-functions; TypeScript: class properties and constructor parameters; Python: class annotations and
-`__init__` parameters) typed with an implementation of such a layer:
-
-```yaml
-abstract:
-  usecase: [repository, infra]
-# internal/usecase depends on the concrete type internal/repository.MySQLUserRepo
-#   (internal/usecase/user.go:12 UserUsecase.repo): usecase must depend on repository through an interface
-```
-
-An implementation is a struct or class with methods (Go: on the type or its pointer, in any non-test
-file of its package) that is not abstract. An interface, a TypeScript `abstract class`, a Python
-`Protocol` / `ABC` / class with an `@abstractmethod`, and data are not reported: a struct whose only
-methods are what values implement for the standard library (`String`, `Error`, `MarshalJSON`, `Scan`
-/ `Value`, `TableName`, ...), a class with only accessors (`get` / `set`, `@property`), a Python
-dataclass / attrs class / pydantic model / `Enum` / `NamedTuple`. Neither are test files, collections
-(`[]*T`), and external types (their kind is not in the graph; forbid the import with an `ext:` layer
-instead). Optional dependencies count (`T | null`, `Optional[T]`, `T | None`), and so does a
-default-imported class (`import SqlRepo from "./sql"`). The composition
-root (`main`, `cmd/`, a DI container) is where the implementations are wired in: leave it out of
-the `abstract` pairs. A finding lists each place that holds the type. A component (below) takes
-`abstract` like `forbidden`, within its directory.
-
-**Size (`large-package`).** A package that keeps growing holds more than one responsibility; in an
-outer layer, it is logic that leaked out of the use cases. `maxLines` (default 5000, `0` turns it
-off) is the limit of a Go package, one namespace; in the other languages a directory is a set of
-modules, so only the limits per layer apply there. `layers: {handler: 1500}` limits each package of
-a layer, in every language (the smallest limit of a package's layers wins). Tests and generated
-files do not count.
+What is the standard library does not depend on the language version you run: it is every name
+that is the standard library in some supported version (Python 3.12 to 3.14 with the modules removed
+since kept, Ruby's default and bundled gems, Node's built-in modules, Go's paths without a dot in their
+first element). So a wildcard never reports Ruby 3.4's `csv` even where the Gemfile has to list it, nor
+Python's `distutils`: a name that was ever the standard library is no framework. Name such a package
+exactly (`ext:csv`) to put it in a layer.
 
 ### Monorepos (`components`)
 

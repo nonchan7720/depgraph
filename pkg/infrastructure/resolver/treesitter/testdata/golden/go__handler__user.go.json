@@ -74,8 +74,7 @@
       "line": 36,
       "endLine": 40,
       "nameLine": 36,
-      "col": 22,
-      "receiver": "UserHandler"
+      "col": 22
     },
     {
       "name": "name",
@@ -84,8 +83,7 @@
       "line": 42,
       "endLine": 42,
       "nameLine": 42,
-      "col": 21,
-      "receiver": "UserHandler"
+      "col": 21
     },
     {
       "name": "Map",
@@ -209,14 +207,5 @@
         "name": "Repo"
       }
     ]
-  },
-  "typeDeps": [
-    {
-      "holder": "UserHandler",
-      "member": "repo",
-      "line": 20,
-      "target": "go/repository",
-      "type": "Repo"
-    }
-  ]
+  }
 }

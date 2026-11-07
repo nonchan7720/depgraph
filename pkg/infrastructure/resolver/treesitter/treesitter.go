@@ -220,10 +220,9 @@ func (x *extractor) fieldText(n *gts.Node, field string) string {
 	return x.text(c)
 }
 
-// addSym adds the symbol n declares and returns it (nil without a name).
-func (x *extractor) addSym(n *gts.Node, kind, name string, exported bool) *graph.Symbol {
+func (x *extractor) addSym(n *gts.Node, kind, name string, exported bool) {
 	if name == "" {
-		return nil
+		return
 	}
 	sym := graph.Symbol{
 		Name:     name,
@@ -241,7 +240,6 @@ func (x *extractor) addSym(n *gts.Node, kind, name string, exported bool) *graph
 		sym.Tokens, sym.CloneHash, sym.Fingerprints = x.shape(n)
 	}
 	x.fg.Symbols = append(x.fg.Symbols, sym)
-	return &x.fg.Symbols[len(x.fg.Symbols)-1]
 }
 
 // utf16Col converts a tree-sitter byte column into an LSP column (UTF-16 code
@@ -297,9 +295,7 @@ func (x *extractor) goDecl(n *gts.Node) {
 		x.addSym(n, "function", name, goExported(name))
 	case "method_declaration":
 		name := x.fieldText(n, "name")
-		if s := x.addSym(n, "method", name, goExported(name)); s != nil {
-			s.Receiver = x.goReceiver(n)
-		}
+		x.addSym(n, "method", name, goExported(name))
 	case "type_declaration":
 		// type_spec (`type A B`) and type_alias (`type A = B`), in source order
 		for i := 0; i < n.NamedChildCount(); i++ {
@@ -345,9 +341,7 @@ func (x *extractor) tsDecl(n *gts.Node, exported bool) {
 	case "function_declaration", "generator_function_declaration":
 		x.addSym(n, "function", x.fieldText(n, "name"), exported)
 	case "class_declaration", "abstract_class_declaration":
-		if s := x.addSym(n, "class", x.fieldText(n, "name"), exported); s != nil {
-			x.tsClassShape(n, s)
-		}
+		x.addSym(n, "class", x.fieldText(n, "name"), exported)
 	case "interface_declaration":
 		x.addSym(n, "interface", x.fieldText(n, "name"), exported)
 	case "type_alias_declaration":
@@ -399,16 +393,10 @@ func (x *extractor) pyDecl(n *gts.Node) {
 		x.addSym(n, "function", name, pyExported(name))
 	case "class_definition":
 		name := x.fieldText(n, "name")
-		if s := x.addSym(n, "class", name, pyExported(name)); s != nil {
-			x.pyClassShape(n, s)
-		}
+		x.addSym(n, "class", name, pyExported(name))
 	case "decorated_definition":
 		if d := x.field(n, "definition"); d != nil {
-			before := len(x.fg.Symbols)
 			x.pyDecl(d)
-			if x.typ(d) == "class_definition" && len(x.fg.Symbols) > before {
-				x.pyMarkData(n, &x.fg.Symbols[len(x.fg.Symbols)-1])
-			}
 		}
 	}
 }

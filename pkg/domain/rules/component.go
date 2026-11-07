@@ -20,9 +20,6 @@ type Component struct {
 	Layers []Layer
 	// ForbiddenLayers: [from, to] layer names of Layers.
 	ForbiddenLayers [][2]string
-	// AbstractLayers: [from, to] layer names of Layers; see
-	// Config.AbstractLayers.
-	AbstractLayers [][2]string
 	// DefaultLayers: Layers are the built-in defaults (the component only
 	// set forbidden pairs).
 	DefaultLayers bool
@@ -136,16 +133,6 @@ func (c Config) ExpandComponents(keys []string) Config {
 // layers likewise leave out the components nested in it. Components whose
 // directory is a pattern are skipped: expand them first (ExpandComponents).
 func (c Config) LayerPairs() ([]LayerPair, error) {
-	return c.pairs(c.ForbiddenLayers, func(comp Component) [][2]string { return comp.ForbiddenLayers })
-}
-
-// AbstractPairs compiles the abstract pairs (Config.AbstractLayers) of the
-// root and of every component, scoped like LayerPairs.
-func (c Config) AbstractPairs() ([]LayerPair, error) {
-	return c.pairs(c.AbstractLayers, func(comp Component) [][2]string { return comp.AbstractLayers })
-}
-
-func (c Config) pairs(root [][2]string, ofComponent func(Component) [][2]string) ([]LayerPair, error) {
 	var out []LayerPair
 	add := func(scope string, layers []Layer, pairs [][2]string, defaults bool) error {
 		if len(pairs) == 0 {
@@ -186,40 +173,34 @@ func (c Config) pairs(root [][2]string, ofComponent func(Component) [][2]string)
 		}
 		return nil
 	}
-	if err := add("", c.Layers, root, c.DefaultLayers); err != nil {
+	if err := add("", c.Layers, c.ForbiddenLayers, c.DefaultLayers); err != nil {
 		return nil, err
 	}
 	for _, comp := range c.Components {
 		if isPattern(comp.Dir) {
 			continue
 		}
-		if err := add(comp.Dir, comp.Layers, ofComponent(comp), comp.DefaultLayers); err != nil {
+		if err := add(comp.Dir, comp.Layers, comp.ForbiddenLayers, comp.DefaultLayers); err != nil {
 			return nil, fmt.Errorf("component %s: %w", comp.Dir, err)
 		}
 	}
 	return out, nil
 }
 
-// validateLayers checks layers and the forbidden and abstract pairs over
-// them.
-func validateLayers(layers []Layer, forbidden, abstract [][2]string) error {
+// validateLayers checks layers and the forbidden pairs over them.
+func validateLayers(layers []Layer, forbidden [][2]string) error {
 	sets, err := (Config{Layers: layers}).layerSets()
 	if err != nil {
 		return err
 	}
-	for _, kind := range []struct {
-		key   string
-		pairs [][2]string
-	}{{"forbidden", forbidden}, {"abstract", abstract}} {
-		for _, p := range kind.pairs {
-			for _, l := range p {
-				if _, ok := sets[l]; !ok {
-					return fmt.Errorf("%s %s -> %s: unknown layer %q (defined: %s)", kind.key, p[0], p[1], l, layerNames(layers))
-				}
+	for _, p := range forbidden {
+		for _, l := range p {
+			if _, ok := sets[l]; !ok {
+				return fmt.Errorf("forbidden %s -> %s: unknown layer %q (defined: %s)", p[0], p[1], l, layerNames(layers))
 			}
-			if p[0] == p[1] {
-				return fmt.Errorf("%s: layer %q cannot name itself", kind.key, p[0])
-			}
+		}
+		if p[0] == p[1] {
+			return fmt.Errorf("forbidden: layer %q cannot forbid itself", p[0])
 		}
 	}
 	return nil
@@ -248,7 +229,7 @@ func (c Config) validateComponents() error {
 		if _, err := CompileGlob(dir); err != nil {
 			return fmt.Errorf("component %q: %w", dir, err)
 		}
-		if err := validateLayers(comp.Layers, comp.ForbiddenLayers, comp.AbstractLayers); err != nil {
+		if err := validateLayers(comp.Layers, comp.ForbiddenLayers); err != nil {
 			return fmt.Errorf("component %s: %w", dir, err)
 		}
 	}

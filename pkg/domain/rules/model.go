@@ -111,13 +111,6 @@ type Config struct {
 	// import a package in to. An import between two packages that are both
 	// in from or both in to is not a violation (it does not cross the pair).
 	ForbiddenLayers [][2]string
-	// AbstractLayers: [from, to] layer names; a struct / class of from may
-	// depend on types of to only through abstractions (interfaces, abstract
-	// classes): holding an implementation of to as a field or constructor
-	// parameter is a concrete-dependency. Imports from -> to are allowed.
-	AbstractLayers [][2]string
-	// LargePackage tunes large-package.
-	LargePackage LargePackageOptions
 	// GodPackageFanIn / GodPackageFanOut: a god package is a hub, imported
 	// by at least FanIn packages AND importing at least FanOut in-repo
 	// packages. A package many depend on that depends on nothing in the
@@ -183,10 +176,6 @@ func DefaultConfig() Config {
 			{"domain", "infra"}, {"domain", "handler"}, {"domain", "repository"},
 			{"usecase", "handler"},
 		},
-		AbstractLayers: [][2]string{
-			{"usecase", "repository"}, {"usecase", "infra"}, {"usecase", "db"},
-		},
-		LargePackage:     DefaultLargePackageOptions(),
 		DefaultLayers:    true,
 		GodPackageFanIn:  10,
 		GodPackageFanOut: 3,
@@ -288,10 +277,7 @@ func (c Config) Validate() error {
 	if c.Clones.MinSimilarity < 0 || c.Clones.MinSimilarity > 1 {
 		return fmt.Errorf("rule %s: similarity %g (want 0 < similarity <= 1)", RuleDuplicateCode, c.Clones.MinSimilarity)
 	}
-	if err := validateLayers(c.Layers, c.ForbiddenLayers, c.AbstractLayers); err != nil {
-		return err
-	}
-	if err := c.LargePackage.validate(c.Layers); err != nil {
+	if err := validateLayers(c.Layers, c.ForbiddenLayers); err != nil {
 		return err
 	}
 	if err := c.validateComponents(); err != nil {

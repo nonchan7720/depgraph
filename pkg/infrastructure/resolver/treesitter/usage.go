@@ -66,10 +66,7 @@ type usageCollector struct {
 
 	goImports   []goImport
 	goSelectors []goSelector
-	typeRefs    []typeRef             // typedep.go
-	tsBind      map[string]tsBinding  // TS/JS: local names bound by imports
-	pyBind      map[string]*pyBinding // Python: local names bound by imports
-	dirPrefixes []string              // repo-relative directories every file of which is used
+	dirPrefixes []string // repo-relative directories every file of which is used
 }
 
 func (u *usageCollector) use(spec, name string) {
@@ -112,7 +109,6 @@ func (u *usageCollector) requests() []imports.Request {
 	for _, gi := range u.goImports {
 		add(gi.spec)
 	}
-	u.typeRefSpecs(add)
 	u.rbRequests(add)
 	return out
 }
@@ -123,13 +119,10 @@ func (x *extractor) collectUsage(lang graph.Language, root *gts.Node) *usageColl
 	switch lang {
 	case graph.Go:
 		u.goFile(root)
-		u.goTypeRefs(root)
 	case graph.TypeScript, graph.JavaScript:
 		u.tsFile(root)
-		u.tsTypeRefs(root)
 	case graph.Python:
 		u.pyFile(root)
-		u.pyTypeRefs(root)
 	case graph.Ruby:
 		u.rbFile(root)
 	}
@@ -198,13 +191,9 @@ func (r *Resolver) finishUsage(ctx context.Context, root string, fg *graph.FileG
 		}
 		us = append(us, graph.Use{Target: target, Name: p.name, ReExport: p.reexport, As: p.as})
 	}
-	var goBinds map[string]string
 	if fg.Language == graph.Go {
-		var goUses []graph.Use
-		goUses, goBinds = u.goUses(root, bySpec)
-		us = append(us, goUses...)
+		us = append(us, u.goUses(root, bySpec)...)
 	}
-	fg.TypeDeps = u.typeDeps(bySpec, goBinds)
 	if fg.Language == graph.Ruby {
 		fg.Imports = append(fg.Imports, u.rbConstImports(bySpec)...)
 	}

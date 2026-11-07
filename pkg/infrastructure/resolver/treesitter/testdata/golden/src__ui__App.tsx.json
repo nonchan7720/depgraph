@@ -97,6 +97,30 @@
         "name": "default",
         "local": "Page"
       }
+    ],
+    "declRefs": [
+      {
+        "name": "Props"
+      },
+      {
+        "name": "App",
+        "refs": [
+          "Props"
+        ]
+      },
+      {
+        "name": "Page",
+        "refs": [
+          "App",
+          "Props"
+        ]
+      },
+      {
+        "name": "Inner"
+      },
+      {
+        "name": "generic"
+      }
     ]
   }
 }

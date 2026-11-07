@@ -25,6 +25,15 @@
   ],
   "imports": null,
   "usage": {
-    "scope": "."
+    "scope": ".",
+    "decls": [
+      "Find",
+      "Repo"
+    ],
+    "idents": [
+      "Find",
+      "Repo",
+      "string"
+    ]
   }
 }

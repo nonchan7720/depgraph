@@ -40,6 +40,17 @@
     }
   ],
   "usage": {
-    "scope": "."
+    "scope": ".",
+    "declRefs": [
+      {
+        "name": "ok"
+      },
+      {
+        "name": "bad"
+      },
+      {
+        "name": "After"
+      }
+    ]
   }
 }

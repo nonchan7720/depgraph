@@ -313,6 +313,71 @@
         "name": "default",
         "local": "main"
       }
+    ],
+    "declRefs": [
+      {
+        "name": "UserController"
+      },
+      {
+        "name": "Base"
+      },
+      {
+        "name": "Row"
+      },
+      {
+        "name": "ID"
+      },
+      {
+        "name": "Color"
+      },
+      {
+        "name": "Flag"
+      },
+      {
+        "name": "handler"
+      },
+      {
+        "name": "gen"
+      },
+      {
+        "name": "load"
+      },
+      {
+        "name": "Helper"
+      },
+      {
+        "name": "other"
+      },
+      {
+        "name": "fexpr"
+      },
+      {
+        "name": "main"
+      },
+      {
+        "name": "internal"
+      },
+      {
+        "name": "local"
+      },
+      {
+        "name": "late"
+      },
+      {
+        "name": "legacy"
+      },
+      {
+        "name": "Hidden"
+      },
+      {
+        "name": "Private"
+      },
+      {
+        "name": "日本語"
+      },
+      {
+        "name": "afterUnicode"
+      }
     ]
   }
 }

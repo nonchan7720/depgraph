@@ -61,6 +61,11 @@
         "reexport": true,
         "as": "C"
       }
+    ],
+    "declRefs": [
+      {
+        "name": "value"
+      }
     ]
   }
 }

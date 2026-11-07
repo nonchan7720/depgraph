@@ -180,6 +180,44 @@
     "keep": [
       "Helper",
       "Point"
+    ],
+    "declRefs": [
+      {
+        "name": "annotations"
+      },
+      {
+        "name": "UserService"
+      },
+      {
+        "name": "Helper"
+      },
+      {
+        "name": "Point",
+        "refs": [
+          "x"
+        ]
+      },
+      {
+        "name": "fetch"
+      },
+      {
+        "name": "_private"
+      },
+      {
+        "name": "_Hidden"
+      },
+      {
+        "name": "CONSTANT"
+      },
+      {
+        "name": "x"
+      },
+      {
+        "name": "y"
+      },
+      {
+        "name": "名前"
+      }
     ]
   }
 }

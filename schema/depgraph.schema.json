@@ -351,6 +351,27 @@
           },
           "type": "object"
         },
+        "low-cohesion": {
+          "additionalProperties": false,
+          "description": "a package / module whose parts nothing inside connects are used by different code: more than one responsibility",
+          "properties": {
+            "enabled": {
+              "default": true,
+              "description": "false turns the rule off.",
+              "type": "boolean"
+            },
+            "severity": {
+              "default": "warn",
+              "description": "Severity of the rule's findings.",
+              "enum": [
+                "error",
+                "warn",
+                "info"
+              ]
+            }
+          },
+          "type": "object"
+        },
         "module-cycle": {
           "additionalProperties": false,
           "description": "import cycle between the modules of a monorepo (Go modules, npm packages, Python projects, Ruby gems / packwerk packs, components)",

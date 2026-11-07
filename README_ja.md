@@ -220,12 +220,25 @@ depgraph projects prune [--dry-run]  # root が存在しなくなったプロジ
 
 | 構成 | 内容 |
 |---|---|
-| hook | セッション開始時とプロンプトごとに `depgraph hook session-start` / `prompt`（下記）。`depgraph` が `PATH` に無いとき、プロジェクトの `.claude/settings.json` が自前で `depgraph hook` を実行しているとき、（セッション開始のみ）claude-hook-gate の `session_start` が実行しているときは何もしないので、文脈が二重に入りません |
+| hook | セッション開始時とプロンプトごとに `depgraph hook session-start` / `prompt`（下記）。depgraph のバイナリが無いとき（後述）、プロジェクトの `.claude/settings.json` が自前で `depgraph hook` を実行しているとき、（セッション開始のみ）claude-hook-gate の `session_start` が実行しているときは何もしないので、文脈が二重に入りません |
 | `/depgraph:setup [init\|update\|review]` | `.depgraph.yml`（コードから読み取れるレイヤー、エントリポイント、ルールのオプション）と `.depgraphignore`、claude-hook-gate を使っていれば `.claude/gate.yaml` の `depgraph gate` ルールと `session_start` を書きます |
 | `/depgraph:fix [rule]` | Findings をルールで黙らせるのではなく、コードに合った形で直します（逆向きの import を移す、作り直さず再利用する、未使用コードはつなぐか消す） |
 
-バイナリはプラグインではインストールしません。[インストール](#インストール) の手順で Releases から入れ（プラグインの
-バージョンは作られたリリースと同じ）、`depgraph watch --root <repo>` を動かしておいてください。
+プラグインは claude-hook-gate と同じように、自分のバージョン（作られたリリース）のバイナリをインストールします。
+セッション開始の hook が GitHub リリース `v<version>` から `depgraph_<os>_<arch>.tar.gz` と `checksums.txt` を取得し、
+sha256 を照合してから `depgraph` を `${XDG_CACHE_HOME:-~/.cache}/depgraph/<version>/` に展開します（バージョンごとに 1 回。
+30 日使われていないバージョンは消します）。プロンプトの hook は既にあるバイナリを使うだけです。スキルは同じ方法でインストールする
+ラッパー `plugin/scripts/depgraph` から実行します。使うバイナリは次の順です:
+
+1. `$DEPGRAPH_BIN`（開発用。例: チェックアウトの `bin/depgraph`）
+2. キャッシュ済みのバイナリ（`$DEPGRAPH_CACHE_DIR` でキャッシュの場所を変えられます）
+3. リリースからのダウンロード（linux / darwin × amd64 / arm64。`curl` か `wget`、`sha256sum` か `shasum` が必要。
+   チェックサムを照合できなければ何も入れません）
+4. `PATH` 上の `depgraph`（オフライン、Windows）
+
+どれも使えなければ hook は何もせず、理由を標準エラーに 1 行出します。`depgraph watch --root <repo>` はターミナルで
+動かしておいてください（`PATH` 上の `depgraph` が必要です。[インストール](#インストール) を参照）。下記の claude-hook-gate の
+設定も同様です。
 
 ## Claude Code hooks
 

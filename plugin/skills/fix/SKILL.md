@@ -11,7 +11,9 @@ Arguments: `$ARGUMENTS` (a rule name or a pasted finding narrows the work to it)
 Findings reach you from the plugin's hooks (a summary at session start, what changed at each
 prompt) and from `depgraph gate` when the project uses claude-hook-gate: the gate lists only
 what **this session added** and blocks the end of the turn until it is fixed or explained.
-`depgraph check --claude-md ""` prints every current finding while `depgraph watch` runs.
+`depgraph check --claude-md ""` prints every current finding while `depgraph watch` runs. Run
+depgraph as `sh "${CLAUDE_PLUGIN_ROOT}/scripts/depgraph" <args>`: the plugin's wrapper runs the
+binary of the plugin's version (installing it when it is missing), else `depgraph` on `PATH`.
 
 Fix what you added first. Pre-existing debt is the user's call: mention it, do not start a
 refactor nobody asked for.

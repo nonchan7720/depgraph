@@ -179,6 +179,7 @@ depgraph projects prune [--dry-run]  # root が存在しなくなったプロジ
 | `check --root DIR [--fail-on warn]` | 投入済みグラフに対してルール評価だけ実行（CLAUDE.md 更新） |
 | `serve --root DIR [--addr 127.0.0.1:7777]` | 投入済みグラフをブラウザ UI で表示（監視なし、CLAUDE.md は更新しない） |
 | `mcp --root DIR` | ブラウザ UI を [MCP App](#mcp-app) として表示する stdio の MCP サーバー（投入済みグラフを読む、CLAUDE.md は更新しない） |
+| `init --root DIR [--dry-run]` | Python のファイルがあり、バージョンを固定するファイルを持つディレクトリごとに、`.depgraph.yml` へ `languages` 設定を追加する（ファイル同士が食い違う場合は端末なら尋ねる。[フレームワーク](#フレームワークレイヤーに外部パッケージ)参照） |
 | `parse --root DIR [files...]` | Neo4j なしで tree-sitter の解析結果を JSON（1 行 1 ファイル）で出力（デバッグ用） |
 | `hook <session-start\|prompt>` | Claude Code の hook。Findings を追加文脈として出力（読むだけ、常に exit 0） |
 | `gate [files...] [--fail-on warn]` | 品質ゲートのチェック（[claude-hook-gate](#品質ゲートclaude-hook-gate)）。変更ファイルを反映し、セッションで増えた Findings があれば exit 1 |
@@ -606,6 +607,10 @@ components:
   設定のディレクトリからルートまでの `node_modules/pyright` または `node_modules/basedpyright`（複数あればモジュールごとに一致が必要）、
   または `stdlib:` で指定したディレクトリです。depgraph 自身は一覧を持ちません。
 - import は評価のときに判定するので、設定を変えても再スキャンは要りません。
+- `depgraph init` がこの設定を書きます。Python のファイルがあり、バージョンを固定するファイルを持つディレクトリごとに、そのファイルを指定します
+  （1 つのディレクトリのファイルが一致していれば `.python-version` を最優先、Dockerfile を最後に選ぶ）。食い違う場合は端末なら尋ね、
+  端末でなければそのディレクトリを外します。`.depgraph.yml` の他の内容と既存の設定は残し、リポジトリ外を指すシンボリックリンクの
+  バージョンファイル（リンク先の無い checkout では判定できない）と、typeshed が無いことを警告します。`--dry-run` は結果を表示するだけです。
 
 ### モノレポ（`components`）
 

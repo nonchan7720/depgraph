@@ -132,7 +132,7 @@ func (l *GemLock) Classify(target string) (class, basis string) {
 }
 
 // Unclassified says why an unknown import is worth listing ("" when it is
-// not): it names a gem locked only as another gem's dependency, or it
+// not): it names a gem locked but not asked for (another gem's dependency, a default gem), or it
 // probably belongs to a locked gem by its name (ActionController and
 // actionpack share a word of six letters or more, Aws prefixes aws-sdk-s3
 // the Gemfile asks for; io-console, a dependency of another gem, does not
@@ -140,7 +140,7 @@ func (l *GemLock) Classify(target string) (class, basis string) {
 // Constants that are likely Ruby's own (IO, Hash, String) are not listed.
 func (l *GemLock) Unclassified(target string) string {
 	if g := l.gem(target); g != "" {
-		return fmt.Sprintf("gem %s is locked only as a dependency of another gem (%s): name it in an ext: pattern to check it", g, l.rel)
+		return fmt.Sprintf("gem %s is locked but not in the Gemfile's DEPENDENCIES (%s): name it in an ext: pattern to check it", g, l.rel)
 	}
 	name := normGem(strings.TrimPrefix(target, ExternalPrefix))
 	best := ""

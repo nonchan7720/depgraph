@@ -59,10 +59,10 @@ func TestRubyLockClassify(t *testing.T) {
 		{"ext:sidekiq", ClassThirdParty, ""},     // require "sidekiq"
 		{"ext:sidekiq/api", ClassThirdParty, ""}, // require "sidekiq/api"
 		// locked only because another gem needs it: listed, not reported
-		{"ext:ActiveRecord", "", "gem activerecord is locked only as a dependency of another gem"},
-		{"ext:Date", "", "gem date is locked only as a dependency"},
-		{"ext:JSON", "", "gem json is locked only as a dependency"},
-		{"ext:net/http", "", "gem net-http is locked only as a dependency"},
+		{"ext:ActiveRecord", "", "gem activerecord is locked but not in the Gemfile's DEPENDENCIES"},
+		{"ext:Date", "", "gem date is locked but not in the Gemfile"},
+		{"ext:JSON", "", "gem json is locked but not in the Gemfile"},
+		{"ext:net/http", "", "gem net-http is locked but not in the Gemfile"},
 		// Ruby's own: neither
 		{"ext:IO", "", ""},  // not io-console
 		{"ext:Net", "", ""}, // not net-imap

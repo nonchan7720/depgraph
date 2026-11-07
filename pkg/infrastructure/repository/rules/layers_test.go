@@ -414,7 +414,7 @@ func TestEvaluateRubyExternalLayers(t *testing.T) {
 	}
 	un := byRule(fs, rules.RuleExternalUnclassified)
 	if len(un) != 1 || un[0].ID != "ruby" || !strings.Contains(un[0].Message, "ext:ActionController (probably gem actionpack") ||
-		!strings.Contains(un[0].Message, "ext:ActiveRecord (gem activerecord is locked only as a dependency") ||
+		!strings.Contains(un[0].Message, "ext:ActiveRecord (gem activerecord is locked but not in the Gemfile") ||
 		strings.Contains(un[0].Message, "Hash") {
 		t.Errorf("unclassified = %+v", un)
 	}

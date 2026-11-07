@@ -1,7 +1,7 @@
 {
   "name": "depgraph",
   "version": "0.1.6",
-  "description": "Claude Code hooks that add depgraph's findings (unused code, duplicated logic, import cycles, layer violations) to the context, and skills to set depgraph up in a project and to fix what it reports. Needs the depgraph binary on PATH.",
+  "description": "Claude Code hooks that add depgraph's findings (unused code, duplicated logic, import cycles, layer violations) to the context, and skills to set depgraph up in a project and to fix what it reports. Installs the depgraph binary of its version from the GitHub release (sha256-verified) when it is not cached.",
   "author": {
     "name": "nonchan7720"
   },

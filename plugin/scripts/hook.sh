@@ -3,9 +3,13 @@
 # prints the findings already in Neo4j as hook context. It never blocks the
 # session: whatever happens, it exits 0.
 #
+# The binary is the one of this plugin's version (install-binary.sh):
+# DEPGRAPH_BIN, else the cache, else session-start installs it from the GitHub
+# release (prompt only looks, it runs on every prompt), else depgraph on PATH.
+# Without any, it does nothing (one line on stderr says why).
+#
 # It stays quiet where something else already does the same, so the context
 # is never added twice:
-#   - depgraph is not on PATH;
 #   - the project runs depgraph's hooks itself (.claude/settings.json);
 #   - session-start, when claude-hook-gate's session_start runs
 #     `depgraph hook session-start` (.claude/gate.yaml or .agents/gate.yaml).
@@ -14,7 +18,6 @@ case "$event" in
 session-start | prompt) ;;
 *) exit 0 ;;
 esac
-command -v depgraph >/dev/null 2>&1 || exit 0
 dir="${CLAUDE_PROJECT_DIR:-.}"
 
 for f in "$dir/.claude/settings.json" "$dir/.claude/settings.local.json"; do
@@ -25,5 +28,14 @@ if [ "$event" = session-start ]; then
 		[ -f "$f" ] && grep -Eq 'depgraph[^ ]* hook session-start' "$f" && exit 0
 	done
 fi
-depgraph hook "$event"
+root="${CLAUDE_PLUGIN_ROOT:-}"
+[ -n "$root" ] || root="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=install-binary.sh
+. "$root/scripts/install-binary.sh" 2>/dev/null || exit 0
+if [ "$event" = session-start ]; then
+	depgraph_resolve "$root" || exit 0
+else
+	depgraph_resolve "$root" --no-install || exit 0
+fi
+"$DEPGRAPH_PATH" hook "$event"
 exit 0

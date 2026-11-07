@@ -17,8 +17,23 @@ flags and the JSON Schema of `.depgraph.yml` of the installed version).
 
 ## 1. The binary
 
-Run `depgraph version`. When it is missing, or older than this plugin's version, tell the user how
-to install it and stop there unless they ask you to do it. The plugin does not install it.
+The plugin brings the depgraph binary of its own version: its session-start hook downloads it from
+the GitHub release (checked against `checksums.txt`) into
+`${XDG_CACHE_HOME:-~/.cache}/depgraph/<version>/`. In this session run depgraph through the
+plugin's wrapper, which uses that binary (and installs it first when it is missing):
+
+```bash
+sh "${CLAUDE_PLUGIN_ROOT}/scripts/depgraph" version
+```
+
+Every `depgraph ...` command below means `sh "${CLAUDE_PLUGIN_ROOT}/scripts/depgraph" ...` when
+you run it. When the wrapper fails (offline, Windows, no `sha256sum` / `shasum`), it uses
+`depgraph` on `PATH`; with neither, tell the user how to install it and stop there unless they ask
+you to do it.
+
+`depgraph watch` in the user's terminal and the claude-hook-gate entries (section 5) run outside
+this session and need `depgraph` on `PATH`. If `command -v depgraph` finds nothing, or
+`depgraph version` is older than this plugin, tell the user to install it:
 
 - GitHub Releases (the only distributed binaries): download `depgraph_<os>_<arch>.tar.gz` (`.zip`
   on Windows; os linux / darwin / windows, arch amd64 / arm64) and `checksums.txt` from

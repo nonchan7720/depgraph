@@ -94,7 +94,7 @@ func TestClaudeCodePlugin(t *testing.T) {
 }
 
 // The hook script runs depgraph's hook only where nothing else does: never
-// without depgraph on PATH, not when the project's settings.json runs the
+// without a depgraph binary (here: on PATH, the release cannot be reached), not when the project's settings.json runs the
 // hooks itself, and not session-start when claude-hook-gate's session_start
 // runs it (the context would be added twice). stdin reaches depgraph.
 func TestPluginHookScript(t *testing.T) {
@@ -102,7 +102,7 @@ func TestPluginHookScript(t *testing.T) {
 		t.Skip("no sh")
 	}
 	script := filepath.Join(repoRoot(t), "plugin", "scripts", "hook.sh")
-	bin := t.TempDir()
+	bin, cache := t.TempDir(), t.TempDir()
 	fake := "#!/bin/sh\necho \"depgraph $*\"\ncat\n"
 	if err := os.WriteFile(filepath.Join(bin, "depgraph"), []byte(fake), 0o755); err != nil {
 		t.Fatal(err)
@@ -110,7 +110,8 @@ func TestPluginHookScript(t *testing.T) {
 	run := func(project, path, event string) string {
 		t.Helper()
 		cmd := exec.Command("sh", script, event)
-		cmd.Env = []string{"PATH=" + path, "CLAUDE_PROJECT_DIR=" + project}
+		cmd.Env = []string{"PATH=" + path, "CLAUDE_PROJECT_DIR=" + project,
+			"DEPGRAPH_CACHE_DIR=" + cache, "DEPGRAPH_RELEASE_BASE_URL=file:///nonexistent"}
 		cmd.Stdin = strings.NewReader(`{"session_id":"s1"}`)
 		out, err := cmd.CombinedOutput()
 		if err != nil {

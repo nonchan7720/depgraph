@@ -1,0 +1,14 @@
+#!/bin/sh
+# depgraph wrapper for the plugin's skills (the Bash tool does not export
+# CLAUDE_PLUGIN_ROOT; the skills run it as sh "${CLAUDE_PLUGIN_ROOT}/scripts/depgraph").
+# Runs the depgraph binary of this plugin's version, installing it from the
+# GitHub release first when it is not cached (install-binary.sh), else
+# depgraph on PATH. Arguments, stdin and the exit code pass through.
+root="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=install-binary.sh
+. "$root/scripts/install-binary.sh"
+if ! depgraph_resolve "$root"; then
+	echo "depgraph: not found (install it from https://github.com/nonchan7720/depgraph/releases)" >&2
+	exit 127
+fi
+DEPGRAPH_PLUGIN_FALLBACK=0 exec "$DEPGRAPH_PATH" "$@"

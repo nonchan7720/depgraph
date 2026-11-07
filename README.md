@@ -248,12 +248,26 @@ The repository is also a Claude Code plugin marketplace. The `depgraph` plugin w
 
 | part | what it does |
 |---|---|
-| hooks | `depgraph hook session-start` / `prompt` at session start and on every prompt (as below). They do nothing without `depgraph` on `PATH`, when the project's `.claude/settings.json` runs `depgraph hook` itself, and (session start only) when claude-hook-gate's `session_start` runs it, so the context is never added twice |
+| hooks | `depgraph hook session-start` / `prompt` at session start and on every prompt (as below). They do nothing without a depgraph binary (see below), when the project's `.claude/settings.json` runs `depgraph hook` itself, and (session start only) when claude-hook-gate's `session_start` runs it, so the context is never added twice |
 | `/depgraph:setup [init\|update\|review]` | writes `.depgraph.yml` (layers from what the code shows, entry points, rule options), `.depgraphignore` and, with claude-hook-gate, the `depgraph gate` rule and `session_start` entry in `.claude/gate.yaml` |
 | `/depgraph:fix [rule]` | fixes findings the way the code needs (move the import that points the wrong way, reuse instead of re-implement, wire up or remove unused code), not by silencing rules |
 
-The plugin does not install the binary: install it from [Releases](#install) (the plugin's version
-is the release it was made with), and keep `depgraph watch --root <repo>` running.
+The plugin installs the binary of its own version (the release it was made with), like
+claude-hook-gate does: the session-start hook downloads `depgraph_<os>_<arch>.tar.gz` and
+`checksums.txt` from the GitHub release `v<version>`, checks the sha256 and extracts `depgraph` into
+`${XDG_CACHE_HOME:-~/.cache}/depgraph/<version>/` (once per version; versions unused for 30 days are
+removed). The prompt hook only uses a binary that is already there. The skills run it through
+`plugin/scripts/depgraph`, a wrapper that installs it the same way. The binary is, in order:
+
+1. `$DEPGRAPH_BIN` (for development, e.g. `bin/depgraph` of a checkout)
+2. the cached binary (`$DEPGRAPH_CACHE_DIR` replaces the cache directory)
+3. a download from the release (linux / darwin × amd64 / arm64; needs `curl` or `wget`, and
+   `sha256sum` or `shasum`: nothing is installed without a verified checksum)
+4. `depgraph` on `PATH` (offline, Windows)
+
+When none works, the hooks do nothing and print one line on stderr with the reason. Keep
+`depgraph watch --root <repo>` running in a terminal. It needs `depgraph` on `PATH` (see
+[Install](#install)), and so do the claude-hook-gate entries below.
 
 ## Claude Code hooks
 

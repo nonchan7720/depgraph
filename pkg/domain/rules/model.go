@@ -111,6 +111,13 @@ type Config struct {
 	// import a package in to. An import between two packages that are both
 	// in from or both in to is not a violation (it does not cross the pair).
 	ForbiddenLayers [][2]string
+	// AbstractLayers: [from, to] layer names; a struct / class of from may
+	// depend on types of to only through abstractions (interfaces, abstract
+	// classes): holding an implementation of to as a field or constructor
+	// parameter is a concrete-dependency. Imports from -> to are allowed.
+	AbstractLayers [][2]string
+	// LargePackage tunes large-package.
+	LargePackage LargePackageOptions
 	// GodPackageFanIn / GodPackageFanOut: a god package is a hub, imported
 	// by at least FanIn packages AND importing at least FanOut in-repo
 	// packages. A package many depend on that depends on nothing in the
@@ -176,6 +183,10 @@ func DefaultConfig() Config {
 			{"domain", "infra"}, {"domain", "handler"}, {"domain", "repository"},
 			{"usecase", "handler"},
 		},
+		AbstractLayers: [][2]string{
+			{"usecase", "repository"}, {"usecase", "infra"}, {"usecase", "db"},
+		},
+		LargePackage:     DefaultLargePackageOptions(),
 		DefaultLayers:    true,
 		GodPackageFanIn:  10,
 		GodPackageFanOut: 3,
@@ -201,9 +212,9 @@ func (c Config) Severity(rule string) Severity {
 	return SeverityWarn
 }
 
-// LayerGlobs compiles the layers' package patterns by layer name.
-func (c Config) LayerGlobs() (map[string][]Glob, error) {
-	out := make(map[string][]Glob, len(c.Layers))
+// layerSets compiles the layers' patterns by layer name.
+func (c Config) layerSets() (map[string]LayerSet, error) {
+	out := make(map[string]LayerSet, len(c.Layers))
 	for _, l := range c.Layers {
 		if l.Name == "" {
 			return nil, errors.New("layer without a name")
@@ -211,14 +222,11 @@ func (c Config) LayerGlobs() (map[string][]Glob, error) {
 		if _, dup := out[l.Name]; dup {
 			return nil, fmt.Errorf("layer %q defined twice", l.Name)
 		}
-		if len(l.Packages) == 0 {
-			return nil, fmt.Errorf("layer %q: no package patterns", l.Name)
-		}
-		gs, err := compileGlobs(l.Packages)
+		s, err := compileLayerSet(l.Packages)
 		if err != nil {
 			return nil, fmt.Errorf("layer %q: %w", l.Name, err)
 		}
-		out[l.Name] = gs
+		out[l.Name] = s
 	}
 	return out, nil
 }
@@ -232,15 +240,16 @@ func (c Config) IgnoreGlobs() ([]Glob, error) {
 	return gs, nil
 }
 
-// LayersOf returns the names of the layers package key belongs to, sorted.
+// LayersOf returns the names of the root layers in-repo package key
+// belongs to, sorted.
 func (c Config) LayersOf(key string) ([]string, error) {
-	layers, err := c.LayerGlobs()
+	layers, err := c.layerSets()
 	if err != nil {
 		return nil, err
 	}
 	var out []string
-	for name, gs := range layers {
-		if matchAny(gs, key) {
+	for name, s := range layers {
+		if s.Contains(PackageRef{Key: key}) {
 			out = append(out, name)
 		}
 	}
@@ -279,7 +288,10 @@ func (c Config) Validate() error {
 	if c.Clones.MinSimilarity < 0 || c.Clones.MinSimilarity > 1 {
 		return fmt.Errorf("rule %s: similarity %g (want 0 < similarity <= 1)", RuleDuplicateCode, c.Clones.MinSimilarity)
 	}
-	if err := validateLayers(c.Layers, c.ForbiddenLayers); err != nil {
+	if err := validateLayers(c.Layers, c.ForbiddenLayers, c.AbstractLayers); err != nil {
+		return err
+	}
+	if err := c.LargePackage.validate(c.Layers); err != nil {
 		return err
 	}
 	if err := c.validateComponents(); err != nil {

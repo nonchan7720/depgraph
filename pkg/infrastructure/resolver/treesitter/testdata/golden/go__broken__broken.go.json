@@ -45,7 +45,8 @@
     {
       "spec": "fmt",
       "target": "ext:fmt",
-      "external": true
+      "external": true,
+      "std": true
     }
   ],
   "usage": {

@@ -38,8 +38,8 @@ func Render(stats view.Stats, findings []rules.Finding) string {
 	b.WriteString("- Prefer fixing the violations below over adding new code that depends on them.\n\n")
 
 	byRule := map[string][]rules.Finding{}
-	order := []string{"import-cycle", rules.RuleModuleCycle, "layer-violation", "duplicate-code", "god-package", "duplicate-symbol",
-		rules.RuleUnusedExport, rules.RuleUnreachableFile, rules.RuleUnreachablePackage}
+	order := []string{"import-cycle", rules.RuleModuleCycle, "layer-violation", rules.RuleConcreteDependency, "duplicate-code", "god-package",
+		rules.RuleLargePackage, "duplicate-symbol", rules.RuleUnusedExport, rules.RuleUnreachableFile, rules.RuleUnreachablePackage}
 	known := map[string]bool{}
 	for _, r := range order {
 		known[r] = true
@@ -60,6 +60,8 @@ func Render(stats view.Stats, findings []rules.Finding) string {
 		"layer-violation":            "Layer violations (must fix)",
 		"duplicate-code":             "Duplicated code (extract the shared logic and reuse it; do not add another copy)",
 		"god-package":                "God packages (high fan-in; avoid adding more dependents)",
+		rules.RuleConcreteDependency: "Concrete dependencies (hold an interface declared on the user's side, not the implementation; wire the implementation in at the composition root)",
+		rules.RuleLargePackage:       "Large packages (split by responsibility; do not add more code to them)",
 		"duplicate-symbol":           "Duplicate symbols (consolidate before adding more)",
 		rules.RuleUnusedExport:       "Unused exports (nothing in the project uses them: delete them, do not build on them)",
 		rules.RuleUnreachableFile:    "Unreachable files (no entry point imports them: delete or wire them up)",

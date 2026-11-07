@@ -105,7 +105,7 @@ func TestConfigValidate(t *testing.T) {
 		{"bad severity", func(c *Config) { c.Settings = map[string]RuleSetting{RuleImportCycle: {Severity: "fatal"}} }, `severity "fatal"`},
 		{"unknown from layer", func(c *Config) { c.ForbiddenLayers = [][2]string{{"nope", "db"}} }, `unknown layer "nope"`},
 		{"unknown to layer", func(c *Config) { c.ForbiddenLayers = [][2]string{{"db", "nope"}} }, `unknown layer "nope"`},
-		{"self", func(c *Config) { c.ForbiddenLayers = [][2]string{{"db", "db"}} }, `itself`},
+		{"self", func(c *Config) { c.ForbiddenLayers = [][2]string{{"db", "db"}} }, `cannot name itself`},
 		{"layer without packages", func(c *Config) { c.Layers = append(c.Layers, Layer{Name: "x"}) }, `layer "x"`},
 		{"duplicate layer", func(c *Config) { c.Layers = append(c.Layers, Layer{Name: "db", Packages: []string{"x"}}) }, `layer "db" defined twice`},
 		{"bad layer glob", func(c *Config) { c.Layers = append(c.Layers, Layer{Name: "x", Packages: []string{"a**"}}) }, `layer "x"`},

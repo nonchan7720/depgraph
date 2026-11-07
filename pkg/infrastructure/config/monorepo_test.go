@@ -46,6 +46,8 @@ components:
   lib/auth:
     forbidden:
       domain: [infra]
+    abstract:
+      usecase: [repository]
 `))
 	if err != nil {
 		t.Fatal(err)
@@ -54,12 +56,13 @@ components:
 		t.Error("the root's layers are still the defaults")
 	}
 	pk, ok := componentByDir(f.Rules, "packages/*")
-	if !ok || pk.DefaultLayers || len(pk.Layers) != 2 || !reflect.DeepEqual(pk.ForbiddenLayers, [][2]string{{"api", "ui"}}) {
+	if !ok || pk.DefaultLayers || len(pk.Layers) != 2 || !reflect.DeepEqual(pk.ForbiddenLayers, [][2]string{{"api", "ui"}}) || len(pk.AbstractLayers) != 0 {
 		t.Errorf("packages/* = %+v", pk)
 	}
 	la, ok := componentByDir(f.Rules, "lib/auth")
 	if !ok || !la.DefaultLayers || !reflect.DeepEqual(la.Layers, rules.DefaultConfig().Layers) ||
-		!reflect.DeepEqual(la.ForbiddenLayers, [][2]string{{"domain", "infra"}}) {
+		!reflect.DeepEqual(la.ForbiddenLayers, [][2]string{{"domain", "infra"}}) ||
+		!reflect.DeepEqual(la.AbstractLayers, [][2]string{{"usecase", "repository"}}) {
 		t.Errorf("lib/auth = %+v", la)
 	}
 
@@ -72,7 +75,7 @@ components:
 		"components: {\"apps/**\": {forbidden: {domain: [infra]}}}\n":         `component "apps/**"`,
 		"components: {web: {forbidden: {a: [b]}}}\n":                          `component web: forbidden a -> b: unknown layer "a"`,
 		"components: {web: {layers: {a: [\"a/**\"]}, severity: warn}}\n":      "severity",
-		"components: {web: {layers: {a: [\"a/**\"]}, forbidden: {a: [a]}}}\n": "cannot forbid itself",
+		"components: {web: {layers: {a: [\"a/**\"]}, forbidden: {a: [a]}}}\n": "forbidden: layer \"a\" cannot name itself",
 	} {
 		if _, err := Parse([]byte(src)); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%q: err = %v, want it to contain %q", src, err, want)

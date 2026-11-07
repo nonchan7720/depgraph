@@ -4,10 +4,30 @@
   "additionalProperties": false,
   "description": "depgraph settings at the scanned root, or of a directory below it (a package of a monorepo: its layers, forbidden, components, ignore and unused-code paths are relative to that directory). Every key is optional; unknown keys, rules, options and layer names are errors.",
   "properties": {
+    "abstract": {
+      "additionalProperties": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "description": "Layer -\u003e layers whose types it may hold only as interfaces / abstract classes (imports stay allowed): a struct field or constructor parameter of an implementation is a concrete-dependency. Names must be defined in layers (or be default layers).",
+      "type": "object"
+    },
     "components": {
       "additionalProperties": {
         "additionalProperties": false,
         "properties": {
+          "abstract": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": "Layer -\u003e layers whose types it may hold only as interfaces / abstract classes (imports stay allowed): a struct field or constructor parameter of an implementation is a concrete-dependency. Names must be defined in layers (or be default layers). Within one component directory.",
+            "type": "object"
+          },
           "forbidden": {
             "additionalProperties": {
               "items": {
@@ -25,7 +45,7 @@
               },
               "type": "array"
             },
-            "description": "Layer name -\u003e package path globs relative to the component's directory. Replaces the default layers and their forbidden pairs.",
+            "description": "Layer name -\u003e package patterns: path globs (path segments; ** any number of segments); ext:\u003cname\u003e for an external package and what is under it (ext:gorm.io/gorm, ext:net/http: the standard library too); ext:\u003cpattern\u003e with * / ? for third-party packages (ext:* is every one, never the standard library); !\u003cpattern\u003e leaves packages out (\"!ext:github.com/google/uuid\"). Package globs are relative to the component's directory. Replaces the default layers and their forbidden and abstract pairs.",
             "type": "object"
           }
         },
@@ -58,7 +78,7 @@
         },
         "type": "array"
       },
-      "description": "Layer name -\u003e package path globs (path segments; ** any number of segments). Replaces the default layers and their forbidden pairs.",
+      "description": "Layer name -\u003e package patterns: path globs (path segments; ** any number of segments); ext:\u003cname\u003e for an external package and what is under it (ext:gorm.io/gorm, ext:net/http: the standard library too); ext:\u003cpattern\u003e with * / ? for third-party packages (ext:* is every one, never the standard library); !\u003cpattern\u003e leaves packages out (\"!ext:github.com/google/uuid\"). Replaces the default layers and their forbidden and abstract pairs.",
       "type": "object"
     },
     "project": {
@@ -70,6 +90,27 @@
       "additionalProperties": false,
       "description": "Per rule: enabled, severity and the rule's options.",
       "properties": {
+        "concrete-dependency": {
+          "additionalProperties": false,
+          "description": "a struct / class holds an implementation of a layer it must use through an interface (abstract:)",
+          "properties": {
+            "enabled": {
+              "default": true,
+              "description": "false turns the rule off.",
+              "type": "boolean"
+            },
+            "severity": {
+              "default": "warn",
+              "description": "Severity of the rule's findings.",
+              "enum": [
+                "error",
+                "warn",
+                "info"
+              ]
+            }
+          },
+          "type": "object"
+        },
         "duplicate-code": {
           "additionalProperties": false,
           "description": "the same logic in several places, whatever the names",
@@ -176,6 +217,41 @@
             },
             "severity": {
               "default": "error",
+              "description": "Severity of the rule's findings.",
+              "enum": [
+                "error",
+                "warn",
+                "info"
+              ]
+            }
+          },
+          "type": "object"
+        },
+        "large-package": {
+          "additionalProperties": false,
+          "description": "a package with more lines of code than its limit (maxLines for Go packages; layers: a limit per layer, for every language)",
+          "properties": {
+            "enabled": {
+              "default": true,
+              "description": "false turns the rule off.",
+              "type": "boolean"
+            },
+            "layers": {
+              "additionalProperties": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "description": "Layer name (of the root's layers) -\u003e the limit of each of its packages, in every language: an outer layer that should stay thin. The smallest limit of a package's layers applies, before maxLines.",
+              "type": "object"
+            },
+            "maxLines": {
+              "default": 5000,
+              "description": "Report a Go package with more lines than this (test and generated files left out; 0: off). A directory of another language is a set of modules, not one namespace: only layers limits it.",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "severity": {
+              "default": "warn",
               "description": "Severity of the rule's findings.",
               "enum": [
                 "error",

@@ -87,15 +87,27 @@ func (r *Repository) packageKeys(ctx context.Context) ([]string, error) {
 	return keys, nil
 }
 
+// expandComponents returns cfg with the components whose directory is a
+// pattern expanded over the project's packages.
+func (r *Repository) expandComponents(ctx context.Context, cfg rules.Config) (rules.Config, error) {
+	if !slices.ContainsFunc(cfg.Components, func(c rules.Component) bool { return strings.ContainsAny(c.Dir, "*?") }) {
+		return cfg, nil
+	}
+	keys, err := r.packageKeys(ctx)
+	if err != nil {
+		return rules.Config{}, err
+	}
+	return cfg.ExpandComponents(keys), nil
+}
+
 // layerPairs compiles cfg's forbidden pairs for the query; components whose
 // directory is a pattern are expanded over the project's packages first.
+// toExternal tells the query whether a pair's to layer names external
+// packages (only then are imports of external packages matched).
 func (r *Repository) layerPairs(ctx context.Context, cfg rules.Config) ([]map[string]any, error) {
-	if slices.ContainsFunc(cfg.Components, func(c rules.Component) bool { return strings.ContainsAny(c.Dir, "*?") }) {
-		keys, err := r.packageKeys(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("layers: %w", err)
-		}
-		cfg = cfg.ExpandComponents(keys)
+	cfg, err := r.expandComponents(ctx, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("layers: %w", err)
 	}
 	lp, err := cfg.LayerPairs()
 	if err != nil {
@@ -103,16 +115,20 @@ func (r *Repository) layerPairs(ctx context.Context, cfg rules.Config) ([]map[st
 	}
 	out := make([]map[string]any, 0, len(lp))
 	for _, p := range lp {
-		except := p.ExceptRx
-		if except == nil {
-			except = []string{}
-		}
-		out = append(out, map[string]any{
-			"component": p.Component, "from": p.From, "to": p.To,
-			"fromRx": p.FromRx, "toRx": p.ToRx, "exceptRx": except,
-		})
+		m := p.Params()
+		m["toExternal"] = p.ToSet.HasExternal()
+		out = append(out, m)
 	}
 	return out, nil
+}
+
+// inLayer is the Cypher condition "package node n is in the layer set s"
+// (a rules.LayerSet.Params map): rules.LayerSet.Contains in the store.
+func inLayer(n, s string) string {
+	return fmt.Sprintf(`(NOT any(rx IN %[2]s.notRx WHERE %[1]s.key =~ rx) AND (
+		(%[1]s.external = false AND any(rx IN %[2]s.rx WHERE %[1]s.key =~ rx)) OR
+		(%[1]s.external = true AND (any(rx IN %[2]s.extRx WHERE %[1]s.key =~ rx) OR
+			(coalesce(%[1]s.std, false) = false AND any(rx IN %[2]s.libRx WHERE %[1]s.key =~ rx))))))`, n, s)
 }
 
 // query runs cypher with $project and $ignore set.
@@ -199,14 +215,17 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 			return nil, err
 		}
 		if len(pairs) > 0 {
+			// rules.LayerPair.Reports: a in from, b in to, and the import
+			// crosses the pair; b may be an external package when the pair's
+			// to layer names some (toExternal)
 			rows, err := r.query(ctx, `
 				UNWIND $pairs AS pr
 				MATCH (a:Package {project: $project})-[:IMPORTS]->(b:Package)
-				WHERE a.external = false AND b.external = false
-				  AND any(rx IN pr.fromRx WHERE a.key =~ rx) AND any(rx IN pr.toRx WHERE b.key =~ rx)
-				  AND NOT any(rx IN pr.toRx WHERE a.key =~ rx) AND NOT any(rx IN pr.fromRx WHERE b.key =~ rx)
-				  AND NOT any(rx IN pr.exceptRx WHERE a.key =~ rx OR b.key =~ rx)
+				WHERE a.external = false AND (b.external = false OR pr.toExternal)
+				  AND NOT any(rx IN pr.exceptRx WHERE a.key =~ rx OR (b.external = false AND b.key =~ rx))
 				  AND NOT any(rx IN $ignore WHERE a.key =~ rx OR b.key =~ rx)
+				  AND `+inLayer("a", "pr.fromSet")+` AND `+inLayer("b", "pr.toSet")+`
+				  AND NOT `+inLayer("a", "pr.toSet")+` AND NOT `+inLayer("b", "pr.fromSet")+`
 				RETURN DISTINCT a.key AS from, b.key AS to, pr.from AS fromLayer, pr.to AS toLayer, pr.component AS component
 			`, ignore, map[string]any{"pairs": pairs})
 			if err != nil {
@@ -331,6 +350,14 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 			out = append(out, f)
 		}
 	}
+
+	// 5b. Structure inside the layers (arch.go): implementations held
+	// across an abstract pair, packages over their size limit.
+	arch, err := r.evaluateArch(ctx, cfg, ignore)
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, arch...)
 
 	// 6. Unused code at project level (unused.go).
 	unused, err := r.evaluateUnused(ctx, cfg)

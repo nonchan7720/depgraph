@@ -220,9 +220,10 @@ func (x *extractor) fieldText(n *gts.Node, field string) string {
 	return x.text(c)
 }
 
-func (x *extractor) addSym(n *gts.Node, kind, name string, exported bool) {
+// addSym adds the symbol n declares and returns it (nil without a name).
+func (x *extractor) addSym(n *gts.Node, kind, name string, exported bool) *graph.Symbol {
 	if name == "" {
-		return
+		return nil
 	}
 	sym := graph.Symbol{
 		Name:     name,
@@ -240,6 +241,7 @@ func (x *extractor) addSym(n *gts.Node, kind, name string, exported bool) {
 		sym.Tokens, sym.CloneHash, sym.Fingerprints = x.shape(n)
 	}
 	x.fg.Symbols = append(x.fg.Symbols, sym)
+	return &x.fg.Symbols[len(x.fg.Symbols)-1]
 }
 
 // utf16Col converts a tree-sitter byte column into an LSP column (UTF-16 code
@@ -295,7 +297,9 @@ func (x *extractor) goDecl(n *gts.Node) {
 		x.addSym(n, "function", name, goExported(name))
 	case "method_declaration":
 		name := x.fieldText(n, "name")
-		x.addSym(n, "method", name, goExported(name))
+		if s := x.addSym(n, "method", name, goExported(name)); s != nil {
+			s.Receiver = x.goReceiver(n)
+		}
 	case "type_declaration":
 		// type_spec (`type A B`) and type_alias (`type A = B`), in source order
 		for i := 0; i < n.NamedChildCount(); i++ {
@@ -341,7 +345,9 @@ func (x *extractor) tsDecl(n *gts.Node, exported bool) {
 	case "function_declaration", "generator_function_declaration":
 		x.addSym(n, "function", x.fieldText(n, "name"), exported)
 	case "class_declaration", "abstract_class_declaration":
-		x.addSym(n, "class", x.fieldText(n, "name"), exported)
+		if s := x.addSym(n, "class", x.fieldText(n, "name"), exported); s != nil {
+			x.tsClassShape(n, s)
+		}
 	case "interface_declaration":
 		x.addSym(n, "interface", x.fieldText(n, "name"), exported)
 	case "type_alias_declaration":
@@ -393,7 +399,9 @@ func (x *extractor) pyDecl(n *gts.Node) {
 		x.addSym(n, "function", name, pyExported(name))
 	case "class_definition":
 		name := x.fieldText(n, "name")
-		x.addSym(n, "class", name, pyExported(name))
+		if s := x.addSym(n, "class", name, pyExported(name)); s != nil {
+			x.pyClassShape(n, s)
+		}
 	case "decorated_definition":
 		if d := x.field(n, "definition"); d != nil {
 			x.pyDecl(d)
@@ -421,6 +429,7 @@ func (r *Resolver) resolveImports(ctx context.Context, root string, fg *graph.Fi
 			im.Target = res.Target
 		case imports.External:
 			im.Target, im.External = res.Target, true
+			im.Std = imports.IsStdlib(fg.Language, res.Target)
 		default:
 			im.Unresolved, im.Reason = true, res.Reason
 		}

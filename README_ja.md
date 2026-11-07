@@ -442,9 +442,11 @@ import は各エコシステム自身の解決方法で、プロジェクトの�
 |---|---|---|
 | `import-cycle` | error | パッケージ間の循環 import。8 パッケージ以下の循環に乗る import ごとに、それを通る最短の循環（最大 50 件） |
 | `module-cycle` | error | モノレポのモジュール間の import 循環（Go モジュール・npm のワークスペースパッケージ・Python プロジェクト・Ruby のアプリケーション / gem / engine / packwerk の pack。`go.mod`・`package.json`・`pyproject.toml`・`setup.py`・`setup.cfg`・`Gemfile`・`*.gemspec`・`package.yml` のあるディレクトリと[コンポーネント](#モノレポcomponents)）。ディレクトリ同士では循環にならないもの（`packages/web/src/a -> packages/kit/src -> packages/web/src/b`）も検出します。1 ホップごとに import を 1 つ示し、`import-cycle` が報告済みの循環は重ねて報告しません |
-| `layer-violation` | error | import してはいけないレイヤーを import している（`handler → repository` など、または独自レイヤー） |
+| `layer-violation` | error | import してはいけないレイヤーを import している（`handler → repository` など、または独自レイヤー）。レイヤーには外部パッケージも書けるので、フレームワークを import するドメインも違反になる（[レイヤーの内側](#レイヤーの内側フレームワーク抽象サイズ)参照） |
+| `concrete-dependency` | warn | インターフェース経由でしか使ってはいけないレイヤー（`abstract:`）の実装を struct / class が保持している。import 自体は許可されたうえで、メソッドを持つ struct / class 型のフィールドやコンストラクタ引数がある（`repository.UserRepository` ではなく `*repository.MySQLUserRepo` を持つ `usecase` など）。Go・TypeScript・Python |
 | `duplicate-code` | warn | 名前に関係なく、同じロジックが複数箇所にある（完全に同じ、または少し手を加えた複製。下記） |
 | `god-package` | warn | ハブ：10 パッケージ以上から import され、かつリポジトリ内の 3 パッケージ以上を import している。多くから依存されてもリポジトリ内の何にも依存しないパッケージ（ドメインモデルなど）は安定しており、god package ではない（安定依存の原則） |
+| `large-package` | warn | コード行数が上限を超えるパッケージ（テストと生成ファイルは数えない）。Go パッケージは 5000 行、レイヤーごとの上限は全言語に適用（`handler: 1500` で外側のレイヤーを薄く保つ） |
 | `duplicate-symbol` | warn | 同名の exported function/class が複数ファイルに存在（1 つの Go パッケージのファイルは 1 か所と数える。同名が両立するのは build constraint で分けたときだけのため。Ruby は対象外: クラスの再オープンは Ruby の拡張方法そのもの） |
 | `unused-export` | warn | プロジェクト内の誰も（自ファイルでさえ）使っていない export（Go: main 以外のパッケージの exported な関数と型。メソッドは対象外 / TS・JS: `export` された宣言。re-export・barrel を辿る / Python: モジュール直下の public な関数とクラス / Ruby: クラス、中身のあるモジュール、`Struct.new` / `Class.new` の定数。メソッドは対象外） |
 | `unreachable-file` | warn | どのエントリポイントからも import で辿れない TS/JS/Python/Ruby ファイル。誰も import していないファイルごとに 1 件で、そのファイル経由でしか辿れないファイルを併記 |
@@ -492,11 +494,15 @@ layers:                     # レイヤー名 -> パッケージパスの glob
   services: ["pkg/services/**"]
   infrastructure: ["pkg/infrastructure/**"]
   interfaces: ["pkg/interfaces/**", "cmd/**"]
+  frameworks: ["ext:*", "!ext:github.com/google/uuid"]   # サードパーティのパッケージ（下記）
 
 forbidden:                  # レイヤー -> import してはいけないレイヤー
-  domain: [infrastructure, services, interfaces]
+  domain: [infrastructure, services, interfaces, frameworks]
   services: [interfaces]
   infrastructure: [interfaces, services]
+
+abstract:                   # レイヤー -> インターフェースとしてしか保持してはいけないレイヤー
+  services: [infrastructure]
 
 rules:                      # ルールごと: enabled、severity（error | warn | info）、オプション
   import-cycle: {severity: error}
@@ -504,6 +510,7 @@ rules:                      # ルールごと: enabled、severity（error | warn
   god-package: {severity: warn, fanIn: 10, fanOut: 3}
   duplicate-symbol: {enabled: false}
   duplicate-code: {minTokens: 50, similarity: 0.8}   # 本体の大きさと指紋の類似度
+  large-package: {maxLines: 5000, layers: {interfaces: 1500}}  # パッケージ（Go）/ レイヤーごとの行数
   # duplicate-symbol: {ignore: [main, New, "Test*", "*Handler"]}  # 対象外の名前（デフォルトを置き換える）
   unused-export: {ignore: ["pkg/api/**"]}            # 報告しないパス（ライブラリの公開 API など）
   unreachable-file: {entries: ["plugins/**"]}       # depgraph から見えないエントリポイント
@@ -526,18 +533,69 @@ store:                      # Neo4j の用意の仕方（Neo4j 参照）。フ�
   `*Handler` は `Handler` で終わる名前に一致します。
 - 1 つのパッケージが複数のレイヤーに属してもかまいません。違反になるのはペアをまたぐ import だけで、
   両方が禁止される側のレイヤー、または両方が import する側のレイヤーに属するなら報告しません。
-- `layers` を書くとデフォルトのレイヤーを置き換え、デフォルトの禁止ペアもなくなります。
-  `forbidden` だけを書いた場合はデフォルトのレイヤーを参照します。
+- `layers` を書くとデフォルトのレイヤーを置き換え、デフォルトの禁止ペアと abstract ペアもなくなります。
+  `forbidden` や `abstract` だけを書いた場合はデフォルトのレイヤーを参照します。
 - `ignore` のパッケージは検出結果から外れます（それを通る循環、それからの扇入れなど）。
   `.depgraphignore` と違い、スキャンはされ UI にも表示されます。
 - デコードは厳密です。未知のキー・ルール・オプション・severity や、未定義のレイヤーを指す
-  `forbidden` は、黙って無視せずファイル名つきのエラーにします。
+  `forbidden` / `abstract` は、黙って無視せずファイル名つきのエラーにします。
 
 `.depgraph.yml` が無いときのデフォルトは、レイヤー `controller`・`db`・`domain`・`handler`・`infra`・
 `repository`・`usecase`（それぞれ同名のパスセグメント。加えて `controllers`・`handlers`・
 `infrastructure`・`repositories`・`usecases`）と、禁止ペア `handler → repository / infra / db`、
-`controller → repository / db`、`domain → infra / handler / repository`、`usecase → handler` です。
+`controller → repository / db`、`domain → infra / handler / repository`、`usecase → handler`、
+abstract ペア `usecase → repository / infra / db` です。
 このリポジトリ自身の [`.depgraph.yml`](.depgraph.yml) が例になります。
+
+### レイヤーの内側：フレームワーク・抽象・サイズ
+
+import の向きは依存性ルールそのものですが、クリーンアーキテクチャは境界の内側のコードにもそれ以上を求めます。
+depgraph は import グラフだけでは見えない 3 つを検査します。
+
+**フレームワーク（レイヤーに外部パッケージ）。** `ext:` で始まるレイヤーパターンはリポジトリ外のパッケージにマッチするので、
+`forbidden` でドメインをフレームワークから切り離せます:
+
+| パターン | マッチするもの |
+|---|---|
+| `ext:gorm.io/gorm` | そのパッケージと配下（`gorm.io/gorm/clause`。`ext:sqlalchemy` は `sqlalchemy.orm` にも）。標準ライブラリも含む（`ext:net/http`、`ext:database/sql`） |
+| `ext:*`、`ext:github.com/aws/*`、`ext:@nestjs/*` | パターンによるサードパーティのパッケージ（`*` は `/` を含む任意の文字列、`?` は 1 文字）。ワイルドカードは言語の標準ライブラリ（Go の `fmt`、Node の `fs` / `node:*`、Python の `json`、Ruby の `set`）には決してマッチしません。標準ライブラリはフレームワークではないため |
+| `!<パターン>` | レイヤーから除外する（`"!ext:github.com/google/uuid"`、`"!pkg/domain/legacy/**"`） |
+
+```yaml
+layers:
+  domain: ["internal/domain/**"]
+  frameworks: ["ext:*", "!ext:github.com/google/uuid", "!ext:github.com/shopspring/decimal"]
+  http: ["ext:net/http"]
+forbidden:
+  domain: [frameworks, http]   # internal/domain -> ext:gorm.io/gorm (domain must not import frameworks)
+```
+
+**依存性逆転（`abstract:`）。** ユースケースはリポジトリのパッケージを import してよい（ポートをそこで宣言している）のに、
+ポートではなく MySQL 実装を保持してしまうことがあります。`abstract:` はレイヤーごとに、その型を抽象としてしか保持してはいけない
+レイヤーを指定します。`concrete-dependency` は、そうしたレイヤーの実装の型を持つフィールドやコンストラクタ引数
+（Go: struct のフィールドと `New*` 関数の引数 / TypeScript: クラスのプロパティとコンストラクタ引数 / Python: クラスの型注釈と
+`__init__` の引数）を報告します:
+
+```yaml
+abstract:
+  usecase: [repository, infra]
+# internal/usecase depends on the concrete type internal/repository.MySQLUserRepo
+#   (internal/usecase/user.go:12 UserUsecase.repo): usecase must depend on repository through an interface
+```
+
+実装とは、メソッドを持つ（Go ではその型かポインタに対して、パッケージ内のどのファイルでも）抽象でない struct / class です。
+インターフェース、TypeScript の `abstract class`、Python の `Protocol` / `ABC` / `@abstractmethod` を持つクラス、
+メソッドの無い struct（行やオプションの struct: サービスではなくデータ）は報告せず、テストファイル、コレクション（`[]*T`）、
+外部の型（種類がグラフに無い。`ext:` レイヤーで import を禁止してください）も対象外です。
+composition root（`main`、`cmd/`、DI コンテナ）は実装を組み立てる場所なので、`abstract` のペアに入れないでください。
+1 件の検出に、その型を保持しているすべての箇所を併記します。コンポーネント（下記）でも `forbidden` と同じく
+ディレクトリ内で `abstract` を書けます。
+
+**サイズ（`large-package`）。** 大きくなり続けるパッケージは複数の責務を抱えています。外側のレイヤーなら、
+ユースケースから漏れ出したロジックです。`maxLines`（デフォルト 5000、`0` で無効）は 1 つの名前空間である Go パッケージの上限です。
+他の言語ではディレクトリはモジュールの集まりなので、レイヤーごとの上限だけが適用されます。
+`layers: {handler: 1500}` はそのレイヤーの各パッケージを全言語で制限します（複数のレイヤーに属するなら最小の上限）。
+テストと生成ファイルは数えません。
 
 ### モノレポ（`components`）
 

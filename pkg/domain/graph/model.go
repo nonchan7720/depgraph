@@ -46,6 +46,17 @@ type Symbol struct {
 	Tokens       int     `json:"-"`
 	CloneHash    string  `json:"-"`
 	Fingerprints []int64 `json:"-"`
+	// Abstract: a class that is an abstraction, not an implementation (a
+	// TypeScript abstract class, a Python Protocol / ABC or a class with an
+	// @abstractmethod). Go interfaces are Kind "interface".
+	Abstract bool `json:"abstract,omitempty"`
+	// Receiver is the type a Go method is declared on ("Repo" of
+	// `func (r *Repo) Find()`).
+	Receiver string `json:"receiver,omitempty"`
+	// Methods counts the methods a TypeScript / Python class declares
+	// (constructors and other dunder methods left out): a class without
+	// any is data, not a service one depends on.
+	Methods int `json:"methods,omitempty"`
 }
 
 // Import is one import statement in a file.
@@ -61,6 +72,10 @@ type Import struct {
 	// type checker reports it; depgraph does not).
 	Unresolved bool   `json:"unresolved,omitempty"`
 	Reason     string `json:"reason,omitempty"` // why it is Unresolved
+	// Std: an External import of the language's standard library (fmt,
+	// node:fs, os.path, json): a wildcard external layer pattern does not
+	// match it.
+	Std bool `json:"std,omitempty"`
 }
 
 // Reference is a resolved edge between two symbols (filled by LSP/SCIP).
@@ -83,6 +98,9 @@ type FileGraph struct {
 	Refs     []Reference `json:"refs,omitempty"`
 	// Usage feeds the unused-code rules (nil: not extracted).
 	Usage *Usage `json:"usage,omitempty"`
+	// TypeDeps are the dependencies the file's structs and classes hold on
+	// types of other packages of the repository (concrete-dependency).
+	TypeDeps []TypeDep `json:"typeDeps,omitempty"`
 }
 
 // StalePaths returns the stored file paths that were not seen by the latest

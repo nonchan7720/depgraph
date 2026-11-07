@@ -60,8 +60,10 @@ type fileYAML struct {
 	// their forbidden pairs) when present.
 	Layers map[string][]string `yaml:"layers"`
 	// Forbidden: from layer -> layers it must not import.
-	Forbidden map[string][]string  `yaml:"forbidden"`
-	Rules     map[string]yaml.Node `yaml:"rules"`
+	Forbidden map[string][]string `yaml:"forbidden"`
+	// Abstract: from layer -> layers it may use only through interfaces.
+	Abstract map[string][]string  `yaml:"abstract"`
+	Rules    map[string]yaml.Node `yaml:"rules"`
 	// Ignore: package globs excluded from every rule.
 	Ignore []string `yaml:"ignore"`
 	// Components: directory (or pattern such as packages/*) -> its layers.
@@ -73,6 +75,20 @@ type fileYAML struct {
 type componentYAML struct {
 	Layers    map[string][]string `yaml:"layers"`
 	Forbidden map[string][]string `yaml:"forbidden"`
+	Abstract  map[string][]string `yaml:"abstract"`
+}
+
+// layersYAML is what a file or a component declares of its architecture.
+type layersYAML struct {
+	layers, forbidden, abstract map[string][]string
+}
+
+func (y fileYAML) arch() layersYAML      { return layersYAML{y.Layers, y.Forbidden, y.Abstract} }
+func (y componentYAML) arch() layersYAML { return layersYAML{y.Layers, y.Forbidden, y.Abstract} }
+
+// declared reports whether the file / component declares any of it.
+func (a layersYAML) declared() bool {
+	return a.layers != nil || a.forbidden != nil || a.abstract != nil
 }
 
 // ruleYAML is one entry under rules:. Which of the rule-specific options a
@@ -87,6 +103,9 @@ type ruleYAML struct {
 	// duplicate-code
 	MinTokens  *int     `yaml:"minTokens"`
 	Similarity *float64 `yaml:"similarity"`
+	// large-package
+	MaxLines *int            `yaml:"maxLines"`
+	Layers   *map[string]int `yaml:"layers"`
 }
 
 // Load reads root/.depgraph.yml and the .depgraph.yml files below it (a
@@ -118,8 +137,8 @@ func Parse(b []byte) (File, error) {
 		return File{}, err
 	}
 	c := rules.DefaultConfig()
-	if y.Layers != nil || y.Forbidden != nil {
-		c.Layers, c.ForbiddenLayers, c.DefaultLayers = layersOf(y.Layers, y.Forbidden)
+	if a := y.arch(); a.declared() {
+		c.Layers, c.ForbiddenLayers, c.AbstractLayers, c.DefaultLayers = layersOf(a)
 	}
 	if y.Ignore != nil {
 		c.Ignore = y.Ignore
@@ -151,33 +170,43 @@ func decode(b []byte) (fileYAML, error) {
 	return y, nil
 }
 
-// layersOf returns the layers and forbidden pairs a file declares. layers
-// replaces the default layers and their forbidden pairs; forbidden alone
-// refers to the default layers (defaults is then true).
-func layersOf(layers, forbidden map[string][]string) (ls []rules.Layer, pairs [][2]string, defaults bool) {
+// layersOf returns the layers and the forbidden and abstract pairs a file
+// or component declares. layers replaces the default layers and their
+// pairs; forbidden or abstract alone refers to the default layers (defaults
+// is then true) and replaces the default pairs of its kind only.
+func layersOf(a layersYAML) (ls []rules.Layer, forbidden, abstract [][2]string, defaults bool) {
 	def := rules.DefaultConfig()
-	ls, pairs, defaults = def.Layers, def.ForbiddenLayers, true
-	if layers != nil {
-		ls = make([]rules.Layer, 0, len(layers))
-		for _, name := range sortedKeys(layers) {
-			ls = append(ls, rules.Layer{Name: name, Packages: layers[name]})
+	ls, forbidden, abstract, defaults = def.Layers, def.ForbiddenLayers, def.AbstractLayers, true
+	if a.layers != nil {
+		ls = make([]rules.Layer, 0, len(a.layers))
+		for _, name := range sortedKeys(a.layers) {
+			ls = append(ls, rules.Layer{Name: name, Packages: a.layers[name]})
 		}
-		pairs, defaults = nil, false // the default pairs name the default layers
+		forbidden, abstract, defaults = nil, nil, false // the default pairs name the default layers
 	}
-	if forbidden != nil {
-		pairs = nil
-		seen := map[[2]string]bool{}
-		for _, from := range sortedKeys(forbidden) {
-			for _, to := range forbidden[from] {
-				p := [2]string{from, to}
-				if !seen[p] {
-					seen[p] = true
-					pairs = append(pairs, p)
-				}
+	if a.forbidden != nil {
+		forbidden = pairsOf(a.forbidden)
+	}
+	if a.abstract != nil {
+		abstract = pairsOf(a.abstract)
+	}
+	return ls, forbidden, abstract, defaults
+}
+
+// pairsOf flattens from layer -> layers into distinct [from, to] pairs.
+func pairsOf(m map[string][]string) [][2]string {
+	pairs := [][2]string{}
+	seen := map[[2]string]bool{}
+	for _, from := range sortedKeys(m) {
+		for _, to := range m[from] {
+			p := [2]string{from, to}
+			if !seen[p] {
+				seen[p] = true
+				pairs = append(pairs, p)
 			}
 		}
 	}
-	return ls, pairs, defaults
+	return pairs
 }
 
 // addComponents adds the components: of the file in directory dir.
@@ -185,7 +214,7 @@ func addComponents(c *rules.Config, dir string, comps map[string]componentYAML) 
 	for _, key := range sortedKeys(comps) {
 		y := comps[key]
 		comp := rules.Component{Dir: rules.PrefixGlob(dir, key)}
-		comp.Layers, comp.ForbiddenLayers, comp.DefaultLayers = layersOf(y.Layers, y.Forbidden)
+		comp.Layers, comp.ForbiddenLayers, comp.AbstractLayers, comp.DefaultLayers = layersOf(y.arch())
 		c.Components = append(c.Components, comp)
 	}
 }
@@ -280,9 +309,9 @@ func applyNested(c *rules.Config, dir string, b []byte) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	if y.Layers != nil || y.Forbidden != nil {
+	if a := y.arch(); a.declared() {
 		comp := rules.Component{Dir: dir}
-		comp.Layers, comp.ForbiddenLayers, comp.DefaultLayers = layersOf(y.Layers, y.Forbidden)
+		comp.Layers, comp.ForbiddenLayers, comp.AbstractLayers, comp.DefaultLayers = layersOf(a)
 		c.Components = append(c.Components, comp)
 	}
 	addComponents(c, dir, y.Components)
@@ -367,6 +396,15 @@ func applyRule(c *rules.Config, name string, n yaml.Node) error {
 			return fmt.Errorf("rules.%s: minTokens %d (want > 0)", name, *ry.MinTokens)
 		}
 		c.Clones.MinTokens = *ry.MinTokens
+	}
+	if ry.MaxLines != nil {
+		if *ry.MaxLines < 0 {
+			return fmt.Errorf("rules.%s: maxLines %d (want >= 0)", name, *ry.MaxLines)
+		}
+		c.LargePackage.MaxLines = *ry.MaxLines
+	}
+	if ry.Layers != nil {
+		c.LargePackage.Layers = *ry.Layers
 	}
 	if ry.Similarity != nil {
 		if *ry.Similarity <= 0 || *ry.Similarity > 1 {

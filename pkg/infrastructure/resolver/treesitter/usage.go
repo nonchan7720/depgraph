@@ -66,7 +66,10 @@ type usageCollector struct {
 
 	goImports   []goImport
 	goSelectors []goSelector
-	dirPrefixes []string // repo-relative directories every file of which is used
+	typeRefs    []typeRef             // typedep.go
+	tsBind      map[string]tsBinding  // TS/JS: local names bound by imports
+	pyBind      map[string]*pyBinding // Python: local names bound by imports
+	dirPrefixes []string              // repo-relative directories every file of which is used
 }
 
 func (u *usageCollector) use(spec, name string) {
@@ -109,6 +112,7 @@ func (u *usageCollector) requests() []imports.Request {
 	for _, gi := range u.goImports {
 		add(gi.spec)
 	}
+	u.typeRefSpecs(add)
 	u.rbRequests(add)
 	return out
 }
@@ -119,10 +123,13 @@ func (x *extractor) collectUsage(lang graph.Language, root *gts.Node) *usageColl
 	switch lang {
 	case graph.Go:
 		u.goFile(root)
+		u.goTypeRefs(root)
 	case graph.TypeScript, graph.JavaScript:
 		u.tsFile(root)
+		u.tsTypeRefs(root)
 	case graph.Python:
 		u.pyFile(root)
+		u.pyTypeRefs(root)
 	case graph.Ruby:
 		u.rbFile(root)
 	}
@@ -191,9 +198,13 @@ func (r *Resolver) finishUsage(ctx context.Context, root string, fg *graph.FileG
 		}
 		us = append(us, graph.Use{Target: target, Name: p.name, ReExport: p.reexport, As: p.as})
 	}
+	var goBinds map[string]string
 	if fg.Language == graph.Go {
-		us = append(us, u.goUses(root, bySpec)...)
+		var goUses []graph.Use
+		goUses, goBinds = u.goUses(root, bySpec)
+		us = append(us, goUses...)
 	}
+	fg.TypeDeps = u.typeDeps(bySpec, goBinds)
 	if fg.Language == graph.Ruby {
 		fg.Imports = append(fg.Imports, u.rbConstImports(bySpec)...)
 	}
@@ -237,7 +248,7 @@ func (m *manifests) unknownTarget(fg *graph.FileGraph, spec string, res imports.
 		return true
 	}
 	pkg := npmPackageName(spec)
-	return !nodeBuiltins[pkg] && m.undeclared(fg.Path, pkg)
+	return !imports.NodeBuiltins[pkg] && m.undeclared(fg.Path, pkg)
 }
 
 // npmPackageName is the package of a bare spec ("@a/b" of "@a/b/c", "x" of "x/y").
@@ -248,17 +259,6 @@ func npmPackageName(spec string) string {
 	}
 	return parts[0]
 }
-
-var nodeBuiltins = func() map[string]bool {
-	m := map[string]bool{}
-	for n := range strings.FieldsSeq(`assert async_hooks buffer child_process cluster console constants
-		crypto dgram diagnostics_channel dns domain events fs http http2 https inspector module net os
-		path perf_hooks process punycode querystring readline repl stream string_decoder sys timers tls
-		trace_events tty url util v8 vm wasi worker_threads zlib test sqlite`) {
-		m[n] = true
-	}
-	return m
-}()
 
 func isDir(root, rel string) bool {
 	st, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel)))

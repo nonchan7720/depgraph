@@ -257,3 +257,72 @@ func TestParseGodPackageFanOut(t *testing.T) {
 		t.Error("fanOut 0 must be an error")
 	}
 }
+
+// abstract: names the pairs a layer may use only through interfaces; like
+// forbidden, own layers replace the default pairs and abstract alone refers
+// to the default layers.
+func TestParseAbstract(t *testing.T) {
+	f, err := Parse([]byte(`
+layers:
+  usecase: [app/usecase/**]
+  adapter: [app/adapter/**]
+  frameworks: ["ext:*", "!ext:github.com/google/uuid"]
+forbidden:
+  usecase: [frameworks]
+abstract:
+  usecase: [adapter]
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(f.Rules.AbstractLayers, [][2]string{{"usecase", "adapter"}}) {
+		t.Errorf("abstract = %v", f.Rules.AbstractLayers)
+	}
+	if !reflect.DeepEqual(f.Rules.ForbiddenLayers, [][2]string{{"usecase", "frameworks"}}) {
+		t.Errorf("forbidden = %v", f.Rules.ForbiddenLayers)
+	}
+	f, err = Parse([]byte("layers:\n  core: [core/**]\n"))
+	if err != nil || len(f.Rules.AbstractLayers) != 0 {
+		t.Errorf("own layers keep the default abstract pairs: %v, %v", f.Rules.AbstractLayers, err)
+	}
+	f, err = Parse([]byte("abstract:\n  handler: [usecase]\n"))
+	if err != nil || !reflect.DeepEqual(f.Rules.AbstractLayers, [][2]string{{"handler", "usecase"}}) ||
+		!reflect.DeepEqual(f.Rules.ForbiddenLayers, rules.DefaultConfig().ForbiddenLayers) {
+		t.Errorf("abstract alone: %+v, %v", f.Rules, err)
+	}
+	for _, tc := range []struct{ src, want string }{
+		{"abstract:\n  nope: [db]\n", `abstract nope -> db: unknown layer "nope"`},
+		{"abstract:\n  db: [db]\n", `cannot name itself`},
+		{"layers:\n  a: [\"ext:\"]\n", `empty external package pattern`},
+		{"layers:\n  a: [\"!a/**\"]\n", `only ! patterns`},
+	} {
+		if _, err := Parse([]byte(tc.src)); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%q: %v, want %q", tc.src, err, tc.want)
+		}
+	}
+}
+
+func TestParseLargePackage(t *testing.T) {
+	f, err := Parse([]byte(`
+layers:
+  interfaces: [pkg/interfaces/**]
+rules:
+  large-package: {maxLines: 3000, layers: {interfaces: 1500}}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := rules.LargePackageOptions{MaxLines: 3000, Layers: map[string]int{"interfaces": 1500}}
+	if !reflect.DeepEqual(f.Rules.LargePackage, want) {
+		t.Errorf("large-package = %+v", f.Rules.LargePackage)
+	}
+	for _, tc := range []struct{ src, want string }{
+		{"rules:\n  large-package: {maxLines: -1}\n", "maxLines"},
+		{"rules:\n  large-package: {layers: {nope: 10}}\n", `unknown layer "nope"`},
+		{"rules:\n  large-package: {layers: {domain: 0}}\n", "want > 0"},
+	} {
+		if _, err := Parse([]byte(tc.src)); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%q: %v, want %q", tc.src, err, tc.want)
+		}
+	}
+}

@@ -36,7 +36,8 @@
     {
       "spec": "os",
       "target": "ext:os",
-      "external": true
+      "external": true,
+      "std": true
     }
   ],
   "usage": {

@@ -90,7 +90,8 @@
     {
       "spec": "path",
       "target": "ext:path",
-      "external": true
+      "external": true,
+      "std": true
     },
     {
       "spec": "../db/index.js",

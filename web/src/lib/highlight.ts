@@ -50,8 +50,10 @@ export function findingPackageKeys(f: Finding): string[] {
       // one package import ("a -> b") per hop between two modules
       return strs(d.imports).flatMap((imp) => imp.split(' -> '));
     case 'layer-violation':
+    case 'concrete-dependency':
       return [d.from, d.to].filter((x): x is string => typeof x === 'string');
     case 'god-package':
+    case 'large-package':
       return typeof d.pkg === 'string' ? [d.pkg] : [];
     case 'duplicate-symbol':
       return strs(d.files).map((p) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '.'));

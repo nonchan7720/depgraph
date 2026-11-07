@@ -20,7 +20,10 @@
       "line": 25,
       "endLine": 27,
       "nameLine": 25,
-      "col": 1
+      "col": 1,
+      "methods": [
+        "Get"
+      ]
     },
     {
       "name": "ID",
@@ -74,7 +77,8 @@
       "line": 36,
       "endLine": 40,
       "nameLine": 36,
-      "col": 22
+      "col": 22,
+      "receiver": "UserHandler"
     },
     {
       "name": "name",
@@ -83,7 +87,8 @@
       "line": 42,
       "endLine": 42,
       "nameLine": 42,
-      "col": 21
+      "col": 21,
+      "receiver": "UserHandler"
     },
     {
       "name": "Map",
@@ -213,5 +218,15 @@
         "name": "Repo"
       }
     ]
-  }
+  },
+  "typeUses": [
+    {
+      "owner": "UserHandler",
+      "member": "repo",
+      "role": "field",
+      "line": 20,
+      "target": "go/repository",
+      "type": "Repo"
+    }
+  ]
 }

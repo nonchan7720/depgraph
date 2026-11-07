@@ -444,6 +444,8 @@ import は各エコシステム自身の解決方法で、プロジェクトの�
 | `import-cycle` | error | パッケージ間の循環 import。8 パッケージ以下の循環に乗る import ごとに、それを通る最短の循環（最大 50 件） |
 | `module-cycle` | error | モノレポのモジュール間の import 循環（Go モジュール・npm のワークスペースパッケージ・Python プロジェクト・Ruby のアプリケーション / gem / engine / packwerk の pack。`go.mod`・`package.json`・`pyproject.toml`・`setup.py`・`setup.cfg`・`Gemfile`・`*.gemspec`・`package.yml` のあるディレクトリと[コンポーネント](#モノレポcomponents)）。ディレクトリ同士では循環にならないもの（`packages/web/src/a -> packages/kit/src -> packages/web/src/b`）も検出します。1 ホップごとに import を 1 つ示し、`import-cycle` が報告済みの循環は重ねて報告しません |
 | `layer-violation` | error | import してはいけないレイヤーを import している（`handler → repository` など、または独自レイヤー）。レイヤーには外部パッケージも書けるので、フレームワークを import するドメインも違反になる（[フレームワーク](#フレームワークレイヤーに外部パッケージ)参照） |
+| `concrete-dependency` | warn | インターフェース経由でしか使ってはいけないレイヤー（`abstract:`）の実装を、struct / class が保持（フィールド・コンストラクタ引数）または生成している。しかもその実装は、保持側のパッケージ・実装自身のパッケージ・内側のレイヤーで宣言されたインターフェースを満たしている（[レイヤーの内側](#レイヤーの内側依存性逆転と型の漏洩)参照） |
+| `type-leak` | warn | レイヤーの API（公開関数・メソッドの引数と戻り値、公開フィールド）が、インターフェース経由でしか使ってはいけないレイヤー（`abstract:`）の struct / class を露出している |
 | `duplicate-code` | warn | 名前に関係なく、同じロジックが複数箇所にある（完全に同じ、または少し手を加えた複製。下記） |
 | `god-package` | warn | ハブ：10 パッケージ以上から import され、かつリポジトリ内の 3 パッケージ以上を import している。多くから依存されてもリポジトリ内の何にも依存しないパッケージ（ドメインモデルなど）は安定しており、god package ではない（安定依存の原則） |
 | `duplicate-symbol` | warn | 同名の exported function/class が複数ファイルに存在（1 つの Go パッケージのファイルは 1 か所と数える。同名が両立するのは build constraint で分けたときだけのため。Ruby は対象外: クラスの再オープンは Ruby の拡張方法そのもの） |
@@ -500,6 +502,9 @@ forbidden:                  # レイヤー -> import してはいけないレイ
   services: [interfaces]
   infrastructure: [interfaces, services]
 
+abstract:                   # レイヤー -> インターフェース経由でしか使ってはいけないレイヤー
+  services: [infrastructure]
+
 
 rules:                      # ルールごと: enabled、severity（error | warn | info）、オプション
   import-cycle: {severity: error}
@@ -529,8 +534,8 @@ store:                      # Neo4j の用意の仕方（Neo4j 参照）。フ�
   `*Handler` は `Handler` で終わる名前に一致します。
 - 1 つのパッケージが複数のレイヤーに属してもかまいません。違反になるのはペアをまたぐ import だけで、
   両方が禁止される側のレイヤー、または両方が import する側のレイヤーに属するなら報告しません。
-- `layers` を書くとデフォルトのレイヤーを置き換え、デフォルトの禁止ペアもなくなります。
-  `forbidden` だけを書いた場合はデフォルトのレイヤーを参照します。
+- `layers` を書くとデフォルトのレイヤーを置き換え、デフォルトの禁止ペアと abstract ペアもなくなります。
+  `forbidden` や `abstract` だけを書いた場合はデフォルトのレイヤーを参照します。
 - `ignore` のパッケージは検出結果から外れます（それを通る循環、それからの扇入れなど）。
   `.depgraphignore` と違い、スキャンはされ UI にも表示されます。
 - デコードは厳密です。未知のキー・ルール・オプション・severity や、未定義のレイヤーを指す
@@ -539,7 +544,8 @@ store:                      # Neo4j の用意の仕方（Neo4j 参照）。フ�
 `.depgraph.yml` が無いときのデフォルトは、レイヤー `controller`・`db`・`domain`・`handler`・`infra`・
 `repository`・`usecase`（それぞれ同名のパスセグメント。加えて `controllers`・`handlers`・
 `infrastructure`・`repositories`・`usecases`）と、禁止ペア `handler → repository / infra / db`、
-`controller → repository / db`、`domain → infra / handler / repository`、`usecase → handler` です。
+`controller → repository / db`、`domain → infra / handler / repository`、`usecase → handler`、
+abstract ペア `usecase → infra / db` です。
 このリポジトリ自身の [`.depgraph.yml`](.depgraph.yml) が例になります。
 
 ### フレームワーク：レイヤーに外部パッケージ
@@ -611,6 +617,39 @@ components:
   （1 つのディレクトリのファイルが一致していれば `.python-version` を最優先、Dockerfile を最後に選ぶ）。食い違う場合は端末なら尋ね、
   端末でなければそのディレクトリを外します。`.depgraph.yml` の他の内容と既存の設定は残し、リポジトリ外を指すシンボリックリンクの
   バージョンファイル（リンク先の無い checkout では判定できない）と、typeshed が無いことを警告します。`--dry-run` は結果を表示するだけです。
+
+### レイヤーの内側：依存性逆転と型の漏洩
+
+import の向きは依存性ルールそのものですが、ユースケースはリポジトリのパッケージを import してよい（ポートをそこで宣言している、
+その型を使う）うえで、ポートではなく PostgreSQL の実装を保持したり、ORM の行を API から返したりできてしまいます。
+`abstract:` はレイヤーごとに、インターフェース経由でしか使ってはいけないレイヤーを指定します。import 自体は許可されたままです:
+
+```yaml
+abstract:
+  usecase: [infra, db]          # デフォルト（デフォルトのレイヤーに対して）
+```
+
+depgraph はすべての型と関数のメンバーを読みます（Go・TypeScript・Python）。フィールド、コンストラクタ引数（Go の `New*`、
+`constructor`、`__init__`）、引数、戻り値の型と、別パッケージの型を生成している箇所（`&infra.T{}`、`new T()`、`T()`）です。
+
+- **concrete-dependency**：`usecase` の struct / class が `infra` の実装を保持または生成していて、**かつ**その実装が、
+  保持側のパッケージ・実装のパッケージ・内側のレイヤーで宣言されたインターフェースを満たしている場合に報告します。
+  実装とは振る舞いを持つ struct / class です（インターフェース、抽象クラス、Protocol / ABC、dataclass / pydantic モデル / Enum、
+  `String`・`MarshalJSON`・`Scan` などしか持たない struct は除く）。満たしているとは、Go ならインターフェースのメソッドを
+  すべて持つこと、TypeScript / Python なら implements / extends で宣言していることです。そうしたインターフェースが無ければ
+  報告しません（インターフェースを作るべきかは設計判断で、事実ではないため）。コレクション、テストファイル、
+  composition root（ペアに入っていないレイヤー：`cmd/`、`main`）は対象外です。
+
+  ```text
+  internal/usecase depends on the concrete type internal/infra.PostgresOrders
+  (internal/usecase/order.go:13 OrderUsecase.repo, and 1 more) although it implements
+  internal/usecase.OrderRepository: hold the interface (usecase must depend on infra through an interface)
+  ```
+- **type-leak**：`usecase` の API（公開関数・メソッドの引数と戻り値、データを持つ公開フィールド）が `infra` の struct / class を
+  名指ししていて、ユースケースの呼び出し側がインフラの型に依存してしまう状態を報告します。インターフェースは問題ありません。
+  コンストラクタ引数と保持している実装は concrete-dependency の対象です。
+
+コンポーネントでも `forbidden` と同じく、ディレクトリ内で `abstract` を書けます。
 
 ### モノレポ（`components`）
 

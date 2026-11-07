@@ -11,7 +11,13 @@
       "line": 20,
       "endLine": 25,
       "nameLine": 20,
-      "col": 6
+      "col": 6,
+      "methods": [
+        "method"
+      ],
+      "implements": [
+        "app/models.py#Base"
+      ]
     },
     {
       "name": "Helper",
@@ -29,7 +35,8 @@
       "line": 35,
       "endLine": 36,
       "nameLine": 35,
-      "col": 6
+      "col": 6,
+      "data": true
     },
     {
       "name": "fetch",

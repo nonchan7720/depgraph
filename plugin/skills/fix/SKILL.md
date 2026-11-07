@@ -1,6 +1,6 @@
 ---
 name: fix
-description: Fix the debt depgraph reports (import-cycle, module-cycle, layer-violation, duplicate-code, duplicate-symbol, god-package, unused-export, unreachable-file, unreachable-package) the way the codebase needs, not by silencing the rule. Use when depgraph findings appear in the context (session start, a prompt, or a failing `depgraph gate`), or when the user asks to clean up what depgraph found.
+description: Fix the debt depgraph reports (import-cycle, module-cycle, layer-violation, concrete-dependency, type-leak, duplicate-code, duplicate-symbol, god-package, unused-export, unreachable-file, unreachable-package) the way the codebase needs, not by silencing the rule. Use when depgraph findings appear in the context (session start, a prompt, or a failing `depgraph gate`), or when the user asks to clean up what depgraph found.
 argument-hint: "[rule or finding]"
 ---
 
@@ -35,6 +35,14 @@ refactor nobody asked for.
   layer rules only when the user confirms the architecture changed. When the imported package is
   external (`ext:...`, a framework in an inner layer), keep the framework in an adapter of the outer
   layer behind an interface the inner layer declares, and pass plain types across.
+- **concrete-dependency** (warn): a struct / class holds (a field, a constructor parameter) or builds
+  an implementation of a layer it may use only through interfaces (`.depgraph.yml` `abstract`), and the
+  finding names the interface that implementation already satisfies. Type the field / parameter with that
+  interface and let the composition root (`main`, `cmd/`, the DI setup) build and pass the implementation.
+  Do not wrap or rename the concrete type.
+- **type-leak** (warn): the API of a layer (parameters and results of exported functions / methods,
+  exported fields) exposes a struct or class of a layer it may use only through interfaces. Return or
+  take a type of the layer itself (or the domain's), and map at the boundary; or expose an interface.
 - **duplicate-code** (warn): the same logic in several places, also under different names. Keep one
   implementation in the place both callers can import, and call it from both. Before writing new
   code, search for an existing function that does the job; this rule exists because agents

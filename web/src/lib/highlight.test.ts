@@ -40,6 +40,8 @@ describe('findingPackageKeys', () => {
     ]);
     expect(findingPackageKeys(f('layer-violation', { from: 'a', to: 'b' }))).toEqual(['a', 'b']);
     expect(findingPackageKeys(f('god-package', { pkg: 'a' }))).toEqual(['a']);
+    expect(findingPackageKeys(f('concrete-dependency', { from: 'a', to: 'b', type: 'T' }))).toEqual(['a', 'b']);
+    expect(findingPackageKeys(f('type-leak', { from: 'a', to: 'b', type: 'T' }))).toEqual(['a', 'b']);
     expect(findingPackageKeys(f('duplicate-symbol', { files: ['x/y/z.go', 'main.go'] }))).toEqual(['x/y', '.']);
     expect(findingPackageKeys(f('unknown', {}))).toEqual([]);
     expect(findingPackageKeys({ rule: 'god-package', severity: 'warn', message: '', id: '' })).toEqual([]);

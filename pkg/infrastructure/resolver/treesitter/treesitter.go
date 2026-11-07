@@ -220,9 +220,10 @@ func (x *extractor) fieldText(n *gts.Node, field string) string {
 	return x.text(c)
 }
 
-func (x *extractor) addSym(n *gts.Node, kind, name string, exported bool) {
+// addSym adds the symbol n declares and returns it (nil without a name).
+func (x *extractor) addSym(n *gts.Node, kind, name string, exported bool) *graph.Symbol {
 	if name == "" {
-		return
+		return nil
 	}
 	sym := graph.Symbol{
 		Name:     name,
@@ -240,6 +241,7 @@ func (x *extractor) addSym(n *gts.Node, kind, name string, exported bool) {
 		sym.Tokens, sym.CloneHash, sym.Fingerprints = x.shape(n)
 	}
 	x.fg.Symbols = append(x.fg.Symbols, sym)
+	return &x.fg.Symbols[len(x.fg.Symbols)-1]
 }
 
 // utf16Col converts a tree-sitter byte column into an LSP column (UTF-16 code
@@ -295,7 +297,9 @@ func (x *extractor) goDecl(n *gts.Node) {
 		x.addSym(n, "function", name, goExported(name))
 	case "method_declaration":
 		name := x.fieldText(n, "name")
-		x.addSym(n, "method", name, goExported(name))
+		if s := x.addSym(n, "method", name, goExported(name)); s != nil {
+			s.Receiver = x.goReceiver(n)
+		}
 	case "type_declaration":
 		// type_spec (`type A B`) and type_alias (`type A = B`), in source order
 		for i := 0; i < n.NamedChildCount(); i++ {
@@ -303,16 +307,21 @@ func (x *extractor) goDecl(n *gts.Node) {
 			switch x.typ(ts) {
 			case "type_spec":
 				kind := "type"
+				var methods []string
+				embeds := false
 				if t := x.field(ts, "type"); t != nil {
 					switch x.typ(t) {
 					case "struct_type":
 						kind = "struct"
 					case "interface_type":
 						kind = "interface"
+						methods, embeds = x.goInterfaceMethods(t)
 					}
 				}
 				name := x.fieldText(ts, "name")
-				x.addSym(ts, kind, name, goExported(name))
+				if s := x.addSym(ts, kind, name, goExported(name)); s != nil {
+					s.Methods, s.Embeds = methods, embeds
+				}
 			case "type_alias":
 				name := x.fieldText(ts, "name")
 				x.addSym(ts, "type", name, goExported(name))
@@ -341,9 +350,13 @@ func (x *extractor) tsDecl(n *gts.Node, exported bool) {
 	case "function_declaration", "generator_function_declaration":
 		x.addSym(n, "function", x.fieldText(n, "name"), exported)
 	case "class_declaration", "abstract_class_declaration":
-		x.addSym(n, "class", x.fieldText(n, "name"), exported)
+		if s := x.addSym(n, "class", x.fieldText(n, "name"), exported); s != nil {
+			x.tsClassShape(n, s)
+		}
 	case "interface_declaration":
-		x.addSym(n, "interface", x.fieldText(n, "name"), exported)
+		if s := x.addSym(n, "interface", x.fieldText(n, "name"), exported); s != nil {
+			s.Methods = x.tsInterfaceMethods(n)
+		}
 	case "type_alias_declaration":
 		x.addSym(n, "type", x.fieldText(n, "name"), exported)
 	case "enum_declaration":
@@ -393,10 +406,16 @@ func (x *extractor) pyDecl(n *gts.Node) {
 		x.addSym(n, "function", name, pyExported(name))
 	case "class_definition":
 		name := x.fieldText(n, "name")
-		x.addSym(n, "class", name, pyExported(name))
+		if s := x.addSym(n, "class", name, pyExported(name)); s != nil {
+			x.pyClassShape(n, s)
+		}
 	case "decorated_definition":
 		if d := x.field(n, "definition"); d != nil {
+			before := len(x.fg.Symbols)
 			x.pyDecl(d)
+			if x.typ(d) == "class_definition" && len(x.fg.Symbols) > before {
+				x.pyMarkData(n, &x.fg.Symbols[len(x.fg.Symbols)-1])
+			}
 		}
 	}
 }

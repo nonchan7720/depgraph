@@ -5,7 +5,14 @@
 AIが書いたコードの依存関係を Neo4j に入れて可視化・ルール検査し、結果を `CLAUDE.md` に自動反映するツール。
 バイブコーディング中にファイルが書き換わるたびにグラフを更新し、「循環依存が増えた」「レイヤー違反が入った」「同名関数が複製された」を即座に検出して次のプロンプトに戻します。
 
-対応言語（tree-sitter）: Go / TypeScript / JavaScript / Python / Ruby（Rails・engine・packwerk の pack）
+対応言語（tree-sitter）。言語ごとに、depgraph がそこから何を読み、ルールがその言語で何を意味するかのページがあります:
+
+| 言語 | |
+|---|---|
+| Go | [docs/languages/ja/go.md](docs/languages/ja/go.md) |
+| TypeScript / JavaScript | [docs/languages/ja/typescript.md](docs/languages/ja/typescript.md) |
+| Python | [docs/languages/ja/python.md](docs/languages/ja/python.md) |
+| Ruby（Rails・engine・packwerk の pack） | [docs/languages/ja/ruby.md](docs/languages/ja/ruby.md) |
 
 ## インストール
 
@@ -428,12 +435,12 @@ File の usage プロパティはそのファイル自身から分かること�
 
 import は各エコシステム自身の解決方法で、プロジェクトの設定を読んで解決します。
 
-| 言語 | 方法 |
-|---|---|
-| TypeScript / JavaScript | esbuild の resolver: `tsconfig.json` / `jsconfig.json`（`paths`・`baseUrl`・`extends`）、`package.json`（`exports`・`imports`・workspaces）、`node_modules`、`x.ts` を指す ESM の `./x.js`。ワークスペースのパッケージ（`package.json` の `workspaces`、`pnpm-workspace.yaml`）は、インストール前（clone 直後・CI・gate の worktree）でもそのディレクトリに解決します。同名のパッケージがインストールされていればそちらを優先します |
-| Go | `go.mod` / `go.work`（入れ子モジュール・`use`・`replace`） |
-| Python | リポジトリのパッケージルート（ルート・`src/`・`pyproject.toml` / `setup.cfg` のパッケージディレクトリ）上の import システム。`__init__.py` の無いディレクトリは名前空間パッケージで、標準ライブラリを隠しません |
-| Ruby | `require_relative` はファイルからの相対パス、`require` はリポジトリから分かるロードパス（そのファイルのプロジェクトの `lib/`・`spec/`・`test/`、リポジトリ内の全 gem の `lib/`）。Rails のコードは他のファイルを `require` ではなく定数で参照するので、定数も依存として Zeitwerk と同じ規則で解決します: アプリケーション・engine・packwerk の pack（`app/` と `Gemfile`・`*.gemspec`・`package.yml` のいずれかを持つディレクトリ、または `app/` が Rails の構成になっているディレクトリ。Discourse のプラグインなど）の `app/` 直下の各ディレクトリ（`assets`・`javascript`・`views` を除く）とその `concerns/`、および `lib/` が root で、`Admin::UsersController` はそのいずれかの下の `admin/users_controller.rb`。書かれたレキシカルスコープの順（`Admin::UsersController::User`・`Admin::User`・`User`）に探します。Ruby や gem が定義する定数は依存になりません |
+| 言語 | 方法 | 詳細 |
+|---|---|---|
+| TypeScript / JavaScript | esbuild の resolver: `tsconfig.json` / `jsconfig.json`、`package.json`（`exports`・`imports`・workspaces。インストール前も）、`node_modules` | [TypeScript / JavaScript](docs/languages/ja/typescript.md#import-の解決) |
+| Go | `go.mod` / `go.work`（入れ子モジュール・`use`・`replace`） | [Go](docs/languages/ja/go.md#import-の解決) |
+| Python | リポジトリのパッケージルート（ルート・`src/`・`pyproject.toml` / `setup.cfg` のパッケージディレクトリ）上の import システム | [Python](docs/languages/ja/python.md#import-の解決) |
+| Ruby | リポジトリから分かるロードパス上の `require` / `require_relative` と、Zeitwerk と同じ規則での定数（アプリケーション・engine・packwerk の pack） | [Ruby](docs/languages/ja/ruby.md#import-の解決) |
 
 相対パス・エイリアス・プロジェクト内モジュールが何も指していない import は、外部ではなく未解決として扱い、依存には現れません。`watch` はこれらの設定ファイルが変わると再スキャンします。
 
@@ -459,11 +466,11 @@ import は各エコシステム自身の解決方法で、プロジェクトの�
 `unused-export` と `unreachable-*` はプロジェクト全体を見て初めて分かるものだけを報告します。コンパイラ・`go vet` / staticcheck・`tsc --noUnusedLocals`・eslint・ruff が見るのは未使用のローカル変数や非公開の名前で、誰も import しない export は見えません。
 誤検知はバグなので、import グラフの外から読み込まれる兆候があるファイルはエントリポイント（到達可能で、export は外から使われる扱い。報告しない）とします。
 
-- Go: `main` パッケージ、`_test.go`。`main` パッケージを持たないモジュールはライブラリで、`internal/` 以外のパッケージは公開 API。exported なメソッドは報告しません（interface が必要とする可能性があるため）。ドキュメントだけのパッケージも報告しません。`//go:embed` が埋め込むファイルは使用中です。
-- TS/JS: `package.json` の `main` / `module` / `browser` / `types` / `bin` / `exports` と `scripts` が実行するファイル（`dist/` のパスは `tsconfig.json` を見てソースに戻す）、HTML の `<script src>` とページテンプレートが名前で指すスクリプト、設定ファイル（`*.config.*`・`.*rc.*`）、テスト・stories・型テスト・`testdata/`・`.d.ts`、`scripts/` `bin/` `tools/` `docs/` `public/` `static/`、`examples/` とベンチマーク、パッケージ直下または `src/` 直下の `index` / `main` / `server` / `app` / `cli`、ファイルベースルーティング（Next.js・Remix・Gatsby・Expo Router などの `app/`・`pages/`・`routes/`）、Docusaurus の theme コンポーネント、React Email のテンプレート、MDX が import するファイル。プロジェクトが依存として宣言していないパッケージの import（`@site/...` のようなバンドラ / サイトジェネレータのエイリアス）は捨てずに、プロジェクト内のパスと突き合わせます。Vue・Svelte・Astro・Qwik・Marko・Ember・auto-import を使うパッケージはコンポーネントファイルを解析しないため対象外。shadcn/ui がコピーするコンポーネント群は vendored コードとして報告しません。モノレポで、リポジトリ内の他のパッケージが依存している `private` なワークスペースパッケージは公開されないので、使うのはリポジトリだけです。その `main` / `exports` / `types` と `index` のファイルは到達可能性の起点のままですが、export は他のパッケージが使っていなければ報告します（`bin` と `scripts` のファイルは外から実行されるので従来どおり）。公開されるパッケージと、何も依存していない private なアプリは、エントリの export を従来どおり使用済みとみなします。
-- Python: `__main__.py`、`__main__` ガード、`conftest.py`、`test_*.py`、`tests/`、マイグレーション、`setup.py` / `manage.py` / `wsgi.py` / `asgi.py`、`pyproject.toml` / `setup.cfg` の scripts・entry points の対象、Django プロジェクトでは自動検出されるモジュール（`models`・`admin`・`apps`・`urls`・`views`・`wagtail_hooks` など）。`__init__.py` は到達不能として報告しません。`__all__` の名前とデコレータ付き定義（ルート・fixture・タスク）は使用中とみなします。
-- Ruby: 定数は名前が書かれた所で使われます（`User`・`Admin::Role`・スーパークラス・Concern の `include` / `extend`・`"Admin::User"` / `class_name:` の文字列とシンボル、`%w[CsvImporter]`、`delegated_type types:`。`"Importers::#{kind}".constantize` は `Importers` 配下すべてを使う）。関連（`has_many :comments` は `Comment` を使う。単数化は ActiveSupport の規則。シンボルから作った名前は `APIKey` のような acronym のクラスにも一致）、`validates :email, email: true`（`EmailValidator`）、ERB / Haml / Slim のビューのコードと属性が書く定数も使用です（`views/` 配下の `.jbuilder`・`.builder`・`.ruby` は Ruby として読む）。`config/` の YAML（`validator: "ColorListValidator"`）や拡張子のない Ruby スクリプト（`#!/usr/bin/env ruby`）が書く定数、`"#{module_parent_name}::#{kind}".constantize`（外側の名前空間の定数すべて）、`has_one :"#{name}_search_data"`（`SearchData` で終わる定数すべて）も使用で、Ruby ファイルのグロブ（`Dir["lib/patches/*.rb"]`）はそのディレクトリ配下すべてを使います。`require` はファイルを到達可能にし、名前空間のファイル（`admin.rb`、`module Vacuum; end` だけのファイルも）は配下の定数のために Zeitwerk が読み込みます。Rails が規約で読み込むものはエントリポイントです: `app/` の `controllers`・`jobs`・`mailers`・`channels`・`helpers`・`mailboxes`・`views`（`.jbuilder`・`.rss.ruby` も）・`workers`、モデル名から推論されるクラス（`policies`・`serializers`・`decorators`・`dashboards`・`inputs`・`admin`）、`config/`・`db/`・`bin/`・`script/`・`lib/tasks`・`lib/generators`・`Rakefile`・`config.ru`・`*.rake`・`sorbet/`、ドットディレクトリ（`.skills/`）、`bundler/inline` を使うスクリプト、Discourse のプラグイン（`plugin.rb` と、Ember のリゾルバが読む `assets/javascripts`）、アプリケーションの抽象 `ApplicationRecord`、テスト（`spec/`・`test/`・`*_spec.rb`・`*_test.rb`）、スクリプト（`#!`・`if __FILE__ == $0`）、ドットファイル（`.active_record_doctor.rb`）、RuboCop / Standard / haml-lint の設定が `require` するファイル。Concern はどこにあってもエントリポイントではなく、どこからも include されない Concern は報告します。gem の `lib/` はその公開 API です。packwerk の pack の public path（`package.yml` の `public_path`、デフォルト `app/public/`）は到達可能ですが、pack を使うのはアプリケーションだけなので、誰も使わないクラスは報告します。ライブラリの名前空間を再オープンするクラス / モジュール（`Paperclip`・`Chewy`・`ActiveRecord`・`String` など。Ruby・Rails・`Gemfile` / `Gemfile.lock` の gem）はそのライブラリが名前で読み込むので報告しません。`models/` の STI サブクラス（`type` カラムから読み込まれる）、`Rails::Railtie` / `Rails::Engine` / generator のサブクラス、`self` を登録 / prepend するクラス・モジュール、Concern の `ClassMethods`、他のクラスを入れるだけのモジュール（名前空間）も同様です。
-  Rails アプリケーションの JavaScript は、アセットツールが示す所から始まります: `app/assets/`（Sprockets）、`app/javascript/` 直下のファイル（jsbundling・importmap）、`config/importmap.rb` の pin と `pin_all_from`、Vite Ruby（`config/vite.json`、無ければ `app/javascript/entrypoints`・`app/frontend/entrypoints`）、Shakapacker / Webpacker（`source_path` / `source_entry_path`、無ければ `app/javascript/packs`）。
+- 言語ごとの、エントリポイント・使用とみなすもの・報告するもの・意図して残すもの:
+  - [Go](docs/languages/ja/go.md#未使用コード): `main` パッケージ、テスト、ライブラリモジュールの公開パッケージ。
+  - [TypeScript / JavaScript](docs/languages/ja/typescript.md#未使用コード): `package.json` のエントリと scripts、HTML ページ、設定ファイル、テスト、ファイルベースルーティング、private なワークスペースパッケージ。
+  - [Python](docs/languages/ja/python.md#未使用コード): `__main__`、テスト、`pyproject.toml` / `setup.cfg` の scripts・entry points、Django の自動検出されるモジュール、`__all__`。
+  - [Ruby](docs/languages/ja/ruby.md#未使用コード): 使用としての定数（関連・ビュー・実行時に組み立てる名前も）、Rails の規約、gem、packwerk の public path、Concern、ライブラリの名前空間。
 - 共通: Dockerfile・Procfile・Makefile・compose・CI ワークフロー・`mise.toml`・シェルスクリプトが実行するファイルやモジュール（`node dist/server.js`・`python -m pkg.tool`・`uvicorn app.main:app`）、文字列中のパスやドット区切りモジュール名（`new URL('./worker.ts', ...)`・`"app.tasks.send"`・`importlib.import_module(f"app.plugins.{name}")`・`` import(`./locales/${l}`) ``）、あらゆる言語の文字列中のソースファイル名（JS をバンドルする Go プログラムの `"render.js"`）。
 - ヘッダで生成コードと宣言しているファイルは報告しません。
 
@@ -577,7 +584,7 @@ depgraph が持つ名前の一覧は使わず、何も実行しません:
 | Go | import 元モジュールの `go.mod`（または `go.work`）が require / replace しているモジュール | 先頭要素にドットを含まないパス（go コマンドの標準ライブラリの規則） |
 | TypeScript / JavaScript | `node_modules` に解決されたもの。未インストールなら、そのファイルか上位の `package.json` が宣言しているもの | esbuild が組み込みに解決した Node の組み込みモジュール（`punycode` は組み込み、`punycode/` はインストール済みパッケージ） |
 | Python | `languages.python` が指すバージョンの標準ライブラリに無いもの。判定にはプロジェクトの型チェッカーが持つ typeshed を使う（外部の import は標準ライブラリかインストール済みのパッケージのどちらか） | そのバージョンの標準ライブラリにあるもの |
-| Ruby | `Gemfile` が求める gem（バンドルの `Gemfile.lock` の `DEPENDENCIES`：`rails`、`sidekiq`、`sidekiq/api`）の名前に一致する `require` や定数（トップレベルの名前で判定：`ActiveRecord::Base` の `ActiveRecord`）。アプリケーションが自ら依存すると決めたもの | それ以外は不明。他の gem の依存としてだけロックされた gem（`rails` 配下の `activerecord`、`json`・`net-http` のような default gem も）は `external-unclassified` に一覧を出すので、検査するなら `ext:` パターンに名前を書く。名前では確かめられないが gem のものらしい定数（`actionpack` の `ActionController`、`aws-sdk-s3` の `Aws`）も一覧に出し、Ruby 自身のものらしい定数（`Hash`・`IO`）は出さない（見分けるには Ruby のバージョンごとの一覧が要るため） |
+| Ruby | `Gemfile` が求める gem（バンドルの `Gemfile.lock` の `DEPENDENCIES`）の名前に一致する `require` や定数（トップレベルの名前で判定：`ActiveRecord::Base` の `ActiveRecord`） | それ以外は不明。`ext:` パターンに書く価値のある gem と定数は `external-unclassified` が一覧にする（[詳細](docs/languages/ja/ruby.md#サードパーティの判定レイヤーの-ext)） |
 
 import ごとに判定結果と根拠を記録します（`depgraph parse` で見られます）。サードパーティならワイルドカードにマッチするのに判定できなかった
 import は、違反としては報告せず、黙って捨てることもしません。`external-unclassified`（info）が言語ごとに根拠つきで一覧にします。

@@ -16,6 +16,11 @@
   ],
   "imports": null,
   "usage": {
-    "scope": "."
+    "scope": ".",
+    "declRefs": [
+      {
+        "name": "format"
+      }
+    ]
   }
 }

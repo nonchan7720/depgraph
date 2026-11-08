@@ -44,6 +44,17 @@
         "target": "src/ui/Button.tsx",
         "name": "Button"
       }
+    ],
+    "declRefs": [
+      {
+        "name": "C"
+      },
+      {
+        "name": "D",
+        "refs": [
+          "C"
+        ]
+      }
     ]
   }
 }

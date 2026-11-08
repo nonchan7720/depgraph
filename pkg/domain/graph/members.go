@@ -122,3 +122,27 @@ func DecodeConstruct(s string) (Construct, bool) {
 	}
 	return Construct{Owner: f[0], Line: line, Target: f[2], Type: f[3]}, true
 }
+
+// DeclRef is a top-level declaration of a TypeScript / Python file with the
+// other top-level names of the same file it refers to: how the parts of a
+// module hold together (low-cohesion).
+type DeclRef struct {
+	Name string   `json:"name"`
+	Refs []string `json:"refs,omitempty"`
+}
+
+// Encode returns d as one string.
+func (d DeclRef) Encode() string { return d.Name + usesSep + strings.Join(d.Refs, ",") }
+
+// DecodeDeclRef is the inverse of DeclRef.Encode.
+func DecodeDeclRef(s string) (DeclRef, bool) {
+	name, refs, ok := strings.Cut(s, usesSep)
+	if !ok || name == "" {
+		return DeclRef{}, false
+	}
+	d := DeclRef{Name: name}
+	if refs != "" {
+		d.Refs = strings.Split(refs, ",")
+	}
+	return d, true
+}

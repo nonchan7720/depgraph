@@ -130,3 +130,20 @@ func TestFindClonesSmallRemainderIsNotACopy(t *testing.T) {
 		}
 	}
 }
+
+// Copies with the same file and name (String of two types, Go's _ funcs)
+// are listed by line, whatever order they come in: the message must not
+// change between runs.
+func TestFindClonesSameNameInAFileIsStable(t *testing.T) {
+	opt := CloneOptions{MinTokens: 50, MinSimilarity: 0.8, MaxFingerprintFreq: 5}
+	a := cand("m/file.go", "String", 541, 80, "h", fps(0, 20))
+	b := cand("m/file.go", "String", 535, 80, "h", fps(0, 20))
+	c := cand("m/file.go", "String", 23, 80, "h", fps(0, 20))
+	want := "identical logic in 3 places: m/file.go:23-32 String, m/file.go:535-544 String, m/file.go:541-550 String"
+	for _, order := range [][]CloneCandidate{{a, b, c}, {c, a, b}, {b, c, a}} {
+		got := FindClones(order, opt)
+		if len(got) != 1 || got[0].Message != want {
+			t.Errorf("%v: %+v", order[0].Line, got)
+		}
+	}
+}

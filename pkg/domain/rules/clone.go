@@ -142,7 +142,12 @@ func FindClones(cands []CloneCandidate, opt CloneOptions) []Finding {
 		if len(g) < 2 {
 			continue
 		}
-		sort.Slice(g, func(a, b int) bool { return cs[g[a]].ref() < cs[g[b]].ref() })
+		sort.Slice(g, func(a, b int) bool { // by line within a name: String of two types
+			if ra, rb := cs[g[a]].ref(), cs[g[b]].ref(); ra != rb {
+				return ra < rb
+			}
+			return cs[g[a]].Line < cs[g[b]].Line
+		})
 		identical := true
 		low := 1.0
 		for _, i := range g[1:] {

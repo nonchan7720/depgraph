@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.1.9](https://github.com/nonchan7720/depgraph/compare/v0.1.8...v0.1.9) (2026-11-08)
+
+
+### Features
+
+* **cmd:** depgraph init writes languages settings from the files that pin each part's version ([#55](https://github.com/nonchan7720/depgraph/issues/55)) ([8ca3595](https://github.com/nonchan7720/depgraph/commit/8ca3595a857edd83ad63b12d875ab0450e2dcf5a))
+* **rules:** classify Python imports from the version the project names ([#54](https://github.com/nonchan7720/depgraph/issues/54)) ([9890d84](https://github.com/nonchan7720/depgraph/commit/9890d849b4c97c88da02633d31ee182bfeb381f1))
+* **rules:** classify Ruby requires and constants from the bundle's Gemfile.lock ([#58](https://github.com/nonchan7720/depgraph/issues/58)) ([1bfc5f3](https://github.com/nonchan7720/depgraph/commit/1bfc5f391a8a478b428186c948e6ddbe75ab0850))
+* **rules:** forbid frameworks in layers with external package patterns ([#51](https://github.com/nonchan7720/depgraph/issues/51)) ([210ae93](https://github.com/nonchan7720/depgraph/commit/210ae93ed10835d87b81c1145204f1463357a927))
+* **rules:** report held implementations and types leaking through a layer's API ([#56](https://github.com/nonchan7720/depgraph/issues/56)) ([7e23367](https://github.com/nonchan7720/depgraph/commit/7e233672df2a074b9c061b515e0bc1df6005459b))
+* **rules:** report packages and modules whose parts nothing connects and different code uses ([#57](https://github.com/nonchan7720/depgraph/issues/57)) ([8c97dc0](https://github.com/nonchan7720/depgraph/commit/8c97dc0266486643e77bca7232678bc2d3b40492))
+
+
+### Bug Fixes
+
+* **resolver:** read project files safely (no FIFOs, devices or pseudo files) ([#52](https://github.com/nonchan7720/depgraph/issues/52)) ([80284d3](https://github.com/nonchan7720/depgraph/commit/80284d3abb173eb51067f91e3803a28e41b1ac4c))
+* **resolver:** resolve Go and Python imports through symlinked directories to the real package ([#61](https://github.com/nonchan7720/depgraph/issues/61)) ([a67377e](https://github.com/nonchan7720/depgraph/commit/a67377ed63148bdd1bbfda48afc9945a210b008f))
+* **rules:** list same-named copies in a file by line so duplicate-code is stable ([#60](https://github.com/nonchan7720/depgraph/issues/60)) ([6cf123d](https://github.com/nonchan7720/depgraph/commit/6cf123d9b6ea7a5d045859e44beb92628c65e81a))
+
 ## [0.1.8](https://github.com/nonchan7720/depgraph/compare/v0.1.7...v0.1.8) (2026-11-07)
 
 

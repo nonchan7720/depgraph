@@ -472,6 +472,8 @@ external, so it never shows up as a dependency. `watch` rescans when one of thes
 | `import-cycle` | error | import cycle between packages: for every import on a cycle of at most 8 packages, the shortest cycle through it (up to 50) |
 | `module-cycle` | error | import cycle between the modules of a monorepo (Go modules, npm workspace packages, Python projects, Ruby applications / gems / engines / packwerk packs: directories with `go.mod`, `package.json`, `pyproject.toml`, `setup.py`, `setup.cfg`, `Gemfile`, `*.gemspec` or `package.yml`, plus [components](#monorepos-components)) through directories that do not form a cycle themselves (`packages/web/src/a -> packages/kit/src -> packages/web/src/b`). One import is listed per hop; a cycle `import-cycle` already reports is not repeated |
 | `layer-violation` | error | a package imports a layer it must not import (`handler → repository`, ... or your own layers). Layers may name external packages, so a domain that imports a framework is one too (see [Frameworks](#frameworks-external-packages-in-layers)) |
+| `concrete-dependency` | warn | a struct / class holds (field, constructor parameter) or builds an implementation of a layer it may use only through interfaces (`abstract:`), although that implementation satisfies an interface declared in the holder's package, its own package or the inner layer (see [Inside the layers](#inside-the-layers-dependency-inversion-and-leaking-types)) |
+| `type-leak` | warn | the API of a layer (parameters and results of exported functions / methods, exported fields) exposes a struct or class of a layer it may use only through interfaces (`abstract:`) |
 | `duplicate-code` | warn | the same logic in several places, whatever the names: identical, or a copy changed a little (see below) |
 | `god-package` | warn | a hub: imported by 10 or more packages and importing 3 or more in-repo packages. A package many depend on that depends on nothing in the repository (a domain model) is stable, not a god package (Stable Dependencies Principle) |
 | `duplicate-symbol` | warn | an exported function/class with the same name exists in several files (the files of one Go package count once: they can only share a name through build constraints; Ruby is left out, reopening a class is how Ruby extends it) |
@@ -592,6 +594,9 @@ forbidden:                  # layer -> layers it must not import
   services: [interfaces]
   infrastructure: [interfaces, services]
 
+abstract:                   # layer -> layers it may use only through interfaces
+  services: [infrastructure]
+
 rules:                      # per rule: enabled, severity (error | warn | info), options
   import-cycle: {severity: error}
   layer-violation: {severity: error}
@@ -620,8 +625,8 @@ store:                      # how Neo4j is provided (see Neo4j); flags and env t
   `Test*` every name starting with `Test` (a prefix), `*Handler` every name ending in `Handler`.
 - A package may be in several layers. An import is a violation only when it crosses the pair:
   it is not reported when both packages are in the forbidden layer, or both in the importing one.
-- `layers` replaces the default layers, and with them the default forbidden pairs; `forbidden`
-  alone refers to the default layers.
+- `layers` replaces the default layers, and with them the default forbidden and abstract pairs;
+  `forbidden` or `abstract` alone refers to the default layers.
 - `ignore` excludes packages from the findings (cycles through them, fan-in from them, ...);
   unlike `.depgraphignore` they are still scanned and shown in the UI.
 - Decoding is strict: an unknown key, rule, option, severity or a `forbidden` entry naming an
@@ -631,7 +636,8 @@ Without `.depgraph.yml` the defaults are the layers `controller`, `db`, `domain`
 `infra`, `repository` and `usecase`, each matching a path segment of that name (plus
 `controllers`, `handlers`, `infrastructure`, `repositories`, `usecases`), with the forbidden
 pairs `handler → repository / infra / db`, `controller → repository / db`,
-`domain → infra / handler / repository` and `usecase → handler`.
+`domain → infra / handler / repository` and `usecase → handler`, and the abstract pairs
+`usecase → infra / db`.
 This repository's own [`.depgraph.yml`](.depgraph.yml) is an example.
 
 ### Frameworks: external packages in layers
@@ -709,6 +715,48 @@ components:
   keeps the rest of `.depgraph.yml` and the settings already there, warns about a version file that is a
   symlink out of the repository (a checkout without its target cannot classify) and about a missing
   typeshed copy. `--dry-run` prints the result.
+
+### Inside the layers: dependency inversion and leaking types
+
+The direction of imports is the Dependency Rule, but a use case may import the package of its
+repository (it declares the port there, or uses its types) and still hold the PostgreSQL implementation
+instead of the port, or return the ORM row from its API. `abstract:` names, per layer, the layers it may
+use only through interfaces; the import itself stays allowed:
+
+```yaml
+abstract:
+  usecase: [infra, db]          # the default, over the default layers
+```
+
+depgraph reads the members of every type and function (Go, TypeScript, Python): the types of fields,
+constructor parameters (Go `New*`, `constructor`, `__init__`), parameters and results, and where a type of
+another package is built (`&infra.T{}`, `new T()`, `T()`).
+
+- **concrete-dependency**: a struct / class of `usecase` holds or builds an implementation of `infra`
+  (a struct or class with behaviour: not an interface, an abstract class, a Protocol / ABC, a dataclass /
+  pydantic model / Enum, or a struct whose only methods are `String`, `MarshalJSON`, `Scan`, ...), **and**
+  that implementation satisfies an interface declared in the holder's package, the implementation's
+  package or the inner layer: a Go struct with every method of the interface, a TypeScript / Python class
+  that says it implements / extends it. Without such an interface nothing is reported: that the code
+  should have one is a design call, not a fact. Collections, test files and the composition root (a
+  layer not in the pair: `cmd/`, `main`) are left out.
+
+  ```text
+  internal/usecase depends on the concrete type internal/infra.PostgresOrders
+  (internal/usecase/order.go:13 OrderUsecase.repo, and 1 more) although it implements
+  internal/usecase.OrderRepository: hold the interface (usecase must depend on infra through an interface)
+  ```
+- **type-leak**: the API of `usecase` (parameters and results of exported functions and methods,
+  exported fields holding data) names a struct or class of `infra`, so callers of the use case depend on
+  the infrastructure's types. Interfaces are fine; constructor parameters and held implementations are
+  concrete-dependency's.
+
+A component takes `abstract` like `forbidden`, within its directory.
+
+**Upgrading**: both rules are on by default (warn), and so are the abstract pairs `usecase → infra / db`
+when `.depgraph.yml` has no `layers:` (none, or only `forbidden:`). A project that matches the default
+layers gets new findings in the report, `CLAUDE.md` and the hooks after it upgrades. To keep the earlier
+behaviour, write `abstract: {}` or turn the rules off (`rules: {concrete-dependency: {enabled: false}}`).
 
 ### Monorepos (`components`)
 

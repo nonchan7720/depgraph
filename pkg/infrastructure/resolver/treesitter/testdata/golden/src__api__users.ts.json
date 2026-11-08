@@ -11,7 +11,10 @@
       "line": 14,
       "endLine": 18,
       "nameLine": 14,
-      "col": 13
+      "col": 13,
+      "methods": [
+        "list"
+      ]
     },
     {
       "name": "Base",
@@ -20,7 +23,8 @@
       "line": 19,
       "endLine": 19,
       "nameLine": 19,
-      "col": 22
+      "col": 22,
+      "abstract": true
     },
     {
       "name": "Row",

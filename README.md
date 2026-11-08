@@ -5,7 +5,14 @@ English | [日本語](README_ja.md)
 A tool that loads the dependency graph of AI-written code into Neo4j, visualizes it, checks architectural rules and writes the results back into `CLAUDE.md`.
 During vibe coding it updates the graph every time a file is rewritten and immediately detects "a new import cycle", "a layer violation" or "a duplicated function", feeding that back into the next prompt.
 
-Supported languages (tree-sitter): Go / TypeScript / JavaScript / Python / Ruby (Rails, engines, packwerk packs)
+Supported languages (tree-sitter), each with a page on what depgraph reads in it and what its rules mean there:
+
+| language | |
+|---|---|
+| Go | [docs/languages/go.md](docs/languages/go.md) |
+| TypeScript / JavaScript | [docs/languages/typescript.md](docs/languages/typescript.md) |
+| Python | [docs/languages/python.md](docs/languages/python.md) |
+| Ruby (Rails, engines, packwerk packs) | [docs/languages/ruby.md](docs/languages/ruby.md) |
 
 ## Install
 
@@ -455,12 +462,12 @@ correct; the unused-code rules join them across the project when they run.
 
 Imports are resolved the way each ecosystem resolves them, from the project's own configuration:
 
-| language | how |
-|---|---|
-| TypeScript / JavaScript | esbuild's resolver: `tsconfig.json` / `jsconfig.json` (`paths`, `baseUrl`, `extends`), `package.json` (`exports`, `imports`, workspaces), `node_modules`, ESM `./x.js` written for `x.ts`. Workspace packages (`workspaces` of `package.json`, `pnpm-workspace.yaml`) resolve to their directory even before an install (a fresh clone, CI, the gate's worktrees); an installed package of the same name wins |
-| Go | `go.mod` / `go.work` (nested modules, `use`, `replace`) |
-| Python | the import system over the repository's package roots (the repo root, `src/`, `pyproject.toml` / `setup.cfg` package dirs); a directory without `__init__.py` is a namespace package and does not shadow the standard library |
-| Ruby | `require_relative` relative to the file; `require` over the load path the repository implies (`lib/`, `spec/`, `test/` of the file's project, `lib/` of every gem of the repository). Rails code names other files by constant, not by `require`, so constants are dependencies too, resolved the way Zeitwerk loads them: every directory under `app/` (but `assets`, `javascript`, `views`) and its `concerns/`, and `lib/`, of the application, its engines and its packwerk packs (a directory with `app/` and a `Gemfile`, `*.gemspec` or `package.yml`, or whose `app/` has Rails' layout such as a Discourse plugin); `Admin::UsersController` is `admin/users_controller.rb` under one of them, looked up in the lexical nesting it is written in (`Admin::UsersController::User`, `Admin::User`, `User`). A constant Ruby or a gem defines is no dependency |
+| language | how | details |
+|---|---|---|
+| TypeScript / JavaScript | esbuild's resolver: `tsconfig.json` / `jsconfig.json`, `package.json` (`exports`, `imports`, workspaces, also before an install), `node_modules` | [TypeScript / JavaScript](docs/languages/typescript.md#import-resolution) |
+| Go | `go.mod` / `go.work` (nested modules, `use`, `replace`) | [Go](docs/languages/go.md#import-resolution) |
+| Python | the import system over the repository's package roots (the repo root, `src/`, `pyproject.toml` / `setup.cfg` package dirs) | [Python](docs/languages/python.md#import-resolution) |
+| Ruby | `require` / `require_relative` over the load path the repository implies, and constants the way Zeitwerk loads them (applications, engines, packwerk packs) | [Ruby](docs/languages/ruby.md#import-resolution) |
 
 A relative path, an alias or a module of the project that points at nothing is unresolved, not
 external, so it never shows up as a dependency. `watch` rescans when one of these configuration files changes.
@@ -490,62 +497,15 @@ name, never an export nothing imports. A finding that is not true is a bug, so a
 point (reachable, its exports used from outside, never reported) whenever there is a sign that
 something outside the import graph loads it:
 
-- Go: `main` packages, `_test.go` files; a module without a `main` package is a library, and its
-  packages outside `internal/` are its public API. Exported methods are never reported (an interface
-  may need them), nor is a package that only holds documentation. Files a `//go:embed` embeds are used.
-- TS/JS: `package.json` `main` / `module` / `browser` / `types` / `bin` / `exports` and the files its
-  `scripts` run (`dist/` paths are mapped back to their sources with `tsconfig.json`), `<script src>`
-  of HTML pages and the scripts page templates name, config files (`*.config.*`, `.*rc.*`), tests,
-  stories, type tests, `testdata/`, `.d.ts`, `scripts/` `bin/` `tools/` `docs/` `public/` `static/`,
-  `examples/` and benchmarks, `index` / `main` / `server` / `app` / `cli` at the package root or
-  `src/`, file-system routes (`app/`, `pages/`, `routes/` of Next.js, Remix, Gatsby, Expo Router,
-  ...), Docusaurus theme components, React Email templates, files MDX files import. An import of a
-  package the project does not declare (a bundler or site-generator alias such as `@site/...`) is
-  matched against the project's paths instead of being dropped. A package that uses Vue, Svelte,
-  Astro, Qwik, Marko, Ember or auto-imports is skipped: its component files are not parsed.
-  shadcn/ui's copied component kit is vendored code and not reported.
-  In a monorepo, a `private` workspace package another package of the repository depends on is never
-  published, so only the repository uses it: its `main` / `exports` / `types` and `index` files stay
-  entry points for reachability, but their exports are reported when no other package uses them
-  (`bin` and `scripts` files are still run from outside). Published packages and private apps nothing
-  depends on keep their entries' exports.
-- Python: `__main__.py`, a `__main__` guard, `conftest.py`, `test_*.py`, `tests/`, migrations,
-  `setup.py` / `manage.py` / `wsgi.py` / `asgi.py`, the targets of `pyproject.toml` / `setup.cfg`
-  scripts and entry points, and in a Django project its autodiscovered modules (`models`, `admin`,
-  `apps`, `urls`, `views`, `wagtail_hooks`, ...). `__init__.py` is never unreachable. Names in
-  `__all__` and decorated definitions (routes, fixtures, tasks) are kept.
-- Ruby: a constant is used where it is named (`User`, `Admin::Role`, a superclass, `include` /
-  `extend` of a concern, `"Admin::User"` / `class_name:` strings and symbols, `%w[CsvImporter]`,
-  `delegated_type types:`, `"Importers::#{kind}".constantize` uses everything under `Importers`), by
-  associations (`has_many :comments` uses `Comment`, singularized with ActiveSupport's rules; a name
-  derived from a symbol also matches an acronym class such as `APIKey`), by
-  `validates :email, email: true` (`EmailValidator`) and by the constants the code and attributes of
-  ERB / Haml / Slim views name (`.jbuilder`, `.builder` and `.ruby` files under `views/` are Ruby), by
-  the constants `config/` YAML (`validator: "ColorListValidator"`) and extensionless Ruby scripts
-  (`#!/usr/bin/env ruby`) name, `"#{module_parent_name}::#{kind}".constantize` (every constant of the
-  enclosing namespace) and `has_one :"#{name}_search_data"` (every constant ending with `SearchData`);
-  a glob of Ruby files (`Dir["lib/patches/*.rb"]`) uses every file under its directory; `require` makes a file reachable, and
-  Zeitwerk loads the file of a namespace (`admin.rb`, even `module Vacuum; end`) for its constants.
-  What Rails loads by convention is an entry point: `app/controllers`, `jobs`, `mailers`, `channels`,
-  `helpers`, `mailboxes`, `views` (also `.jbuilder`, `.rss.ruby`), `workers`, and the classes tools
-  infer from a model's name (`policies`, `serializers`, `decorators`, `dashboards`, `inputs`, `admin`);
-  `config/`, `db/`, `bin/`, `script/`, `lib/tasks`, `lib/generators`, `Rakefile`, `config.ru`, `*.rake`,
-  `sorbet/`, dot-directories (`.skills/`), `bundler/inline` scripts, Discourse plugins (`plugin.rb`, and
-  their `assets/javascripts` for the Ember resolver), the application's abstract `ApplicationRecord`, tests (`spec/`, `test/`, `*_spec.rb`, `*_test.rb`), scripts (`#!`, `if __FILE__ == $0`),
-  dotfiles (`.active_record_doctor.rb`) and the files RuboCop / Standard / haml-lint configurations
-  `require`. Concerns are not entry points, wherever they live: one nothing includes is reported. A
-  gem's `lib/` is its public API. A packwerk pack's public path (`public_path` of `package.yml`,
-  `app/public/` by default) is reachable, but packs are used by the application only, so a class of
-  it nothing uses is still reported. A class or module that reopens a library's namespace (`Paperclip`,
-  `Chewy`, `ActiveRecord`, `String`, ... : Ruby, Rails and the gems of `Gemfile` / `Gemfile.lock`) is
-  loaded by that library by name and never reported, nor are STI subclasses in `models/` (loaded from
-  the `type` column), subclasses of `Rails::Railtie` / `Rails::Engine` / generators, classes that
-  register or prepend `self`, a concern's `ClassMethods`, and modules that only hold other classes (namespaces).
-  The JavaScript of a Rails application starts where its asset tool says: `app/assets/` (Sprockets),
-  the files directly in `app/javascript/` (jsbundling, importmap), `config/importmap.rb` pins and
-  `pin_all_from`, Vite Ruby (`config/vite.json`, else `app/javascript/entrypoints`,
-  `app/frontend/entrypoints`) and Shakapacker / Webpacker (`source_path` / `source_entry_path`, else
-  `app/javascript/packs`).
+- Per language, what is an entry point, what counts as a use, what is reported and what is kept on
+  purpose:
+  - [Go](docs/languages/go.md#unused-code): `main` packages, tests, the public packages of a library module.
+  - [TypeScript / JavaScript](docs/languages/typescript.md#unused-code): `package.json` entries and scripts,
+    HTML pages, config files, tests, file-system routes, private workspace packages.
+  - [Python](docs/languages/python.md#unused-code): `__main__`, tests, scripts and entry points of
+    `pyproject.toml` / `setup.cfg`, Django's autodiscovered modules, `__all__`.
+  - [Ruby](docs/languages/ruby.md#unused-code): constants as uses (also in associations, views and names built at run time), Rails
+    conventions, gems, packwerk public paths, concerns, library namespaces.
 - Everywhere: files and modules that Dockerfiles, Procfiles, Makefiles, compose files, CI workflows,
   `mise.toml` and shell scripts run (`node dist/server.js`, `python -m pkg.tool`,
   `uvicorn app.main:app`), and paths or dotted module names in strings (`new URL('./worker.ts', ...)`,
@@ -669,7 +629,7 @@ files and the resolution, never by a list of names shipped with depgraph, and no
 | Go | a module the importing module's `go.mod` (or its `go.work`) requires or replaces | a path whose first element has no dot (the go command's rule for the standard library) |
 | TypeScript / JavaScript | resolved into `node_modules`, or declared in a `package.json` of the file or above it when not installed | a Node built-in, as esbuild resolves it (`punycode` is the built-in, `punycode/` the installed package) |
 | Python | not the standard library of the version `languages.python` names, by the typeshed copy of the project's type checker (an external import is the standard library or an installed package) | in that version's standard library |
-| Ruby | a `require` or a constant (by its top-level name: `ActiveRecord` of `ActiveRecord::Base`) whose name is a gem the `Gemfile` asks for (`DEPENDENCIES` of the bundle's `Gemfile.lock`: `rails`, `sidekiq`, `sidekiq/api`): what the application chose to depend on | anything else is unknown. A gem locked only as another gem's dependency (`activerecord` under `rails`, but also default gems such as `json` and `net-http`) is listed by `external-unclassified`: name it in an `ext:` pattern to check it. A constant that is probably a gem's but not by its name (`ActionController` of `actionpack`, `Aws` of `aws-sdk-s3`) is listed too; one that is likely Ruby's own (`Hash`, `IO`) is not, since telling them apart would take a list of Ruby's per version |
+| Ruby | a `require` or a constant (by its top-level name: `ActiveRecord` of `ActiveRecord::Base`) whose name is a gem the `Gemfile` asks for (`DEPENDENCIES` of the bundle's `Gemfile.lock`) | anything else is unknown; `external-unclassified` lists the gems and constants worth naming in an `ext:` pattern ([details](docs/languages/ruby.md#third-party-packages-ext-in-layers)) |
 
 Each import records its class and why (`depgraph parse` shows them). An import a wildcard would match
 if it were third-party but that could not be classified is not reported as a violation, and not dropped

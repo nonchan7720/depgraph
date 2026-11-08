@@ -635,23 +635,35 @@ func (u *usageCollector) rbConstImports(bySpec map[string]imports.Result) []grap
 		own[s.Name] = true
 	}
 	seen := map[string]bool{}
+	ext := map[string]bool{}
 	var out []graph.Import
 	for _, ref := range u.rbRefs {
-		for _, c := range ref.candidates() {
+		cands := ref.candidates()
+		found := false
+		for _, c := range cands {
 			if own[c] {
+				found = true
 				break
 			}
 			res, ok := bySpec["::"+c]
 			if !ok || res.Kind != imports.InRepo {
 				continue
 			}
+			found = true
 			if res.File != u.rel && !seen[ref.written+"\x00"+res.Target] {
 				seen[ref.written+"\x00"+res.Target] = true
 				out = append(out, graph.Import{Spec: ref.written, Target: res.Target})
 			}
 			break
 		}
+		if !found && len(cands) > 0 {
+			top, _, _ := strings.Cut(strings.TrimPrefix(ref.written, "::"), "::")
+			if top != "" && !own[top] {
+				ext[top] = true
+			}
+		}
 	}
+	u.rbExtConsts = sortedSet(ext)
 	return out
 }
 

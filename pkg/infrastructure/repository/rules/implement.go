@@ -174,7 +174,7 @@ func (r *Repository) externalUnclassified(ctx context.Context, cfg rules.Config,
 	rows, err := r.query(ctx, `
 		UNWIND $pairs AS pr
 		MATCH (a:Package {project: $project})-[:CONTAINS]->(f:File)-[e:IMPORTS]->(b:Package)
-		WHERE a.external = false AND b.external = true AND e.class IS NULL AND f.language <> 'python'
+		WHERE a.external = false AND b.external = true AND e.class IS NULL AND NOT f.language IN ['python', 'ruby']
 		  AND NOT any(rx IN pr.exceptRx WHERE a.key =~ rx)
 		  AND NOT any(rx IN $ignore WHERE a.key =~ rx OR b.key =~ rx)
 		  AND `+inRepoLayer("a", "pr.fromSet")+` AND NOT `+inRepoLayer("a", "pr.toSet")+`
@@ -199,8 +199,8 @@ func (r *Repository) externalUnclassified(ctx context.Context, cfg rules.Config,
 	if err != nil {
 		return nil, err
 	}
-	if items := py.unclassified(lp); len(items) > 0 {
-		byLang[string(graph.Python)] = append(byLang[string(graph.Python)], items...)
+	for lang, items := range py.unclassified(lp) {
+		byLang[string(lang)] = append(byLang[string(lang)], items...)
 	}
 	langs := slices.Sorted(maps.Keys(byLang))
 	out := make([]rules.Finding, 0, len(langs))
@@ -312,6 +312,11 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 			if py, err = r.pythonImports(ctx, cfg, ignore); err != nil {
 				return nil, err
 			}
+			rb, err := r.rubyImports(ctx, ignore)
+			if err != nil {
+				return nil, err
+			}
+			py.add(rb)
 		}
 		return py, nil
 	}
@@ -343,7 +348,7 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 				UNWIND $pairs AS pr
 				WITH pr WHERE pr.toExternal
 				MATCH (a:Package {project: $project})-[:CONTAINS]->(f:File)-[e:IMPORTS]->(b:Package)
-				WHERE a.external = false AND b.external = true AND f.language <> 'python'
+				WHERE a.external = false AND b.external = true AND NOT f.language IN ['python', 'ruby']
 				  AND NOT any(rx IN pr.exceptRx WHERE a.key =~ rx)
 				  AND NOT any(rx IN $ignore WHERE a.key =~ rx OR b.key =~ rx)
 				  AND `+inRepoLayer("a", "pr.fromSet")+` AND NOT `+inRepoLayer("a", "pr.toSet")+`

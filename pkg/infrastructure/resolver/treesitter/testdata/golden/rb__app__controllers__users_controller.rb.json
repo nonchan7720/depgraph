@@ -64,6 +64,9 @@
       {
         "target": "rb/lib/exporter.rb"
       }
+    ],
+    "extConstants": [
+      "ApplicationController"
     ]
   }
 }

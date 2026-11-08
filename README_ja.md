@@ -577,7 +577,7 @@ depgraph が持つ名前の一覧は使わず、何も実行しません:
 | Go | import 元モジュールの `go.mod`（または `go.work`）が require / replace しているモジュール | 先頭要素にドットを含まないパス（go コマンドの標準ライブラリの規則） |
 | TypeScript / JavaScript | `node_modules` に解決されたもの。未インストールなら、そのファイルか上位の `package.json` が宣言しているもの | esbuild が組み込みに解決した Node の組み込みモジュール（`punycode` は組み込み、`punycode/` はインストール済みパッケージ） |
 | Python | `languages.python` が指すバージョンの標準ライブラリに無いもの。判定にはプロジェクトの型チェッカーが持つ typeshed を使う（外部の import は標準ライブラリかインストール済みのパッケージのどちらか） | そのバージョンの標準ライブラリにあるもの |
-| Ruby | まだ判定しない | |
+| Ruby | `Gemfile` が求める gem（バンドルの `Gemfile.lock` の `DEPENDENCIES`：`rails`、`sidekiq`、`sidekiq/api`）の名前に一致する `require` や定数（トップレベルの名前で判定：`ActiveRecord::Base` の `ActiveRecord`）。アプリケーションが自ら依存すると決めたもの | それ以外は不明。他の gem の依存としてだけロックされた gem（`rails` 配下の `activerecord`、`json`・`net-http` のような default gem も）は `external-unclassified` に一覧を出すので、検査するなら `ext:` パターンに名前を書く。名前では確かめられないが gem のものらしい定数（`actionpack` の `ActionController`、`aws-sdk-s3` の `Aws`）も一覧に出し、Ruby 自身のものらしい定数（`Hash`・`IO`）は出さない（見分けるには Ruby のバージョンごとの一覧が要るため） |
 
 import ごとに判定結果と根拠を記録します（`depgraph parse` で見られます）。サードパーティならワイルドカードにマッチするのに判定できなかった
 import は、違反としては報告せず、黙って捨てることもしません。`external-unclassified`（info）が言語ごとに根拠つきで一覧にします。
@@ -650,7 +650,9 @@ depgraph はすべての型と関数のメンバーを読みます（Go・TypeSc
   名指ししていて、ユースケースの呼び出し側がインフラの型に依存してしまう状態を報告します。インターフェースは問題ありません。
   コンストラクタ引数と保持している実装は concrete-dependency の対象です。
 
-コンポーネントでも `forbidden` と同じく、ディレクトリ内で `abstract` を書けます。
+コンポーネントでも `forbidden` と同じく、ディレクトリ内で `abstract` を書けます。Ruby には読める型が無く、インターフェースも
+ダックタイピングだけなので、どちらのルールも Ruby には適用しません（`low-cohesion` も同様。部分がメソッドになり、動的ディスパッチで
+呼ばれるため）。depgraph は推測しません。
 
 **アップグレード時の注意**: この 2 つのルールはデフォルトで有効（warn）で、`.depgraph.yml` に `layers:` がない場合（設定なし、または `forbidden:` だけ）は abstract ペア `usecase → infra / db` も有効です。デフォルトのレイヤーに当てはまるプロジェクトでは、アップグレード後にレポート・`CLAUDE.md`・フックに新しい指摘が出ます。以前の動作のままにするには `abstract: {}` を書くか、ルールを無効にします（`rules: {concrete-dependency: {enabled: false}}`）。`low-cohesion` も info として有効です（`--fail-on warn` では失敗しません）。
 

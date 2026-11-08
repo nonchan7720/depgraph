@@ -500,3 +500,30 @@ func TestRubyConfigPathsStayInRoot(t *testing.T) {
 		}
 	}
 }
+
+// Constants the repository does not declare are recorded by their
+// top-level name: Rails code uses its frameworks through constants, not
+// requires.
+func TestRubyExternalConstants(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "Gemfile", "source 'https://rubygems.org'\n")
+	writeFile(t, root, "app/models/user.rb", "class User < ApplicationRecord\nend\n")
+	writeFile(t, root, "app/models/application_record.rb", "class ApplicationRecord < ActiveRecord::Base\n  self.abstract_class = true\nend\n")
+	writeFile(t, root, "app/services/sync.rb", `class Sync
+  def call
+    User.find(1)
+    Sidekiq::Client.push({})
+    ::Aws::S3::Client.new
+    JSON.parse("{}")
+    Sync
+  end
+end
+`)
+	fg := resolve(t, root, "app/services/sync.rb")
+	if fg.Usage == nil || !slices.Equal(fg.Usage.ExtConstants, []string{"Aws", "JSON", "Sidekiq"}) {
+		t.Errorf("external constants = %v", fg.Usage.ExtConstants)
+	}
+	if got := resolve(t, root, "app/models/application_record.rb").Usage.ExtConstants; !slices.Equal(got, []string{"ActiveRecord"}) {
+		t.Errorf("superclass: %v", got)
+	}
+}

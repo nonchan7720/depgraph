@@ -64,6 +64,23 @@ type Result struct {
 	File string
 	// Reason explains an Unresolved result.
 	Reason string
+	// Class says what an External package is, from the project's own files
+	// and the resolution only (nothing is executed, no version lists):
+	// ClassThirdParty, ClassStandard or "" when that is not known.
+	Class string
+	// Basis says why (what declared or resolved it).
+	Basis string
+}
+
+// Classes of external packages (graph.Import.Class).
+const (
+	ClassThirdParty = graph.ClassThirdParty
+	ClassStandard   = graph.ClassStandard
+)
+
+func (r Result) classed(class, basis string) Result {
+	r.Class, r.Basis = class, basis
+	return r
 }
 
 func inRepoFile(rel string) Result {

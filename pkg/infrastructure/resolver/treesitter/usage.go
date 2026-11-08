@@ -166,6 +166,18 @@ func (r *Resolver) finishUsage(ctx context.Context, root string, fg *graph.FileG
 		}
 	}
 	m := r.manifests(ctx, root)
+	if fg.Language == graph.TypeScript || fg.Language == graph.JavaScript {
+		// a package that is not installed is third-party when a package.json
+		// of the file declares it
+		for i := range fg.Imports {
+			im := &fg.Imports[i]
+			if im.External && im.Class == "" {
+				if by := m.declaredBy(fg.Path, strings.TrimPrefix(im.Target, imports.ExternalPrefix)); by != "" {
+					im.Class, im.Basis = graph.ClassThirdParty, "declared in "+by
+				}
+			}
+		}
+	}
 	us := append([]graph.Use(nil), u.direct...)
 	for _, p := range u.pending {
 		res, ok := bySpec[p.spec]

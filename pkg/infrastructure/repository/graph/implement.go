@@ -155,6 +155,7 @@ func (r *Graph) UpsertFile(ctx context.Context, fg *graph.FileGraph) error {
 		}
 		imports = append(imports, map[string]any{
 			"spec": im.Spec, "target": im.Target, "external": im.External,
+			"class": nonEmpty(im.Class), "basis": nonEmpty(im.Basis),
 		})
 	}
 
@@ -209,7 +210,7 @@ func (r *Graph) UpsertFile(ctx context.Context, fg *graph.FileGraph) error {
 				MERGE (q:Package {project: $project, key: i.target})
 				  ON CREATE SET q.name = i.target, q.external = i.external
 				MERGE (f)-[r:IMPORTS]->(q)
-				  SET r.spec = i.spec
+				  SET r.spec = i.spec, r.class = i.class, r.basis = i.basis
 			`, r.params(map[string]any{"path": fg.Path, "imports": imports})); err != nil {
 				return nil, err
 			}

@@ -25,7 +25,7 @@
               },
               "type": "array"
             },
-            "description": "Layer name -\u003e package path globs relative to the component's directory. Replaces the default layers and their forbidden pairs.",
+            "description": "Layer name -\u003e package patterns: path globs (path segments; ** any number of segments); ext:\u003cname\u003e for an external package and what is under it (ext:gorm.io/gorm, ext:net/http: the standard library too); ext:\u003cpattern\u003e with * / ? for third-party packages (ext:* is every one, never the standard library); !\u003cpattern\u003e leaves packages out (\"!ext:github.com/google/uuid\"). Package globs are relative to the component's directory. Replaces the default layers and their forbidden pairs.",
             "type": "object"
           }
         },
@@ -58,7 +58,7 @@
         },
         "type": "array"
       },
-      "description": "Layer name -\u003e package path globs (path segments; ** any number of segments). Replaces the default layers and their forbidden pairs.",
+      "description": "Layer name -\u003e package patterns: path globs (path segments; ** any number of segments); ext:\u003cname\u003e for an external package and what is under it (ext:gorm.io/gorm, ext:net/http: the standard library too); ext:\u003cpattern\u003e with * / ? for third-party packages (ext:* is every one, never the standard library); !\u003cpattern\u003e leaves packages out (\"!ext:github.com/google/uuid\"). Replaces the default layers and their forbidden pairs.",
       "type": "object"
     },
     "project": {
@@ -122,6 +122,27 @@
             },
             "severity": {
               "default": "warn",
+              "description": "Severity of the rule's findings.",
+              "enum": [
+                "error",
+                "warn",
+                "info"
+              ]
+            }
+          },
+          "type": "object"
+        },
+        "external-unclassified": {
+          "additionalProperties": false,
+          "description": "external imports an ext:* layer pattern could not classify (third-party or not), listed instead of dropped",
+          "properties": {
+            "enabled": {
+              "default": true,
+              "description": "false turns the rule off.",
+              "type": "boolean"
+            },
+            "severity": {
+              "default": "info",
               "description": "Severity of the rule's findings.",
               "enum": [
                 "error",

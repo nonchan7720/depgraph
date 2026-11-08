@@ -20,6 +20,9 @@ func stringList(desc string) jsonObj {
 	return o
 }
 
+// layersDesc describes the patterns of a layer (rules.LayerSet).
+const layersDesc = "Layer name -> package patterns: path globs (path segments; ** any number of segments); ext:<name> for an external package and what is under it (ext:gorm.io/gorm, ext:net/http: the standard library too); ext:<pattern> with * / ? for third-party packages (ext:* is every one, never the standard library); !<pattern> leaves packages out (\"!ext:github.com/google/uuid\")."
+
 // unusedOptionDesc are the options shared by the unused-code rules.
 var unusedOptionDesc = map[string]string{
 	"ignore":  "Path globs (files and Go package directories) never reported, e.g. a library's public API. Shared by unused-export, unreachable-file and unreachable-package.",
@@ -86,7 +89,7 @@ func Schema() []byte {
 		"properties": jsonObj{
 			"project": jsonObj{"type": "string", "minLength": 1,
 				"description": "Project key in the database (default: the directory name of the root; @<worktree> is added in a linked git worktree)."},
-			"layers":    globMap("Layer name -> package path globs (path segments; ** any number of segments). Replaces the default layers and their forbidden pairs."),
+			"layers":    globMap(layersDesc + " Replaces the default layers and their forbidden pairs."),
 			"forbidden": globMap("Layer -> layers it must not import. Names must be defined in layers (or be default layers)."),
 			"rules": jsonObj{"type": "object", "additionalProperties": false,
 				"description": "Per rule: enabled, severity and the rule's options.", "properties": rs},
@@ -95,7 +98,7 @@ func Schema() []byte {
 				"description": "Parts of a monorepo with layers of their own: directory (relative to this file) or a pattern over directories (packages/*: one component per directory, * and ? but no **) -> its layers and forbidden pairs, with package globs relative to that directory. The default layers are not applied inside a component; layers declared at the root apply everywhere. A directory's own .depgraph.yml does the same.",
 				"additionalProperties": jsonObj{"type": "object", "additionalProperties": false,
 					"properties": jsonObj{
-						"layers":    globMap("Layer name -> package path globs relative to the component's directory. Replaces the default layers and their forbidden pairs."),
+						"layers":    globMap(layersDesc + " Package globs are relative to the component's directory. Replaces the default layers and their forbidden pairs."),
 						"forbidden": globMap("Layer -> layers it must not import, within one component directory. Names must be defined in layers (or be default layers)."),
 					}}},
 			"store": jsonObj{"type": "object", "additionalProperties": false,

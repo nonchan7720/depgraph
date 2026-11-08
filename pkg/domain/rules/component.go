@@ -25,18 +25,41 @@ type Component struct {
 	DefaultLayers bool
 }
 
-// LayerPair is one forbidden pair, compiled for the store: a package matched
-// by FromRx must not import one matched by ToRx, unless the import does not
-// cross the pair or either end is matched by ExceptRx.
+// LayerPair is one pair of layers, compiled: a package of From and one of
+// To, unless the import between them does not cross the pair (the importer
+// is in To as well, or the imported package in From) or either end is
+// matched by ExceptRx.
 type LayerPair struct {
 	// Component is the directory of the component the pair belongs to
 	// ("" for the root's layers).
-	Component    string
-	From, To     string
-	FromRx, ToRx []string
-	// ExceptRx: packages outside these layers, the components with layers
-	// of their own when these layers are the built-in defaults.
+	Component string
+	From, To  string
+	FromSet   LayerSet
+	ToSet     LayerSet
+	// ExceptRx: in-repo packages outside these layers, the components with
+	// layers of their own when these layers are the built-in defaults.
 	ExceptRx []string
+}
+
+// Reports reports whether the pair applies to a dependency of from (an
+// in-repo package) on to. The store evaluates the same (rules/implement.go).
+func (p LayerPair) Reports(from, to PackageRef) bool {
+	if from.External || anyRx(p.ExceptRx, from.Key) || (!to.External && anyRx(p.ExceptRx, to.Key)) {
+		return false
+	}
+	return p.FromSet.Contains(from) && p.ToSet.Contains(to) && !p.ToSet.Contains(from) && !p.FromSet.Contains(to)
+}
+
+// Params is p as a map for a store query.
+func (p LayerPair) Params() map[string]any {
+	except := p.ExceptRx
+	if except == nil {
+		except = []string{}
+	}
+	return map[string]any{
+		"component": p.Component, "from": p.From, "to": p.To,
+		"fromSet": p.FromSet.Params(), "toSet": p.ToSet.Params(), "exceptRx": except,
+	}
 }
 
 // PrefixGlob makes glob, relative to directory dir, relative to the root.
@@ -111,8 +134,8 @@ func (c Config) ExpandComponents(keys []string) Config {
 // directory is a pattern are skipped: expand them first (ExpandComponents).
 func (c Config) LayerPairs() ([]LayerPair, error) {
 	var out []LayerPair
-	add := func(scope string, layers []Layer, forbidden [][2]string, defaults bool) error {
-		if len(forbidden) == 0 {
+	add := func(scope string, layers []Layer, pairs [][2]string, defaults bool) error {
+		if len(pairs) == 0 {
 			return nil
 		}
 		if scope != "" {
@@ -120,12 +143,12 @@ func (c Config) LayerPairs() ([]LayerPair, error) {
 			for i, l := range layers {
 				scoped[i] = Layer{Name: l.Name, Packages: make([]string, len(l.Packages))}
 				for j, p := range l.Packages {
-					scoped[i].Packages[j] = PrefixGlob(scope, p)
+					scoped[i].Packages[j] = scopeLayerPattern(scope, p)
 				}
 			}
 			layers = scoped
 		}
-		globs, err := (Config{Layers: layers}).LayerGlobs()
+		sets, err := (Config{Layers: layers}).layerSets()
 		if err != nil {
 			return err
 		}
@@ -142,10 +165,10 @@ func (c Config) LayerPairs() ([]LayerPair, error) {
 				except = append(except, g.Regex())
 			}
 		}
-		for _, p := range forbidden {
+		for _, p := range pairs {
 			out = append(out, LayerPair{
 				Component: scope, From: p[0], To: p[1],
-				FromRx: Regexes(globs[p[0]]), ToRx: Regexes(globs[p[1]]), ExceptRx: except,
+				FromSet: sets[p[0]], ToSet: sets[p[1]], ExceptRx: except,
 			})
 		}
 		return nil
@@ -166,13 +189,13 @@ func (c Config) LayerPairs() ([]LayerPair, error) {
 
 // validateLayers checks layers and the forbidden pairs over them.
 func validateLayers(layers []Layer, forbidden [][2]string) error {
-	globs, err := (Config{Layers: layers}).LayerGlobs()
+	sets, err := (Config{Layers: layers}).layerSets()
 	if err != nil {
 		return err
 	}
 	for _, p := range forbidden {
 		for _, l := range p {
-			if _, ok := globs[l]; !ok {
+			if _, ok := sets[l]; !ok {
 				return fmt.Errorf("forbidden %s -> %s: unknown layer %q (defined: %s)", p[0], p[1], l, layerNames(layers))
 			}
 		}

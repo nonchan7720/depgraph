@@ -592,6 +592,19 @@ var htmlScriptNameRe = regexp.MustCompile(`["']([\w@./-]+\.(?:js|jsx|mjs|cjs|ts|
 // undeclared reports whether pkg, imported by rel, is a package no
 // package.json at or above rel declares (known: some package.json is there).
 // Such an import is an alias the resolver does not know, not a dependency.
+// declaredBy is the package.json, of the file's directory or one above
+// it, that declares pkg ("" when none does).
+func (m *manifests) declaredBy(rel, pkg string) string {
+	for d := path.Dir(rel); ; d = path.Dir(d) {
+		if m.deps[d][pkg] {
+			return path.Join(d, "package.json")
+		}
+		if d == "." || d == "/" || d == "" {
+			return ""
+		}
+	}
+}
+
 func (m *manifests) undeclared(rel, pkg string) bool {
 	known := false
 	for d := path.Dir(rel); ; d = path.Dir(d) {

@@ -193,6 +193,7 @@ depgraph projects prune [--dry-run]  # delete projects whose root no longer exis
 | `check --root DIR [--fail-on warn]` | evaluate rules against the graph already in Neo4j (updates CLAUDE.md) |
 | `serve --root DIR [--addr 127.0.0.1:7777]` | browser UI over the graph already in Neo4j (no watching, CLAUDE.md untouched) |
 | `mcp --root DIR` | stdio MCP server that shows the browser UI as an [MCP App](#mcp-app) (reads the graph already in Neo4j, CLAUDE.md untouched) |
+| `init --root DIR [--dry-run]` | add a `languages` setting to `.depgraph.yml` for every directory with Python files whose files pin its Python version (asks on a terminal where they disagree; see [Frameworks](#frameworks-external-packages-in-layers)) |
 | `parse --root DIR [files...]` | print the tree-sitter result as JSON, one file per line, without Neo4j (debugging) |
 | `hook <session-start\|prompt>` | Claude Code hook: print findings as additional context (read-only, always exits 0) |
 | `gate [files...] [--fail-on warn]` | quality-gate check ([claude-hook-gate](#quality-gate-claude-hook-gate)): apply the changed files, exit 1 on findings the session added |
@@ -702,6 +703,12 @@ components:
   root (several copies must agree on a module), or the directory `stdlib:` names. depgraph keeps no list
   of its own.
 - Imports are classified when the rules are evaluated, so a change of the setting needs no rescan.
+- `depgraph init` writes these settings: for every directory with Python files and a file that pins
+  its version, it names that file (the files of one directory that agree: `.python-version` first, a
+  Dockerfile last). Where they disagree it asks on a terminal and otherwise leaves the directory out; it
+  keeps the rest of `.depgraph.yml` and the settings already there, warns about a version file that is a
+  symlink out of the repository (a checkout without its target cannot classify) and about a missing
+  typeshed copy. `--dry-run` prints the result.
 
 ### Monorepos (`components`)
 

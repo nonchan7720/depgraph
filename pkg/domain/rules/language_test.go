@@ -14,6 +14,7 @@ func TestLanguageSettingFor(t *testing.T) {
 		{Dir: ".", Lang: "python", VersionFile: ".python-version"},
 		{Dir: "lib/foo", Lang: "python", VersionFile: ".python-version"},
 		{Dir: "packages/*", Lang: "python", Version: "3.10"},
+		{Dir: "packages/b", Lang: "python", Version: "3.11"}, // named exactly: wins over the pattern
 	}
 	if err := c.Validate(); err != nil {
 		t.Fatal(err)
@@ -29,6 +30,12 @@ func TestLanguageSettingFor(t *testing.T) {
 		if !ok || s.Dir != tc.dir {
 			t.Errorf("%s: %+v %v, want dir %s", tc.file, s, ok, tc.dir)
 		}
+	}
+	if s, _ := c.LanguageSettingFor("python", "packages/b/x.py"); s.Version != "3.11" {
+		t.Errorf("packages/b: %+v, want the exact directory's setting", s)
+	}
+	if s, _ := c.LanguageSettingFor("python", "packages/c/x.py"); s.Version != "3.10" || s.Dir != "packages/c" {
+		t.Errorf("packages/c: %+v, want the pattern's", s)
 	}
 	if _, ok := c.LanguageSettingFor("ruby", "app/x.rb"); ok {
 		t.Error("ruby has no setting")

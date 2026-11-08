@@ -28,6 +28,9 @@ type LanguageSetting struct {
 	// relative to Dir; empty: the copies of the type checkers installed
 	// in node_modules are looked up.
 	Stdlib string
+	// pattern is the Dir as configured when Dir is the match of a pattern
+	// (LanguageSettingFor).
+	pattern string
 }
 
 // SupportedLanguages are the languages a setting may name.
@@ -114,8 +117,11 @@ func (c Config) LanguageSettingFor(lang, file string) (LanguageSetting, bool) {
 		if !ok {
 			continue
 		}
-		if d := depth(dir); d > bestDepth {
+		// deeper wins; at the same depth a directory named exactly wins
+		// over a pattern matching it
+		if d := depth(dir); d > bestDepth || (d == bestDepth && isPattern(best.pattern) && !isPattern(s.Dir)) {
 			best, bestDepth = s, d
+			best.pattern = s.Dir
 			best.Dir = dir
 		}
 	}

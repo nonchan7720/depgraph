@@ -120,11 +120,11 @@ func pyModule(root, cand string) (Result, bool) {
 		return Result{}, false
 	}
 	if isDirAt(root, cand) {
-		return inRepoDir(cand), true
+		return inRepoDir(realRel(realRoot(root), cand)), true
 	}
 	for _, e := range []string{".py", ".pyi"} {
 		if isFileAt(root, cand+e) {
-			return inRepoFile(cand + e), true
+			return inRepoFile(realRel(realRoot(root), cand+e)), true
 		}
 	}
 	return Result{}, false

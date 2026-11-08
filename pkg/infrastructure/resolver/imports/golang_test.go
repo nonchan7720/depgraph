@@ -1,6 +1,10 @@
 package imports
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestGoRegression(t *testing.T) {
 	root := tree(t, map[string]string{
@@ -125,4 +129,26 @@ func TestGoInvalidate(t *testing.T) {
 	writeFiles(t, root, map[string]string{"lib/go.mod": "module example.com/lib\n"})
 	r.Invalidate(root)
 	runCases(t, r, root, []resolveCase{{"after", "main.go", "example.com/lib", inRepo("lib")}})
+}
+
+// A package directory reached through a symlink inside the repository is
+// the package of its real directory: the scan reads its files there, so
+// mapping the import to the link left the real package unreached.
+func TestGoSymlinkedPackageDir(t *testing.T) {
+	root := tree(t, map[string]string{
+		"go.mod":             "module example.com/app\n",
+		"main.go":            "package main\n",
+		"internal/real/b.go": "package b\n",
+	})
+	if err := os.Symlink("real", filepath.Join(root, "internal", "b")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("internal/real", filepath.Join(root, "linked")); err != nil {
+		t.Fatal(err)
+	}
+	runCases(t, NewGo(), root, []resolveCase{
+		{"symlinked package", "main.go", "example.com/app/internal/b", inRepo("internal/real")},
+		{"under a symlinked dir", "main.go", "example.com/app/linked", inRepo("internal/real")},
+		{"real dir", "main.go", "example.com/app/internal/real", inRepo("internal/real")},
+	})
 }

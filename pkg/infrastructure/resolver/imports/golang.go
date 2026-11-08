@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/nonchan7720/depgraph/pkg/internal/rootcache"
+	"github.com/nonchan7720/depgraph/pkg/internal/safefile"
 
 	"golang.org/x/mod/modfile"
 )
@@ -200,7 +201,7 @@ func (r *goRoot) add(m *goModule, public bool) {
 }
 
 func (r *goRoot) addWork(root, rel string) {
-	b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+	b, err := safefile.ReadManifest(root, rel)
 	if err != nil {
 		return
 	}
@@ -239,7 +240,7 @@ func (r *goRoot) addReplaceTargets(root string, reps map[string]string) {
 // readGoMod reads <dir>/go.mod (dir repo-relative).
 func readGoMod(root, dir string) *goModule {
 	name := path.Join(dir, "go.mod")
-	b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(name)))
+	b, err := safefile.ReadManifest(root, name)
 	if err != nil {
 		return nil
 	}

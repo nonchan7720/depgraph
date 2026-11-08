@@ -14,7 +14,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -23,6 +22,7 @@ import (
 	"sync/atomic"
 
 	"github.com/nonchan7720/depgraph/pkg/domain/graph"
+	"github.com/nonchan7720/depgraph/pkg/internal/safefile"
 )
 
 // ServerCommand returns the default language-server command for a language.
@@ -368,7 +368,7 @@ func LanguageID(rel string, lang graph.Language) string {
 
 // DidOpen tells the server that rel is open, sending its current on-disk text.
 func (c *Client) DidOpen(rel string, lang graph.Language) error {
-	text, err := os.ReadFile(filepath.Join(c.root, filepath.FromSlash(rel)))
+	text, err := safefile.ReadSource(c.root, rel)
 	if err != nil {
 		return err
 	}

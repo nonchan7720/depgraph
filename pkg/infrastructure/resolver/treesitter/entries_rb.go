@@ -2,7 +2,6 @@ package treesitter
 
 import (
 	"encoding/json"
-	"io"
 	"os"
 	"path"
 	"path/filepath"
@@ -12,6 +11,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/nonchan7720/depgraph/pkg/infrastructure/resolver/imports"
+	"github.com/nonchan7720/depgraph/pkg/internal/safefile"
 )
 
 // Ruby entry points. Rails loads much of an application by convention, not
@@ -53,7 +53,7 @@ var rbTestDirs = map[string]bool{"spec": true, "test": true, "features": true}
 // packPublicPath is the public path of the packwerk pack whose package.yml is rel.
 func packPublicPath(root, rel string) string {
 	pub := "app/public"
-	if b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel))); err == nil {
+	if b, err := safefile.ReadManifest(root, rel); err == nil {
 		var y struct {
 			PublicPath string `yaml:"public_path"`
 		}
@@ -183,7 +183,7 @@ var (
 // hyphenated name (twitter-text -> Twitter) as a guess.
 // Gems of the repository itself (path:) are not libraries.
 func (m *manifests) loadGemNames(root, rel string) {
-	b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+	b, err := safefile.ReadManifest(root, rel)
 	if err != nil {
 		return
 	}
@@ -313,7 +313,7 @@ var yamlListPathRe = regexp.MustCompile(`(?m)^\s*(?:-|[\w-]+:)\s*["']?(\.{1,2}/[
 // loadRubyRequires: the files a tool configuration requires
 // ("require: [./lib/linter/cop.rb]", relative to the configuration file).
 func (m *manifests) loadRubyRequires(root, rel string) {
-	b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+	b, err := safefile.ReadManifest(root, rel)
 	if err != nil {
 		return
 	}
@@ -366,7 +366,7 @@ func (m *manifests) loadRailsJS(root, dir string) {
 			}
 		}
 	}
-	if b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(at("config/importmap.rb")))); err == nil {
+	if b, err := safefile.ReadManifest(root, at("config/importmap.rb")); err == nil {
 		for _, sm := range importmapPinRe.FindAllStringSubmatch(string(b), -1) {
 			file := sm[1]
 			if to := importmapToRe.FindStringSubmatch(sm[2]); to != nil {
@@ -383,7 +383,7 @@ func (m *manifests) loadRailsJS(root, dir string) {
 			prefix(sm[1], "pinned by config/importmap.rb")
 		}
 	}
-	if b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(at("config/vite.json")))); err == nil {
+	if b, err := safefile.ReadManifest(root, at("config/vite.json")); err == nil {
 		var cfg map[string]struct {
 			SourceCodeDir  string `json:"sourceCodeDir"`
 			EntrypointsDir string `json:"entrypointsDir"`
@@ -408,7 +408,7 @@ func (m *manifests) loadRailsJS(root, dir string) {
 	}
 	packer := false
 	for _, f := range []string{"config/shakapacker.yml", "config/webpacker.yml"} {
-		b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(at(f))))
+		b, err := safefile.ReadManifest(root, at(f))
 		if err != nil {
 			continue
 		}
@@ -487,7 +487,7 @@ func rbConfigYAML(rel string) bool {
 var yamlConstRe = regexp.MustCompile(`(?m)(?:^\s*-|:)\s*["']?((?:::)?[A-Z][A-Za-z0-9]*(?:::[A-Z][A-Za-z0-9]*)*)["']?\s*$`)
 
 func (m *manifests) loadConfigConstants(root, rel string) {
-	b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+	b, err := safefile.ReadManifest(root, rel)
 	if err != nil || len(b) > 4<<20 {
 		return
 	}
@@ -503,21 +503,11 @@ var rubyShebangRe = regexp.MustCompile(`^#!\S*(?:/env\s+(?:-S\s+)?)?\S*\bruby\b`
 // loadRubyScript: an extensionless Ruby script (bin/setup, a #!/usr/bin/env
 // ruby tool) is not parsed, but the constants its code names are used.
 func (m *manifests) loadRubyScript(root, rel string) {
-	f, err := os.Open(filepath.Join(root, filepath.FromSlash(rel)))
-	if err != nil {
-		return
+	// any extensionless file: a FIFO or a device must not block the scan
+	b, _, err := safefile.Read(root, rel, 1<<20+128)
+	if err != nil || !rubyShebangRe.Match(b[:min(len(b), 128)]) {
+		return // only files that start like a Ruby script
 	}
-	defer func() { _ = f.Close() }()
-	head := make([]byte, 128)
-	n, _ := io.ReadFull(f, head)
-	if !rubyShebangRe.Match(head[:n]) {
-		return // only the first line is read of files that are not Ruby
-	}
-	rest, err := io.ReadAll(io.LimitReader(f, 1<<20))
-	if err != nil {
-		return
-	}
-	b := append(head[:n], rest...)
 	for _, name := range rbCodeConstants(string(b)) {
 		if c := strings.TrimPrefix(name, "::"); m.rbYAML[c] == "" {
 			m.rbYAML[c] = rel

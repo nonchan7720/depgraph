@@ -20,6 +20,7 @@ import (
 
 	"github.com/nonchan7720/depgraph/pkg/domain/rules"
 	"github.com/nonchan7720/depgraph/pkg/infrastructure/resolver"
+	"github.com/nonchan7720/depgraph/pkg/internal/safefile"
 )
 
 // FileName is the settings file, looked up directly under the root.
@@ -93,7 +94,7 @@ type ruleYAML struct {
 // monorepo's packages, see loadNested). A missing file is the defaults.
 func Load(root string) (File, error) {
 	p := filepath.Join(root, FileName)
-	b, err := os.ReadFile(p)
+	b, err := safefile.ReadManifest(root, FileName)
 	var f File
 	switch {
 	case errors.Is(err, os.ErrNotExist):
@@ -242,7 +243,7 @@ func loadNested(root string, f *File) error {
 	c := &f.Rules
 	for _, dir := range dirs {
 		p := filepath.Join(root, filepath.FromSlash(dir), FileName)
-		b, err := os.ReadFile(p)
+		b, err := safefile.ReadManifest(root, path.Join(dir, FileName))
 		if err != nil {
 			return err
 		}

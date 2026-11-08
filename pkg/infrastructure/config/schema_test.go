@@ -137,7 +137,7 @@ func TestSchemaUsesKnownKeywords(t *testing.T) {
 		"$schema": true, "$id": true, "title": true, "description": true, "type": true,
 		"properties": true, "additionalProperties": true, "items": true, "enum": true,
 		"minimum": true, "maximum": true, "exclusiveMinimum": true, "default": true,
-		"examples": true, "uniqueItems": true, "minLength": true,
+		"examples": true, "uniqueItems": true, "minLength": true, "pattern": true, "oneOf": true, "required": true,
 	}
 	var walk func(v any, path string, inProps bool)
 	walk = func(v any, path string, inProps bool) {

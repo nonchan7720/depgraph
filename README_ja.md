@@ -568,10 +568,44 @@ depgraph が持つ名前の一覧は使わず、何も実行しません:
 |---|---|---|
 | Go | import 元モジュールの `go.mod`（または `go.work`）が require / replace しているモジュール | 先頭要素にドットを含まないパス（go コマンドの標準ライブラリの規則） |
 | TypeScript / JavaScript | `node_modules` に解決されたもの。未インストールなら、そのファイルか上位の `package.json` が宣言しているもの | esbuild が組み込みに解決した Node の組み込みモジュール（`punycode` は組み込み、`punycode/` はインストール済みパッケージ） |
-| Python、Ruby | まだ判定しない | |
+| Python | `languages.python` が指すバージョンの標準ライブラリに無いもの。判定にはプロジェクトの型チェッカーが持つ typeshed を使う（外部の import は標準ライブラリかインストール済みのパッケージのどちらか） | そのバージョンの標準ライブラリにあるもの |
+| Ruby | まだ判定しない | |
 
 import ごとに判定結果と根拠を記録します（`depgraph parse` で見られます）。サードパーティならワイルドカードにマッチするのに判定できなかった
 import は、違反としては報告せず、黙って捨てることもしません。`external-unclassified`（info）が言語ごとに根拠つきで一覧にします。
+
+**Python：`languages`。** 標準ライブラリは Python のバージョンで変わり、リポジトリはバージョンを複数の場所
+（`.python-version`、`mise.toml`、Dockerfile など）で、必ずしも同じでなく指定しています。depgraph はどれかを選びません。
+バージョンを固定しているファイルを、そのファイルのディレクトリからの相対パスで指定するか（推奨）、バージョンそのものを書きます。
+部分ごとにバージョンが違うモノレポ（アプリは 3.12、利用者のために 3.9 に据え置くライブラリ、など）は、コンポーネントごと、
+またはその部分の `.depgraph.yml` に書きます。ファイルには、そのファイルを含む最も深いディレクトリの設定が適用されます。
+
+```yaml
+languages:
+  python: {versionFile: .python-version}       # ルート
+components:
+  lib/foo:
+    languages:
+      python: {versionFile: .python-version}   # lib/foo/.python-version
+  "services/*":                                # 各サービス自身のファイル
+    languages:
+      python: {versionFile: Dockerfile}
+```
+
+- バージョンファイル：`.python-version`、`.tool-versions`、`mise.toml`（`.mise.toml`、`.config/mise.toml`、`mise.local.toml`）、
+  `pyproject.toml`（`[tool.pyright] pythonVersion`、`[tool.mypy] python_version`。`requires-python` は範囲なので使わない）、
+  `pyrightconfig.json`、`mypy.ini` / `setup.cfg`、`FROM python:<バージョン>...` が 1 つだけの Dockerfile。
+  厳密なバージョンだけを受け付けます。`latest`、`system`、`3`、範囲、複数のバージョン、マルチステージの Dockerfile、`ARG` は
+  推測せずエラーにします。
+- ファイルはシンボリックリンクでもかまいません（dotfiles の管理など。リポジトリ外を指してもよい）。FIFO・デバイス・疑似ファイルには
+  たどらず、64 KiB まで読み、厳密に解釈し、表示するのは相対パスだけです（中身は決して表示しません）。
+- ファイルとその設定の間にあるディレクトリが別のバージョンを固定している場合（ルートの設定の下の `lib/foo/.python-version` など）や、
+  python を指定する `mise.<env>.toml` がある場合、そのファイルの import は理由つきで「判定できない」になります。
+  depgraph に選ばせず、その部分の `languages.python` を書いてください。
+- そのバージョンの標準ライブラリは、プロジェクト自身の型チェッカーが持つ typeshed の `stdlib/VERSIONS` から読みます。
+  設定のディレクトリからルートまでの `node_modules/pyright` または `node_modules/basedpyright`（複数あればモジュールごとに一致が必要）、
+  または `stdlib:` で指定したディレクトリです。depgraph 自身は一覧を持ちません。
+- import は評価のときに判定するので、設定を変えても再スキャンは要りません。
 
 ### モノレポ（`components`）
 

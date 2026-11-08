@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"math/rand/v2"
+	"os"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -150,7 +152,11 @@ func TestLayerViolationsMatchTheDomain(t *testing.T) {
 						im.Class = graph.ClassThirdParty
 					}
 					fg.Imports = append(fg.Imports, im)
-					to.ThirdParty, to.Python = im.Class == graph.ClassThirdParty, lang == graph.Python
+					// a Python import is classified when the rules are
+					// evaluated, not from the edge: without a languages:
+					// setting it is unknown (only exact patterns apply)
+					to.Python = lang == graph.Python
+					to.ThirdParty = im.Class == graph.ClassThirdParty && !to.Python
 					want = appendReported(want, pairs, rules.PackageRef{Key: from}, to)
 				}
 			}
@@ -289,5 +295,83 @@ func TestEvaluateExternalUnclassified(t *testing.T) {
 	c.Layers[1].Packages = []string{"ext:sqlalchemy"} // no wildcard: nothing to classify
 	if fs, err := New(st, key).Evaluate(ctx, c); err != nil || len(byRule(fs, rules.RuleExternalUnclassified)) != 0 {
 		t.Errorf("without a wildcard: %v, %v", byRule(fs, rules.RuleExternalUnclassified), err)
+	}
+}
+
+func writeTree(t *testing.T, root string, files map[string]string) {
+	t.Helper()
+	for rel, content := range files {
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// Python imports are classified when the project is evaluated, from the
+// version its languages: setting names and the typeshed copy of its type
+// checker: what is not the standard library of that version is
+// third-party. A file without a setting, or under a directory that pins
+// another version, is not classified, and is listed instead.
+func TestEvaluatePythonExternalLayers(t *testing.T) {
+	ctx, st := connect(t)
+	root := t.TempDir()
+	writeTree(t, root, map[string]string{
+		".python-version": "3.12.4\n",
+		"node_modules/pyright/dist/typeshed-fallback/stdlib/VERSIONS": "os: 3.0-\ntomllib: 3.11-\n",
+		"lib/legacy/.python-version":                                  "3.9\n",
+	})
+	pyimp := func(name string) graph.Import { return graph.Import{Spec: name, Target: "ext:" + name, External: true} }
+	key := fmt.Sprintf("zz_test_%d_pylayers", time.Now().UnixNano())
+	upsertAll(ctx, t, st, key, []*graph.FileGraph{
+		{Path: "app/domain/a.py", Package: "app/domain", Language: graph.Python,
+			Imports: []graph.Import{pyimp("yaml"), pyimp("os.path"), pyimp("tomllib"), pyimp("sqlalchemy.orm")}},
+		{Path: "lib/legacy/domain/b.py", Package: "lib/legacy/domain", Language: graph.Python, Imports: []graph.Import{pyimp("requests")}},
+		{Path: "tools/domain/c.py", Package: "tools/domain", Language: graph.Python, Imports: []graph.Import{pyimp("click")}},
+	})
+	c := rules.DefaultConfig()
+	c.DefaultLayers = false
+	c.Layers = []rules.Layer{
+		{Name: "domain", Packages: []string{"**/domain/**"}},
+		{Name: "frameworks", Packages: []string{"ext:*"}},
+		{Name: "orm", Packages: []string{"ext:sqlalchemy"}},
+	}
+	c.ForbiddenLayers = [][2]string{{"domain", "frameworks"}, {"domain", "orm"}}
+	c.Languages = []rules.LanguageSetting{
+		{Dir: "app", Lang: "python", VersionFile: "../.python-version"},
+		{Dir: "lib", Lang: "python", VersionFile: "../.python-version"},
+	}
+	fs, err := New(st, key).WithRoot(root).Evaluate(ctx, c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := messages(byRule(fs, rules.RuleLayerViolation))
+	want := []string{
+		"app/domain -> ext:sqlalchemy.orm (domain must not import frameworks)",
+		"app/domain -> ext:sqlalchemy.orm (domain must not import orm)",
+		"app/domain -> ext:yaml (domain must not import frameworks)",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("layer violations = %q, want %q", got, want)
+	}
+	un := byRule(fs, rules.RuleExternalUnclassified)
+	if len(un) != 1 || un[0].ID != "python" {
+		t.Fatalf("unclassified = %+v", un)
+	}
+	for _, s := range []string{"ext:requests (lib/legacy/.python-version pins 3.9", "ext:click (no languages.python setting"} {
+		if !strings.Contains(un[0].Message, s) {
+			t.Errorf("unclassified %q lacks %q", un[0].Message, s)
+		}
+	}
+	// without the project's files nothing is classified
+	fs, err = New(st, key).Evaluate(ctx, c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := messages(byRule(fs, rules.RuleLayerViolation)); slices.Contains(got, "app/domain -> ext:yaml (domain must not import frameworks)") {
+		t.Errorf("classified without the files: %q", got)
 	}
 }

@@ -84,7 +84,7 @@ func assembleApp(st *graphrepo.Store, o *options, settings config.File, p projec
 	r := treesitter.New()
 	svc := analysis.New(analysis.Deps{
 		Repo:     g,
-		Rules:    rulesrepo.New(st, p.Key),
+		Rules:    rulesrepo.New(st, p.Key).WithRoot(root),
 		Resolver: r,
 		Scan:     resolver.ScanRepoWorkers(o.workers),
 		Report:   report,

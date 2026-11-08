@@ -100,7 +100,7 @@ func runHook(parent context.Context, o *options, ev hook.Event, stdin io.Reader,
 			projects: projectrepo.New(st),
 			flagKey:  o.project,
 			scoped: func(key string) (statsReader, rules.Repository) {
-				return graphrepo.ForProject(st, key), rulesrepo.New(st, key)
+				return graphrepo.ForProject(st, key), rulesrepo.New(st, key).WithRoot(root)
 			},
 			config: loadRules,
 			sessions: func(key string) hook.SessionStore {

@@ -23,6 +23,28 @@ func stringList(desc string) jsonObj {
 // layersDesc describes the patterns of a layer (rules.LayerSet).
 const layersDesc = "Layer name -> package patterns: path globs (path segments; ** any number of segments); ext:<name> for an external package and what is under it (ext:gorm.io/gorm, ext:net/http: the standard library too); ext:<pattern> with * / ? for third-party packages (ext:* is every one, never the standard library); !<pattern> leaves packages out (\"!ext:github.com/google/uuid\")."
 
+// languagesSchema is the schema of languages: (rules.LanguageSetting).
+func languagesSchema(where string) jsonObj {
+	setting := jsonObj{"type": "object", "additionalProperties": false,
+		"description": "The version this part of the project runs, to classify its imports (standard library or third-party) for ext: wildcards. Name the file that pins it (recommended) or the version.",
+		"oneOf":       []jsonObj{{"required": []string{"versionFile"}}, {"required": []string{"version"}}},
+		"properties": jsonObj{
+			"versionFile": jsonObj{"type": "string", "minLength": 1,
+				"description": "The file that pins the version, relative to " + where + " (recommended): .python-version, .tool-versions, mise.toml, pyproject.toml ([tool.pyright] pythonVersion / [tool.mypy] python_version), pyrightconfig.json, Dockerfile. It may be a symlink."},
+			"version": jsonObj{"type": "string", "pattern": `^\d+\.\d+(\.\d+)?$`,
+				"description": "The version itself (3.12), when no file pins it."},
+			"stdlib": jsonObj{"type": "string", "minLength": 1,
+				"description": "A typeshed stdlib directory (with its VERSIONS file), relative to " + where + "; default: the copies in node_modules (pyright, basedpyright)."},
+		}}
+	props := jsonObj{}
+	for _, l := range rules.SupportedLanguages {
+		props[l] = setting
+	}
+	return jsonObj{"type": "object", "additionalProperties": false,
+		"description": "Language -> the version it runs in " + where + ". The setting of the deepest directory holding a file applies.",
+		"properties":  props}
+}
+
 // unusedOptionDesc are the options shared by the unused-code rules.
 var unusedOptionDesc = map[string]string{
 	"ignore":  "Path globs (files and Go package directories) never reported, e.g. a library's public API. Shared by unused-export, unreachable-file and unreachable-package.",
@@ -91,6 +113,7 @@ func Schema() []byte {
 				"description": "Project key in the database (default: the directory name of the root; @<worktree> is added in a linked git worktree)."},
 			"layers":    globMap(layersDesc + " Replaces the default layers and their forbidden pairs."),
 			"forbidden": globMap("Layer -> layers it must not import. Names must be defined in layers (or be default layers)."),
+			"languages": languagesSchema("this file's directory"),
 			"rules": jsonObj{"type": "object", "additionalProperties": false,
 				"description": "Per rule: enabled, severity and the rule's options.", "properties": rs},
 			"ignore": stringList("Package globs excluded from every rule (they are still scanned and shown in the UI)."),
@@ -100,6 +123,7 @@ func Schema() []byte {
 					"properties": jsonObj{
 						"layers":    globMap(layersDesc + " Package globs are relative to the component's directory. Replaces the default layers and their forbidden pairs."),
 						"forbidden": globMap("Layer -> layers it must not import, within one component directory. Names must be defined in layers (or be default layers)."),
+						"languages": languagesSchema("the component's directory"),
 					}}},
 			"store": jsonObj{"type": "object", "additionalProperties": false,
 				"description": "How Neo4j is provided. Flags and environment variables take precedence.",

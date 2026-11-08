@@ -48,6 +48,7 @@ type goRoot struct {
 	byDir    map[string]*goModule // every go.mod dir, replace targets included
 	modDirs  map[string]bool      // dirs that are module roots (go.mod or replace target)
 	works    []goWork
+	real     string // root with its symlinks resolved
 }
 
 // Resolve implements Resolver.
@@ -119,6 +120,7 @@ func (r *goRoot) check(root, spec, modPath, modDir string) Result {
 	if err != nil || !st.IsDir() {
 		return unresolvedf("no package directory " + dir + " in module " + modPath)
 	}
+	dir = realRel(r.real, dir)
 	if owner := r.ownerDir(dir); owner != modDir {
 		return unresolvedf(dir + " belongs to the module at " + owner + ", not " + modPath)
 	}
@@ -148,7 +150,7 @@ func (r *goRoot) owner(dir string) *goModule {
 func (g *Go) Invalidate(root string) { g.cache.Drop(root) }
 
 func loadGo(root string) *goRoot {
-	r := &goRoot{byPath: map[string]*goModule{}, byDir: map[string]*goModule{}, modDirs: map[string]bool{}}
+	r := &goRoot{byPath: map[string]*goModule{}, byDir: map[string]*goModule{}, modDirs: map[string]bool{}, real: realRoot(root)}
 	var workFiles []string
 	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {

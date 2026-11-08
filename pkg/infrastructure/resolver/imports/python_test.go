@@ -1,6 +1,10 @@
 package imports
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestPythonRegression(t *testing.T) {
 	root := tree(t, map[string]string{
@@ -172,5 +176,24 @@ func TestPythonStdlibNamedDirectory(t *testing.T) {
 		{"namespace dir named like stdlib", "main.py", "logging", ext("logging")},
 		{"regular package shadows stdlib", "main.py", "json", inRepo("json")},
 		{"namespace package of the repo", "main.py", "app.services", inRepo("app/services")},
+	})
+}
+
+// A package reached through a symlinked directory inside the repository is
+// the module at its real path, where the scan reads it.
+func TestPythonSymlinkedPackageDir(t *testing.T) {
+	root := tree(t, map[string]string{
+		"main.py":              "",
+		"app/__init__.py":      "",
+		"app/real/__init__.py": "",
+		"app/real/m.py":        "",
+	})
+	if err := os.Symlink("real", filepath.Join(root, "app", "linked")); err != nil {
+		t.Fatal(err)
+	}
+	runCases(t, NewPython(), root, []resolveCase{
+		{"module under a symlinked dir", "main.py", "app.linked.m", inRepoFile("app/real/m.py")},
+		{"symlinked package", "main.py", "app.linked", inRepo("app/real")},
+		{"relative through the link", "app/x.py", ".linked.m", inRepoFile("app/real/m.py")},
 	})
 }

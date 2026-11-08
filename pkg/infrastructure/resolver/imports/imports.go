@@ -290,6 +290,23 @@ func toRel(root, abs string) (string, bool) {
 	return rel, true
 }
 
+// realRel is rel (repo-relative) with its symlinks resolved when it is a
+// link, or under one, to a path inside the repository (realRoot: root with
+// its symlinks resolved): the scan reads files at their real path, not
+// through a link to a directory, so a target named through the link would
+// leave the real one unreached. A link out of the repository stays as
+// written.
+func realRel(realRoot, rel string) string {
+	real, err := filepath.EvalSymlinks(filepath.Join(realRoot, filepath.FromSlash(rel)))
+	if err != nil {
+		return rel
+	}
+	if r, ok := toRel(realRoot, real); ok {
+		return r
+	}
+	return rel
+}
+
 // realRoot resolves symlinks of root (t.TempDir on macOS is under /var ->
 // /private/var; esbuild reports real paths).
 func realRoot(root string) string {

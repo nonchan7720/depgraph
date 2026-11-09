@@ -289,7 +289,7 @@ curl -fsSL https://raw.githubusercontent.com/nonchan7720/depgraph/main/plugin/co
 | 部品 | 内容 |
 |---|---|
 | `plugin/codex/hooks.json` | hook 本体: `scripts/hook.sh session-start codex` / `prompt codex`。Claude Code と同じ `depgraph hook` を実行します（Codex も同じ `hookSpecificOutput.additionalContext` を読みます） |
-| `plugin/codex/setup.sh` | 上のコマンド: プラグインを更新し（`--no-update` で省略。`DEPGRAPH_CODEX_BIN` で `codex` を指定）、`${CODEX_HOME:-~/.codex}/plugins/cache/depgraph/depgraph/` から最新のバージョンを探して（`DEPGRAPH_PLUGIN_DIR` で別のプラグインディレクトリを指定）、残りの引数を付けてその `install-hooks.sh` を実行します（`... \| bash -s -- --repo`） |
+| `plugin/codex/setup.sh` | 上のコマンド: プラグインを更新し（`--no-update` で省略。`DEPGRAPH_CODEX_BIN` で `codex` を指定）、`${CODEX_HOME:-~/.codex}/plugins/cache/depgraph/depgraph/` から最新のバージョンを探して（`DEPGRAPH_PLUGIN_DIR` で別のプラグインディレクトリを指定）、残りの引数を付けてその `install-hooks.sh` を実行します（`... \| bash -s -- --repo`）。管理された hook のみのポリシーの下か `--system` 付きでは、代わりに `/etc/codex/hooks.json` に書きます（下記） |
 | `plugin/codex/install-hooks.sh` | このプラグインのバイナリで `depgraph codex install-hooks` を実行: hook を `$CODEX_HOME/hooks.json`（既定）、`<repo>/.codex/hooks.json`（`--repo [--root <dir>]`。Codex が信頼したプロジェクトでだけ動きます）、任意のファイル（`--to <file>`）に写します。`--print` は書かずに出力、`--remove` は取り除きます。ファイル内の他の hook は残り、再実行すると自分の分だけを置き換えます |
 | スキル | `setup` と `fix`。Claude Code と同じです（Codex には `CLAUDE_PLUGIN_ROOT` が無いので、スキルは自分のパスからラッパーを探します） |
 
@@ -302,13 +302,14 @@ curl -fsSL https://raw.githubusercontent.com/nonchan7720/depgraph/main/plugin/co
   実行しているときは両方とも黙り、claude-hook-gate の `session_start`（`.agents/gate.yaml` か
   `.claude/gate.yaml`）が実行しているときはセッション開始の分が黙ります。
 - 管理された hook のみ（管理者の `requirements.toml` に `allow_managed_hooks_only = true`）: Codex は
-  ユーザー・プロジェクト・プラグインの hook を飛ばします。`/etc/codex/hooks.json` の hook は動くので、
-  管理者権限があれば次のようにします:
-
-  ```text
-  sh plugin/codex/install-hooks.sh --print --to /etc/codex/hooks.json > /tmp/depgraph-hooks.json
-  sudo install -m 0644 /tmp/depgraph-hooks.json /etc/codex/hooks.json
-  ```
+  ユーザー・プロジェクト・プラグインの hook を飛ばしますが、システム層の `/etc/codex/hooks.json` の hook は
+  信頼の確認なしで実行します。これも同じ `setup.sh` のコマンドで済みます: `/etc/codex/requirements.toml` に
+  このポリシーがあれば、hook を `/etc/codex/hooks.json` に入れ（マージした内容は自分の権限で作り、置くとき
+  だけ `sudo` を実行します。パスワードを聞かれます）、`~/.codex/hooks.json` の写しは外して 1 つにします。
+  ポリシーが見えない場所（MDM のプロファイル、ChatGPT のワークスペース）から来ているときは `--system` を
+  付けてください（`... | bash -s -- --system`）。`--remove` でシステムのファイルから取り除きます。管理者権限が
+  なければ、管理者に渡すコマンドを表示します。hook は自分の `~/.codex` にあるプラグインを指すので、自分の
+  セッションで動きます。同じマシンの他のユーザーは各自で `setup.sh` を実行してください
 
 - 下記の品質ゲートは、claude-hook-gate の Codex プラグインでも同じように動きます（`.agents/gate.yaml`、
   次に `.claude/gate.yaml` を読みます）。

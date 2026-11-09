@@ -79,7 +79,7 @@ installed, so the findings are never added twice.`,
 			if remove && printOnly && target == "" {
 				return errors.New("--print --remove needs --to or --repo")
 			}
-			if err := codexhooks.Install(codexhooks.Options{Root: pluginRoot, Target: target, Print: printOnly, Remove: remove}, cmd.OutOrStdout()); err != nil {
+			if err := codexhooks.Install(codexhooks.InstallOptions{Root: pluginRoot, Target: target, Print: printOnly, Remove: remove}, cmd.OutOrStdout()); err != nil {
 				return err
 			}
 			if !printOnly {

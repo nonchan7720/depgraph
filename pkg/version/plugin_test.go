@@ -210,7 +210,7 @@ func TestPluginHookScriptCodex(t *testing.T) {
 	copyOf := func(root string) string {
 		t.Helper()
 		var out bytes.Buffer
-		if err := codexhooks.Install(codexhooks.Options{Root: root, Print: true}, &out); err != nil {
+		if err := codexhooks.Install(codexhooks.InstallOptions{Root: root, Print: true}, &out); err != nil {
 			t.Fatal(err)
 		}
 		return out.String()

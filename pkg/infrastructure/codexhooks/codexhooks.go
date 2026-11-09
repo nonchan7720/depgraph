@@ -36,8 +36,8 @@ func IsPluginCommand(command string) bool {
 	return pluginCommand.MatchString(command)
 }
 
-// Options says what Install does.
-type Options struct {
+// InstallOptions says what Install does.
+type InstallOptions struct {
 	Root   string // plugin root (the directory with codex/hooks.json)
 	Target string // hooks.json to write into; may be "" with Print
 	Print  bool   // print the result to the writer instead of writing Target
@@ -46,7 +46,7 @@ type Options struct {
 
 // Install adds (or removes) the plugin's hooks in o.Target, or prints the
 // result to out with o.Print.
-func Install(o Options, out io.Writer) error {
+func Install(o InstallOptions, out io.Writer) error {
 	if o.Target == "" && (!o.Print || o.Remove) {
 		return errors.New("no target hooks.json")
 	}

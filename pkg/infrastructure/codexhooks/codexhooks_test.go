@@ -71,7 +71,7 @@ func commands(f hooksFile, event string) []string {
 func TestInstallIntoNewFile(t *testing.T) {
 	root := pluginRoot(t)
 	target := filepath.Join(t.TempDir(), "codex", "hooks.json")
-	if err := Install(Options{Root: root, Target: target}, nil); err != nil {
+	if err := Install(InstallOptions{Root: root, Target: target}, nil); err != nil {
 		t.Fatal(err)
 	}
 	b, err := os.ReadFile(target)
@@ -116,7 +116,7 @@ func TestInstallMergesAndIsIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	for range 2 {
-		if err := Install(Options{Root: root, Target: target}, nil); err != nil {
+		if err := Install(InstallOptions{Root: root, Target: target}, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -167,10 +167,10 @@ func TestRemove(t *testing.T) {
 	if err := os.WriteFile(target, []byte(existing), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := Install(Options{Root: root, Target: target}, nil); err != nil {
+	if err := Install(InstallOptions{Root: root, Target: target}, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := Install(Options{Root: root, Target: target, Remove: true}, nil); err != nil {
+	if err := Install(InstallOptions{Root: root, Target: target, Remove: true}, nil); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(target)
@@ -180,7 +180,7 @@ func TestRemove(t *testing.T) {
 	}
 	// removing from a file that does not exist writes nothing
 	none := filepath.Join(t.TempDir(), "hooks.json")
-	if err := Install(Options{Root: root, Target: none, Remove: true}, nil); err != nil {
+	if err := Install(InstallOptions{Root: root, Target: none, Remove: true}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(none); !os.IsNotExist(err) {
@@ -193,7 +193,7 @@ func TestRemove(t *testing.T) {
 func TestPrint(t *testing.T) {
 	root := pluginRoot(t)
 	var out bytes.Buffer
-	if err := Install(Options{Root: root, Print: true}, &out); err != nil {
+	if err := Install(InstallOptions{Root: root, Print: true}, &out); err != nil {
 		t.Fatal(err)
 	}
 	if got := commands(decode(t, out.Bytes()), "SessionStart"); len(got) != 1 {
@@ -206,7 +206,7 @@ func TestPrint(t *testing.T) {
 		t.Fatal(err)
 	}
 	out.Reset()
-	if err := Install(Options{Root: root, Target: target, Print: true}, &out); err != nil {
+	if err := Install(InstallOptions{Root: root, Target: target, Print: true}, &out); err != nil {
 		t.Fatal(err)
 	}
 	f := decode(t, out.Bytes())
@@ -216,7 +216,7 @@ func TestPrint(t *testing.T) {
 	if b, _ := os.ReadFile(target); string(b) != existing {
 		t.Errorf("print wrote the target: %s", b)
 	}
-	if err := Install(Options{Root: root, Print: true, Remove: true}, &out); err == nil {
+	if err := Install(InstallOptions{Root: root, Print: true, Remove: true}, &out); err == nil {
 		t.Error("print --remove without a target: want an error")
 	}
 }
@@ -224,13 +224,13 @@ func TestPrint(t *testing.T) {
 func TestErrors(t *testing.T) {
 	root := pluginRoot(t)
 	target := filepath.Join(t.TempDir(), "hooks.json")
-	if err := Install(Options{Root: t.TempDir(), Target: target}, nil); err == nil || !strings.Contains(err.Error(), Template) {
+	if err := Install(InstallOptions{Root: t.TempDir(), Target: target}, nil); err == nil || !strings.Contains(err.Error(), Template) {
 		t.Errorf("not a plugin root: %v", err)
 	}
 	if err := os.WriteFile(target, []byte("{not json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := Install(Options{Root: root, Target: target}, nil); err == nil {
+	if err := Install(InstallOptions{Root: root, Target: target}, nil); err == nil {
 		t.Error("invalid target: want an error")
 	}
 	if b, _ := os.ReadFile(target); string(b) != "{not json" {
@@ -239,13 +239,13 @@ func TestErrors(t *testing.T) {
 	if err := os.WriteFile(target, []byte(`{"hooks":[]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := Install(Options{Root: root, Target: target}, nil); err == nil {
+	if err := Install(InstallOptions{Root: root, Target: target}, nil); err == nil {
 		t.Error(`"hooks" not an object: want an error`)
 	}
 	// the root ends up inside a double-quoted shell word
 	for _, bad := range []string{`a"b`, `a$b`, "a`b", `a\b`, "a\nb"} {
 		dir := pluginRootAt(t, filepath.Join(t.TempDir(), bad))
-		if err := Install(Options{Root: dir, Print: true}, &bytes.Buffer{}); err == nil {
+		if err := Install(InstallOptions{Root: dir, Print: true}, &bytes.Buffer{}); err == nil {
 			t.Errorf("root %q: want an error", bad)
 		}
 	}

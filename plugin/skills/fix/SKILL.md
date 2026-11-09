@@ -6,14 +6,17 @@ argument-hint: "[rule or finding]"
 
 # Fixing depgraph findings
 
-Arguments: `$ARGUMENTS` (a rule name or a pasted finding narrows the work to it).
+Arguments: `$ARGUMENTS` (a rule name or a pasted finding narrows the work to it; in Codex, which
+has no arguments, what the user asked for).
 
 Findings reach you from the plugin's hooks (a summary at session start, what changed at each
 prompt) and from `depgraph gate` when the project uses claude-hook-gate: the gate lists only
 what **this session added** and blocks the end of the turn until it is fixed or explained.
 `depgraph check --claude-md ""` prints every current finding while `depgraph watch` runs. Run
 depgraph as `sh "${CLAUDE_PLUGIN_ROOT}/scripts/depgraph" <args>`: the plugin's wrapper runs the
-binary of the plugin's version (installing it when it is missing), else `depgraph` on `PATH`.
+binary of the plugin's version (installing it when it is missing), else `depgraph` on `PATH`. In
+Codex, where `CLAUDE_PLUGIN_ROOT` is not set, use the absolute path of the plugin root instead: the
+directory two levels above this `SKILL.md` (`<plugin root>/skills/fix/SKILL.md`).
 
 Fix what you added first. Pre-existing debt is the user's call: mention it, do not start a
 refactor nobody asked for.

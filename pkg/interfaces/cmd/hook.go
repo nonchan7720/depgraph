@@ -20,7 +20,7 @@ import (
 func newHookCommand(o *options) *cobra.Command {
 	c := &cobra.Command{
 		Use:   "hook <session-start|prompt>",
-		Short: "Claude Code hook: add findings to the prompt context (read-only, always exits 0)",
+		Short: "Claude Code / Codex hook: add findings to the prompt context (read-only, always exits 0)",
 		Long: `Reads the Claude Code hook input from stdin and prints the findings already in
 Neo4j as hookSpecificOutput.additionalContext. session-start prints a compact
 summary, prompt prints only what changed since the last injection in the same

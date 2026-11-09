@@ -188,7 +188,8 @@ depgraph projects prune [--dry-run]  # root が存在しなくなったプロジ
 | `mcp --root DIR` | ブラウザ UI を [MCP App](#mcp-app) として表示する stdio の MCP サーバー（投入済みグラフを読む、CLAUDE.md は更新しない） |
 | `init --root DIR [--dry-run]` | Python のファイルがあり、バージョンを固定するファイルを持つディレクトリごとに、`.depgraph.yml` へ `languages` 設定を追加する（ファイル同士が食い違う場合は端末なら尋ねる。[フレームワーク](#フレームワークレイヤーに外部パッケージ)参照） |
 | `parse --root DIR [files...]` | Neo4j なしで tree-sitter の解析結果を JSON（1 行 1 ファイル）で出力（デバッグ用） |
-| `hook <session-start\|prompt>` | Claude Code の hook。Findings を追加文脈として出力（読むだけ、常に exit 0） |
+| `hook <session-start\|prompt>` | Claude Code / Codex の hook。Findings を追加文脈として出力（読むだけ、常に exit 0） |
+| `codex install-hooks [--repo\|--to FILE] [--print] [--remove]` | プラグインの Codex 用 hook を Codex の `hooks.json` に写す（[Codex プラグイン](#codex-プラグイン) を参照） |
 | `gate [files...] [--fail-on warn]` | 品質ゲートのチェック（[claude-hook-gate](#品質ゲートclaude-hook-gate)）。変更ファイルを反映し、セッションで増えた Findings があれば exit 1 |
 | `projects list` / `projects rm <key>` / `projects prune [--dry-run]` | DB 内のプロジェクトの一覧・削除 |
 | `store ls` / `store down` / `store rm [<key>...] [--all]` | depgraph が管理する Neo4j コンテナとデータボリュームの一覧・停止・削除（container プロバイダー） |
@@ -216,6 +217,7 @@ depgraph projects prune [--dry-run]  # root が存在しなくなったプロジ
 | `--timeout` / `--debug` / `--format` | hook | `3s` / false / `json`（`text`: 文脈そのものを出力。claude-hook-gate の `session_start` 用） |
 | `--fail-on` | scan / check | なし（`error` / `warn` / `info` 以上の Findings があれば exit 1） |
 | `--fail-on` / `--timeout` | gate | `warn` / `60s` |
+| `--plugin-root` / `--to` / `--repo` / `--print` / `--remove` | codex install-hooks | `$PLUGIN_ROOT`、`$CLAUDE_PLUGIN_ROOT` か `.` / `$CODEX_HOME/hooks.json` / false / false / false |
 
 ### CI
 
@@ -260,6 +262,56 @@ sha256 を照合してから `depgraph` を `${XDG_CACHE_HOME:-~/.cache}/depgrap
 どれも使えなければ hook は何もせず、理由を標準エラーに 1 行出します。`depgraph watch --root <repo>` はターミナルで
 動かしておいてください（`PATH` 上の `depgraph` が必要です。[インストール](#インストール) を参照）。下記の claude-hook-gate の
 設定も同様です。
+
+## Codex プラグイン
+
+同じ `plugin/` ディレクトリは [Codex](https://developers.openai.com/codex) のプラグインでもあり、
+hook とスキルも同じです（`.agents/plugins/marketplace.json` に登録）。マーケットプレイスを追加し、
+Codex の `/plugins` から `depgraph` をインストールします:
+
+```text
+codex plugin marketplace add nonchan7720/depgraph
+```
+
+Codex の build によっては、プラグインに同梱された hook を実行しません（プラグインは入りますが、
+解析結果がセッションに届きません）。一度だけ hook を `~/.codex/hooks.json` に写してください。
+このコマンドは先にプラグインも更新します（`codex plugin marketplace upgrade depgraph`、
+`codex plugin add depgraph@depgraph`）:
+
+```text
+curl -fsSL https://raw.githubusercontent.com/nonchan7720/depgraph/main/plugin/codex/setup.sh | bash
+```
+
+そのあと Codex で `/hooks` を開き、hook を信頼（trust）してください。信頼していない hook を Codex は
+実行しません。信頼はハッシュで記録されるため、プラグインを更新したらこのコマンドをもう一度実行し
+（写しはバージョンのディレクトリを指しています）、改めて信頼してください。
+
+| 部品 | 内容 |
+|---|---|
+| `plugin/codex/hooks.json` | hook 本体: `scripts/hook.sh session-start codex` / `prompt codex`。Claude Code と同じ `depgraph hook` を実行します（Codex も同じ `hookSpecificOutput.additionalContext` を読みます） |
+| `plugin/codex/setup.sh` | 上のコマンド: プラグインを更新し（`--no-update` で省略。`DEPGRAPH_CODEX_BIN` で `codex` を指定）、`${CODEX_HOME:-~/.codex}/plugins/cache/depgraph/depgraph/` から最新のバージョンを探して（`DEPGRAPH_PLUGIN_DIR` で別のプラグインディレクトリを指定）、残りの引数を付けてその `install-hooks.sh` を実行します（`... \| bash -s -- --repo`） |
+| `plugin/codex/install-hooks.sh` | このプラグインのバイナリで `depgraph codex install-hooks` を実行: hook を `$CODEX_HOME/hooks.json`（既定）、`<repo>/.codex/hooks.json`（`--repo [--root <dir>]`。Codex が信頼したプロジェクトでだけ動きます）、任意のファイル（`--to <file>`）に写します。`--print` は書かずに出力、`--remove` は取り除きます。ファイル内の他の hook は残り、再実行すると自分の分だけを置き換えます |
+| スキル | `setup` と `fix`。Claude Code と同じです（Codex には `CLAUDE_PLUGIN_ROOT` が無いので、スキルは自分のパスからラッパーを探します） |
+
+- ルート: Codex はプロジェクトのディレクトリを渡さないので、セッションの `cwd` がルートです。
+  `depgraph watch --root` が扱うディレクトリで Codex を起動してください。
+- 文脈は二重に入りません: Codex は見つけた hook をすべて実行します。スクリプトが存在する写しが
+  `~/.codex/hooks.json`、`<repo>/.codex/hooks.json`、`/etc/codex/hooks.json` のどれかにあれば、
+  プラグイン同梱の hook は黙ります（プラグインの hook を飛ばす build でも動く写しの側が働きます）。
+  プロジェクト・ユーザー・システムの Codex の `hooks.json` / `config.toml` が `depgraph hook` を自分で
+  実行しているときは両方とも黙り、claude-hook-gate の `session_start`（`.agents/gate.yaml` か
+  `.claude/gate.yaml`）が実行しているときはセッション開始の分が黙ります。
+- 管理された hook のみ（管理者の `requirements.toml` に `allow_managed_hooks_only = true`）: Codex は
+  ユーザー・プロジェクト・プラグインの hook を飛ばします。`/etc/codex/hooks.json` の hook は動くので、
+  管理者権限があれば次のようにします:
+
+  ```text
+  sh plugin/codex/install-hooks.sh --print --to /etc/codex/hooks.json > /tmp/depgraph-hooks.json
+  sudo install -m 0644 /tmp/depgraph-hooks.json /etc/codex/hooks.json
+  ```
+
+- 下記の品質ゲートは、claude-hook-gate の Codex プラグインでも同じように動きます（`.agents/gate.yaml`、
+  次に `.claude/gate.yaml` を読みます）。
 
 ## Claude Code hooks
 
@@ -752,11 +804,12 @@ pkg/infrastructure/resolver/         リポジトリ走査 + 除外パターン
   lsp/                               言語サーバー（callHierarchy / references）による精密化
 pkg/infrastructure/watch/            fsnotify + デバウンス
 pkg/infrastructure/claudemd/         CLAUDE.md の管理区間更新
-pkg/interfaces/cmd/                  CLI（cobra: parse / scan / check / watch / serve / mcp / hook / gate / projects / store）
+pkg/infrastructure/codexhooks/       Codex プラグインの hook を Codex の hooks.json に写す（depgraph codex install-hooks）
+pkg/interfaces/cmd/                  CLI（cobra: parse / scan / check / watch / serve / mcp / hook / gate / projects / store / codex）
 pkg/interfaces/handler/ui/           HTTP サーバー + SSE + 埋め込み UI（web/ のビルド成果物）
 pkg/interfaces/handler/mcpapp/       MCP サーバー: UI を MCP App として提供（web/ の 1 ファイルビルド、アプリ専用ツール）
 web/                                 ブラウザ UI のソース（Vite + TypeScript、Cytoscape + elkjs）
-plugin/                              Claude Code プラグイン（hook・スキル。.claude-plugin/marketplace.json に登録）
+plugin/                              Claude Code と Codex のプラグイン（hook・スキル。.claude-plugin/ と .agents/plugins/marketplace.json に登録）
 pkg/interfaces/handler/hook/         Claude Code hook・品質ゲート（要約・差分・セッションで増えた Findings）
 ```
 

@@ -1,12 +1,12 @@
 ---
 name: setup
-description: Set depgraph up in the current project, or review an existing setup. depgraph finds the debt AI agents leave behind that compilers and linters do not report (exports and files nothing uses, the same logic written twice, import cycles, layer violations, god packages) and feeds it back to Claude Code while it works. Writes .depgraph.yml (architecture layers, rule options, entry points), .depgraphignore (generated / vendored / fixture paths) and, when the project uses claude-hook-gate (.claude/gate.yaml), the depgraph gate rule and session_start entry. Use when the user asks to install, set up, configure, tune or review depgraph, its layers or rules, or its quality gate.
+description: Set depgraph up in the current project, or review an existing setup. depgraph finds the debt AI agents leave behind that compilers and linters do not report (exports and files nothing uses, the same logic written twice, import cycles, layer violations, god packages) and feeds it back to the coding agent (Claude Code, Codex) while it works. Writes .depgraph.yml (architecture layers, rule options, entry points), .depgraphignore (generated / vendored / fixture paths) and, when the project uses claude-hook-gate (.claude/gate.yaml or .agents/gate.yaml), the depgraph gate rule and session_start entry. Use when the user asks to install, set up, configure, tune or review depgraph, its layers or rules, or its quality gate.
 argument-hint: "[init|update|review]"
 ---
 
 # depgraph setup
 
-Arguments: `$ARGUMENTS`. `init` writes the files that do not exist yet (ask before replacing
+Arguments: `$ARGUMENTS` (in Codex, which has no arguments: what the user asked for). `init` writes the files that do not exist yet (ask before replacing
 one); `update` changes the existing ones for what the user describes, or for what the code now
 shows; `review` reports what the current setup does and what to change, without editing.
 Without an argument: `init` when `.depgraph.yml` does not exist, else `update`.
@@ -26,7 +26,11 @@ plugin's wrapper, which uses that binary (and installs it first when it is missi
 sh "${CLAUDE_PLUGIN_ROOT}/scripts/depgraph" version
 ```
 
-Every `depgraph ...` command below means `sh "${CLAUDE_PLUGIN_ROOT}/scripts/depgraph" ...` when
+`CLAUDE_PLUGIN_ROOT` is set in Claude Code. In Codex it is not: the plugin root is the directory two
+levels above this `SKILL.md` (`<plugin root>/skills/setup/SKILL.md`), so run
+`sh "<plugin root>/scripts/depgraph" version` with that absolute path.
+
+Every `depgraph ...` command below means `sh "<plugin root>/scripts/depgraph" ...` when
 you run it. When the wrapper fails (offline, Windows, no `sha256sum` / `shasum`), it uses
 `depgraph` on `PATH`; with neither, tell the user how to install it and stop there unless they ask
 you to do it.
@@ -108,12 +112,18 @@ depth (`*.gen.go`); with `/` it is a path from the root (`internal/ent`, `intern
 Ignored paths are not scanned at all (unlike `ignore` in `.depgraph.yml`). Put generated and
 vendored code and fixtures here, never code people write.
 
-## 5. Claude Code integration
+## 5. Agent integration (Claude Code, Codex)
 
 - The plugin's hooks add the findings at session start and the changes since at every prompt.
-  They stay quiet when the project's `.claude/settings.json` runs `depgraph hook` itself; if it
-  does, offer to remove those entries so the plugin's hooks take over.
-- When the project has `.claude/gate.yaml` (claude-hook-gate), add the gate rule, matched on the
+  They stay quiet when the project runs `depgraph hook` itself (Claude Code: `.claude/settings.json`;
+  Codex: `.codex/hooks.json` or `.codex/config.toml`); if it does, offer to remove those entries so
+  the plugin's hooks take over.
+- In Codex, the hooks run only where Codex runs plugin hooks, or after
+  `sh "<plugin root>/codex/install-hooks.sh"` copied them into `~/.codex/hooks.json` (then trusted
+  in `/hooks`). If the findings do not reach the session, tell the user to run it (see the README,
+  "Codex plugin").
+- When the project has `.claude/gate.yaml` or `.agents/gate.yaml` (claude-hook-gate; Codex reads
+  `.agents/` first, Claude Code `.claude/`), add the gate rule, matched on the
   project's languages, so debt the session adds blocks the agent from finishing, and the
   session_start entry (the plugin then leaves session start to it):
 

@@ -202,7 +202,8 @@ depgraph projects prune [--dry-run]  # delete projects whose root no longer exis
 | `mcp --root DIR` | stdio MCP server that shows the browser UI as an [MCP App](#mcp-app) (reads the graph already in Neo4j, CLAUDE.md untouched) |
 | `init --root DIR [--dry-run]` | add a `languages` setting to `.depgraph.yml` for every directory with Python files whose files pin its Python version (asks on a terminal where they disagree; see [Frameworks](#frameworks-external-packages-in-layers)) |
 | `parse --root DIR [files...]` | print the tree-sitter result as JSON, one file per line, without Neo4j (debugging) |
-| `hook <session-start\|prompt>` | Claude Code hook: print findings as additional context (read-only, always exits 0) |
+| `hook <session-start\|prompt>` | Claude Code / Codex hook: print findings as additional context (read-only, always exits 0) |
+| `codex install-hooks [--repo\|--to FILE] [--print] [--remove]` | copy the plugin's Codex hooks into a Codex `hooks.json` (see [Codex plugin](#codex-plugin)) |
 | `gate [files...] [--fail-on warn]` | quality-gate check ([claude-hook-gate](#quality-gate-claude-hook-gate)): apply the changed files, exit 1 on findings the session added |
 | `projects list` / `projects rm <key>` / `projects prune [--dry-run]` | list / delete the projects in the database |
 | `store ls` / `store down` / `store rm [<key>...] [--all]` | list / stop / delete the Neo4j containers and data volumes depgraph manages (container provider) |
@@ -230,6 +231,7 @@ Flags (see `depgraph <command> --help`):
 | `--timeout` / `--debug` / `--format` | hook | `3s` / false / `json` (`text`: the context itself, for claude-hook-gate's `session_start`) |
 | `--fail-on` | scan / check | none (exit 1 when there are findings of at least `error` / `warn` / `info`) |
 | `--fail-on` / `--timeout` | gate | `warn` / `60s` |
+| `--plugin-root` / `--to` / `--repo` / `--print` / `--remove` | codex install-hooks | `$PLUGIN_ROOT`, `$CLAUDE_PLUGIN_ROOT` or `.` / `$CODEX_HOME/hooks.json` / false / false / false |
 
 ### CI
 
@@ -276,6 +278,55 @@ removed). The prompt hook only uses a binary that is already there. The skills r
 When none works, the hooks do nothing and print one line on stderr with the reason. Keep
 `depgraph watch --root <repo>` running in a terminal. It needs `depgraph` on `PATH` (see
 [Install](#install)), and so do the claude-hook-gate entries below.
+
+## Codex plugin
+
+The same `plugin/` directory is a [Codex](https://developers.openai.com/codex) plugin with the
+same hooks and skills; `.agents/plugins/marketplace.json` lists it. Add the marketplace, then
+install `depgraph` from `/plugins` in Codex:
+
+```text
+codex plugin marketplace add nonchan7720/depgraph
+```
+
+Not every Codex build runs the hooks a plugin bundles: the plugin installs, but no findings reach
+the session. Copy the hooks into `~/.codex/hooks.json` once. This command also updates the plugin
+first (`codex plugin marketplace upgrade depgraph`, `codex plugin add depgraph@depgraph`):
+
+```text
+curl -fsSL https://raw.githubusercontent.com/nonchan7720/depgraph/main/plugin/codex/setup.sh | bash
+```
+
+Then open `/hooks` in Codex and trust the hooks; Codex runs no hook you have not trusted. Codex
+records trust by hash, so after updating the plugin run the command again (the copy points at the
+version directory) and trust the hooks again.
+
+| part | what it does |
+|---|---|
+| `plugin/codex/hooks.json` | the hooks: `scripts/hook.sh session-start codex` / `prompt codex`, the same `depgraph hook` as in Claude Code (Codex reads the same `hookSpecificOutput.additionalContext`) |
+| `plugin/codex/setup.sh` | the command above: updates the plugin (`--no-update` skips it; `DEPGRAPH_CODEX_BIN` names `codex`), finds the newest version in `${CODEX_HOME:-~/.codex}/plugins/cache/depgraph/depgraph/` (`DEPGRAPH_PLUGIN_DIR` names another plugin directory) and runs its `install-hooks.sh` with the remaining arguments (`... \| bash -s -- --repo`) |
+| `plugin/codex/install-hooks.sh` | `depgraph codex install-hooks` with this plugin's binary: copies the hooks into `$CODEX_HOME/hooks.json` (default), `<repo>/.codex/hooks.json` (`--repo [--root <dir>]`, runs only in a project Codex trusts) or any file (`--to <file>`); `--print` prints instead of writing, `--remove` takes the hooks out. Other hooks in the file are kept, and running it again replaces its own entries |
+| skills | `setup` and `fix`, as in Claude Code (Codex has no `CLAUDE_PLUGIN_ROOT`: the skills find the wrapper from their own path) |
+
+- Root: Codex sets no project directory, so the root is the session's `cwd`. Start Codex in the
+  directory `depgraph watch --root` serves.
+- No double context: Codex runs every hook it finds. The plugin's own hooks stay quiet while a copy
+  whose script exists is in `~/.codex/hooks.json`, `<repo>/.codex/hooks.json` or
+  `/etc/codex/hooks.json` (the copy does the work, also in builds that skip plugin hooks). Both stay
+  quiet when a Codex `hooks.json` / `config.toml` of the project, the user or the system runs
+  `depgraph hook` itself, and session start does when claude-hook-gate's `session_start` runs it
+  (`.agents/gate.yaml` or `.claude/gate.yaml`).
+- Managed hooks only (`allow_managed_hooks_only = true` in the administrator's
+  `requirements.toml`): Codex skips user, project and plugin hooks. Hooks in `/etc/codex/hooks.json`
+  still run; with administrator rights:
+
+  ```text
+  sh plugin/codex/install-hooks.sh --print --to /etc/codex/hooks.json > /tmp/depgraph-hooks.json
+  sudo install -m 0644 /tmp/depgraph-hooks.json /etc/codex/hooks.json
+  ```
+
+- The quality gate below works the same under Codex with claude-hook-gate's Codex plugin, which
+  reads `.agents/gate.yaml` first, then `.claude/gate.yaml`.
 
 ## Claude Code hooks
 
@@ -814,11 +865,12 @@ pkg/infrastructure/resolver/         repository walk + exclude patterns
   lsp/                               refinement with language servers (callHierarchy / references)
 pkg/infrastructure/watch/            fsnotify + debounce
 pkg/infrastructure/claudemd/         CLAUDE.md managed section
-pkg/interfaces/cmd/                  CLI (cobra: parse / scan / check / watch / serve / mcp / hook / gate / projects / store)
+pkg/infrastructure/codexhooks/       copies the Codex plugin hooks into a Codex hooks.json (depgraph codex install-hooks)
+pkg/interfaces/cmd/                  CLI (cobra: parse / scan / check / watch / serve / mcp / hook / gate / projects / store / codex)
 pkg/interfaces/handler/ui/           HTTP server + SSE + embedded UI (web/ build output)
 pkg/interfaces/handler/mcpapp/       MCP server: the UI as an MCP App (single-file web/ build, app-only tools)
 web/                                 browser UI source (Vite + TypeScript, Cytoscape + elkjs)
-plugin/                              Claude Code plugin (hooks, skills; .claude-plugin/marketplace.json lists it)
+plugin/                              Claude Code and Codex plugin (hooks, skills; .claude-plugin/ and .agents/plugins/marketplace.json list it)
 pkg/interfaces/handler/hook/         Claude Code hook and quality gate (summary / diff / findings added in a session)
 ```
 

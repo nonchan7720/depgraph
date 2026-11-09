@@ -4,6 +4,7 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/nonchan7720/depgraph/main/plugin/codex/setup.sh | bash
 #   ... | bash -s -- --repo        -> arguments go to install-hooks.sh (--repo, --to, --print, --remove)
+#   ... | bash -s -- --system      -> into /etc/codex/hooks.json (managed hooks; see below)
 #
 # 1. Update (skipped with --no-update, or without codex): `codex plugin
 #    marketplace upgrade depgraph` (on failure `codex plugin marketplace add
@@ -15,6 +16,17 @@
 #    no update then).
 # 3. Run its codex/install-hooks.sh. The exit code is install-hooks.sh's.
 #
+# Where Codex runs only managed hooks (allow_managed_hooks_only = true in
+# /etc/codex/requirements.toml), or with --system (the policy can also come
+# from an MDM profile or the ChatGPT workspace, which this cannot see), the
+# hooks go into the system layer instead, /etc/codex/hooks.json, which Codex
+# runs without a trust prompt: install-hooks.sh prints that file merged with
+# the hooks as you, and only putting it in place runs as root (sudo, when the
+# directory is not writable). The copy in ~/.codex/hooks.json is then removed,
+# so one copy runs. With --remove the hooks leave the system file. An explicit
+# --repo / --to / --print is a target of its own and turns this off.
+# DEPGRAPH_CODEX_SYSTEM_DIR replaces /etc/codex, DEPGRAPH_SUDO names sudo.
+#
 # Read from a pipe: it never reads stdin and does not rely on $0.
 set -uo pipefail
 
@@ -25,13 +37,33 @@ INSTALL_REL="codex/install-hooks.sh"
 CODEX_BIN="${DEPGRAPH_CODEX_BIN:-codex}"
 
 do_update=1
+system=0 # 1: --system, 2: detected
+remove=0
+explicit=0
 fwd=()
 for a in "$@"; do
 	case "$a" in
 	--no-update) do_update=0 ;;
-	*) fwd+=("$a") ;;
+	--system) system=1 ;;
+	*)
+		case "$a" in
+		--remove) remove=1 ;;
+		--repo | --to | --to=* | --print) explicit=1 ;;
+		esac
+		fwd+=("$a")
+		;;
 	esac
 done
+SYSTEM_DIR="${DEPGRAPH_CODEX_SYSTEM_DIR:-/etc/codex}"
+SYSTEM_DIR="${SYSTEM_DIR%/}"
+if [ "$system" -eq 1 ] && [ "$explicit" -eq 1 ]; then
+	printf 'depgraph: --system writes %s/hooks.json; it takes no --repo, --to or --print\n' "$SYSTEM_DIR" >&2
+	exit 1
+fi
+if [ "$system" -eq 0 ] && [ "$explicit" -eq 0 ] && [ -f "$SYSTEM_DIR/requirements.toml" ] &&
+	grep -Eq '^[[:space:]]*allow_managed_hooks_only[[:space:]]*=[[:space:]]*true([[:space:]]|#|$)' "$SYSTEM_DIR/requirements.toml"; then
+	system=2
+fi
 
 run_codex() {
 	printf 'depgraph: running codex %s\n' "$*" >&2
@@ -105,4 +137,47 @@ else
 fi
 
 printf 'depgraph: using %s\n' "$ROOT" >&2
-exec sh "$ROOT/$INSTALL_REL" ${fwd[@]+"${fwd[@]}"}
+[ "$system" -eq 0 ] && exec sh "$ROOT/$INSTALL_REL" ${fwd[@]+"${fwd[@]}"}
+
+# the system layer: print the merged file as the user, put it in place as root
+target="$SYSTEM_DIR/hooks.json"
+if [ "$system" -eq 2 ]; then
+	printf 'depgraph: Codex runs only managed hooks here (allow_managed_hooks_only in %s/requirements.toml); installing into %s\n' "$SYSTEM_DIR" "$target" >&2
+fi
+tmp="$(mktemp "${TMPDIR:-/tmp}/depgraph-hooks.XXXXXX")" || exit 1
+trap 'rm -f "$tmp"' EXIT
+if [ "$remove" -eq 1 ]; then
+	sh "$ROOT/$INSTALL_REL" --print --remove --to "$target" >"$tmp" || exit 1
+else
+	sh "$ROOT/$INSTALL_REL" --print --to "$target" >"$tmp" || exit 1
+fi
+if [ -f "$target" ] && cmp -s "$tmp" "$target"; then
+	printf 'depgraph: %s is already up to date\n' "$target" >&2
+else
+	chmod 644 "$tmp"
+	parent="$SYSTEM_DIR"
+	while [ ! -d "$parent" ]; do parent="$(dirname "$parent")"; done
+	if [ -w "$parent" ] && { [ ! -e "$target" ] || [ -w "$target" ]; }; then
+		mkdir -p "$SYSTEM_DIR" && cp "$tmp" "$target" && chmod 644 "$target" || exit 1
+	else
+		SUDO="${DEPGRAPH_SUDO:-sudo}"
+		printf 'depgraph: writing %s needs administrator rights; running %s\n' "$target" "$SUDO" >&2
+		# sudo asks for the password on the terminal, also under `curl ... | bash`
+		if ! { "$SUDO" mkdir -p "$SYSTEM_DIR" && "$SUDO" install -m 0644 "$tmp" "$target"; }; then
+			keep="${TMPDIR:-/tmp}/depgraph-hooks.json"
+			cp "$tmp" "$keep" 2>/dev/null
+			{
+				printf 'depgraph: could not write %s. Ask an administrator to run:\n' "$target"
+				printf '  sudo mkdir -p %s && sudo install -m 0644 %s %s\n' "$SYSTEM_DIR" "$keep" "$target"
+			} >&2
+			exit 1
+		fi
+	fi
+	if [ "$remove" -eq 1 ]; then
+		printf 'depgraph: removed the depgraph hooks from %s\n' "$target" >&2
+	else
+		printf 'depgraph: installed the depgraph hooks into %s (managed: Codex runs them without /hooks review)\n' "$target" >&2
+	fi
+fi
+# one copy: the user layer's goes (it would run too once the policy is lifted)
+[ "$remove" -eq 1 ] || sh "$ROOT/$INSTALL_REL" --remove || true

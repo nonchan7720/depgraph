@@ -304,7 +304,7 @@ version directory) and trust the hooks again.
 | part | what it does |
 |---|---|
 | `plugin/codex/hooks.json` | the hooks: `scripts/hook.sh session-start codex` / `prompt codex`, the same `depgraph hook` as in Claude Code (Codex reads the same `hookSpecificOutput.additionalContext`) |
-| `plugin/codex/setup.sh` | the command above: updates the plugin (`--no-update` skips it; `DEPGRAPH_CODEX_BIN` names `codex`), finds the newest version in `${CODEX_HOME:-~/.codex}/plugins/cache/depgraph/depgraph/` (`DEPGRAPH_PLUGIN_DIR` names another plugin directory) and runs its `install-hooks.sh` with the remaining arguments (`... \| bash -s -- --repo`) |
+| `plugin/codex/setup.sh` | the command above: updates the plugin (`--no-update` skips it; `DEPGRAPH_CODEX_BIN` names `codex`), finds the newest version in `${CODEX_HOME:-~/.codex}/plugins/cache/depgraph/depgraph/` (`DEPGRAPH_PLUGIN_DIR` names another plugin directory) and runs its `install-hooks.sh` with the remaining arguments (`... \| bash -s -- --repo`); under a managed-hooks-only policy, or with `--system`, it writes `/etc/codex/hooks.json` instead (see below) |
 | `plugin/codex/install-hooks.sh` | `depgraph codex install-hooks` with this plugin's binary: copies the hooks into `$CODEX_HOME/hooks.json` (default), `<repo>/.codex/hooks.json` (`--repo [--root <dir>]`, runs only in a project Codex trusts) or any file (`--to <file>`); `--print` prints instead of writing, `--remove` takes the hooks out. Other hooks in the file are kept, and running it again replaces its own entries |
 | skills | `setup` and `fix`, as in Claude Code (Codex has no `CLAUDE_PLUGIN_ROOT`: the skills find the wrapper from their own path) |
 
@@ -317,13 +317,15 @@ version directory) and trust the hooks again.
   `depgraph hook` itself, and session start does when claude-hook-gate's `session_start` runs it
   (`.agents/gate.yaml` or `.claude/gate.yaml`).
 - Managed hooks only (`allow_managed_hooks_only = true` in the administrator's
-  `requirements.toml`): Codex skips user, project and plugin hooks. Hooks in `/etc/codex/hooks.json`
-  still run; with administrator rights:
-
-  ```text
-  sh plugin/codex/install-hooks.sh --print --to /etc/codex/hooks.json > /tmp/depgraph-hooks.json
-  sudo install -m 0644 /tmp/depgraph-hooks.json /etc/codex/hooks.json
-  ```
+  `requirements.toml`): Codex skips user, project and plugin hooks, but runs the hooks of the system
+  layer, `/etc/codex/hooks.json`, without a trust prompt. The same `setup.sh` command handles it: when
+  `/etc/codex/requirements.toml` sets the policy, it installs the hooks into `/etc/codex/hooks.json`
+  instead (the merged file is made as you; only putting it in place runs `sudo`, which asks for your
+  password) and removes the copy from `~/.codex/hooks.json`, so one copy runs. When the policy comes
+  from somewhere it cannot see (an MDM profile, the ChatGPT workspace), pass `--system`
+  (`... | bash -s -- --system`). `--remove` takes the hooks out of the system file again. Without
+  administrator rights it prints the command to hand to an administrator. The hooks point at the plugin
+  in your `~/.codex`, so they run for you; other users of the machine run their own `setup.sh`
 
 - The quality gate below works the same under Codex with claude-hook-gate's Codex plugin, which
   reads `.agents/gate.yaml` first, then `.claude/gate.yaml`.

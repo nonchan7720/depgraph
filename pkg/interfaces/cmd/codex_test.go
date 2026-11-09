@@ -40,6 +40,15 @@ func TestCodexInstallHooks(t *testing.T) {
 		t.Errorf("after --remove: %s", b)
 	}
 
+	// removing from a hooks.json that does not exist: nothing written, nothing said
+	empty := filepath.Join(t.TempDir(), "hooks.json")
+	if out := runRoot(t, "codex", "install-hooks", "--plugin-root", plugin, "--remove", "--to", empty); out != "" {
+		t.Errorf("--remove without a file said %q", out)
+	}
+	if _, err := os.Stat(empty); err == nil {
+		t.Error("--remove created the file")
+	}
+
 	repo := t.TempDir()
 	t.Setenv("PLUGIN_ROOT", plugin)
 	runRoot(t, "codex", "install-hooks", "--repo", "--root", repo)

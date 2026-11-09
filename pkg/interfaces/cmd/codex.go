@@ -79,6 +79,10 @@ installed, so the findings are never added twice.`,
 			if remove && printOnly && target == "" {
 				return errors.New("--print --remove needs --to or --repo")
 			}
+			_, statErr := os.Stat(target)
+			if remove && !printOnly && statErr != nil {
+				return nil // no hooks.json: nothing to remove (and nothing to say)
+			}
 			if err := codexhooks.Install(codexhooks.InstallOptions{Root: pluginRoot, Target: target, Print: printOnly, Remove: remove}, cmd.OutOrStdout()); err != nil {
 				return err
 			}

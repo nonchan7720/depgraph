@@ -489,3 +489,144 @@ func TestCodexSetupScript(t *testing.T) {
 		t.Errorf("nothing installed = %q %d", stderr, code)
 	}
 }
+
+// Where Codex runs only managed hooks (allow_managed_hooks_only = true in the
+// system requirements.toml), or with --system, setup.sh installs the hooks
+// into the system layer's hooks.json: install-hooks.sh prints the merged file
+// as the user, and only the copy into place needs administrator rights (sudo
+// when the directory is not writable). The user-level copy is removed, so one
+// copy runs.
+func TestCodexSetupScriptSystem(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("no bash")
+	}
+	setup := filepath.Join(repoRoot(t), "plugin", "codex", "setup.sh")
+	plugin := t.TempDir()
+	calls := filepath.Join(t.TempDir(), "calls")
+	// a plugin whose install-hooks.sh logs its arguments and prints a "merged file"
+	writeFile(t, plugin, "codex/install-hooks.sh",
+		"echo \"$*\" >>"+calls+"\ncase \" $* \" in *' --print '*) echo \"merged $*\" ;; esac\n")
+	run := func(sys string, env []string, args ...string) (string, int) {
+		t.Helper()
+		cmd := exec.Command("bash", append([]string{setup}, args...)...)
+		cmd.Env = append([]string{"PATH=/usr/bin:/bin", "HOME=" + t.TempDir(), "DEPGRAPH_PLUGIN_DIR=" + plugin,
+			"DEPGRAPH_CODEX_SYSTEM_DIR=" + sys}, env...)
+		out, err := cmd.CombinedOutput()
+		code := 0
+		if err != nil {
+			ee, ok := err.(*exec.ExitError)
+			if !ok {
+				t.Fatal(err)
+			}
+			code = ee.ExitCode()
+		}
+		return string(out), code
+	}
+	readCalls := func() string {
+		b, _ := os.ReadFile(calls)
+		_ = os.Remove(calls)
+		return string(b)
+	}
+
+	// detected from requirements.toml
+	sys := filepath.Join(t.TempDir(), "etc-codex")
+	writeFile(t, sys, "requirements.toml", "[features]\nhooks = true\n\n  allow_managed_hooks_only = true # policy\n")
+	target := filepath.Join(sys, "hooks.json")
+	out, code := run(sys, nil)
+	if code != 0 {
+		t.Fatalf("setup = %d\n%s", code, out)
+	}
+	if b, _ := os.ReadFile(target); string(b) != "merged --print --to "+target+"\n" {
+		t.Errorf("%s = %q\n%s", target, b, out)
+	}
+	if fi, err := os.Stat(target); err != nil || fi.Mode().Perm() != 0o644 {
+		t.Errorf("mode: %v %v", fi, err)
+	}
+	if got, want := readCalls(), "--print --to "+target+"\n--remove\n"; got != want {
+		t.Errorf("install-hooks.sh calls = %q, want %q", got, want)
+	}
+	if !strings.Contains(out, "allow_managed_hooks_only") {
+		t.Errorf("no reason given:\n%s", out)
+	}
+	// unchanged: nothing is written again
+	if err := os.Chmod(target, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, code := run(sys, nil); code != 0 || !strings.Contains(out, "already") {
+		t.Errorf("second run = %d\n%s", code, out)
+	}
+	if fi, _ := os.Stat(target); fi.Mode().Perm() != 0o600 {
+		t.Error("an unchanged file was rewritten")
+	}
+	readCalls()
+	// --remove takes the hooks out of the system file (and leaves the user's alone)
+	if out, code := run(sys, nil, "--remove"); code != 0 {
+		t.Errorf("--remove = %d\n%s", code, out)
+	}
+	if got, want := readCalls(), "--print --remove --to "+target+"\n"; got != want {
+		t.Errorf("--remove calls = %q, want %q", got, want)
+	}
+	// an explicit target is the user's choice, even under the policy
+	if _, code := run(sys, nil, "--repo"); code != 0 {
+		t.Error("--repo under the policy failed")
+	}
+	if got := readCalls(); got != "--repo\n" {
+		t.Errorf("--repo calls = %q", got)
+	}
+
+	// --system without the policy (an MDM profile or the workspace sets it)
+	sys2 := filepath.Join(t.TempDir(), "etc-codex")
+	if out, code := run(sys2, nil, "--system"); code != 0 {
+		t.Fatalf("--system = %d\n%s", code, out)
+	}
+	if _, err := os.Stat(filepath.Join(sys2, "hooks.json")); err != nil {
+		t.Error(err)
+	}
+	readCalls()
+	// no policy, no --system: the user's hooks.json as before
+	if _, code := run(t.TempDir(), nil); code != 0 {
+		t.Error("plain setup failed")
+	}
+	if got := readCalls(); got != "\n" {
+		t.Errorf("plain calls = %q", got)
+	}
+	if out, code := run(sys2, nil, "--system", "--to", "x.json"); code != 1 || !strings.Contains(out, "--system") {
+		t.Errorf("--system --to = %d\n%s", code, out)
+	}
+
+	// a directory only root may write goes through sudo (DEPGRAPH_SUDO names it)
+	if os.Geteuid() == 0 {
+		t.Log("running as root: the sudo path is covered by non-root runs (CI)")
+		return
+	}
+	locked := filepath.Join(t.TempDir(), "etc-codex")
+	writeFile(t, locked, "requirements.toml", "allow_managed_hooks_only = true\n")
+	if err := os.Chmod(locked, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+	sudo := filepath.Join(t.TempDir(), "sudo")
+	sudoLog := filepath.Join(t.TempDir(), "sudo.log")
+	writeFile(t, filepath.Dir(sudo), "sudo", "#!/bin/sh\necho \"$*\" >>"+sudoLog+"\nchmod 755 "+locked+"\n\"$@\"\n")
+	if err := os.Chmod(sudo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if out, code := run(locked, []string{"DEPGRAPH_SUDO=" + sudo}); code != 0 {
+		t.Fatalf("setup with sudo = %d\n%s", code, out)
+	}
+	if b, _ := os.ReadFile(sudoLog); !strings.Contains(string(b), filepath.Join(locked, "hooks.json")) {
+		t.Errorf("sudo calls = %q", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(locked, "hooks.json")); !strings.HasPrefix(string(b), "merged --print") {
+		t.Errorf("hooks.json through sudo = %q", b)
+	}
+	// sudo fails: the commands to run are printed, exit 1
+	writeFile(t, filepath.Dir(sudo), "sudo", "#!/bin/sh\nexit 1\n")
+	if err := os.Chmod(locked, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, plugin, "codex/install-hooks.sh", "case \" $* \" in *' --print '*) echo changed ;; esac\n")
+	if out, code := run(locked, []string{"DEPGRAPH_SUDO=" + sudo}); code != 1 || !strings.Contains(out, "sudo ") {
+		t.Errorf("failing sudo = %d\n%s", code, out)
+	}
+}

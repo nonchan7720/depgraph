@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.10](https://github.com/nonchan7720/depgraph/compare/v0.1.9...v0.1.10) (2026-11-09)
+
+
+### Features
+
+* **codex:** make the plugin a Codex plugin ([#68](https://github.com/nonchan7720/depgraph/issues/68)) ([acb2c37](https://github.com/nonchan7720/depgraph/commit/acb2c37d197cdbb6a8c42fcd981b8149a63ee2c8))
+
+
+### Documentation
+
+* one page per language (Go, TypeScript / JavaScript, Python, Ruby) ([#62](https://github.com/nonchan7720/depgraph/issues/62)) ([766911d](https://github.com/nonchan7720/depgraph/commit/766911d2f2ffe9d42ed63e2c67608cb6bf294c8b)), closes [#48](https://github.com/nonchan7720/depgraph/issues/48)
+
 ## [0.1.9](https://github.com/nonchan7720/depgraph/compare/v0.1.8...v0.1.9) (2026-11-08)
 
 

@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.11](https://github.com/nonchan7720/depgraph/compare/v0.1.10...v0.1.11) (2026-11-09)
+
+
+### Features
+
+* **codex:** setup.sh installs into /etc/codex/hooks.json where Codex runs only managed hooks ([#70](https://github.com/nonchan7720/depgraph/issues/70)) ([d1eeb3b](https://github.com/nonchan7720/depgraph/commit/d1eeb3b3a56af4977a0aff880bebc56896d29fbc))
+
+
+### Bug Fixes
+
+* **deps:** update go modules (non-major) ([#67](https://github.com/nonchan7720/depgraph/issues/67)) ([3cd3939](https://github.com/nonchan7720/depgraph/commit/3cd393979f1ba5a3ca18ffacdcda671cb30644c3))
+
 ## [0.1.10](https://github.com/nonchan7720/depgraph/compare/v0.1.9...v0.1.10) (2026-11-09)
 
 

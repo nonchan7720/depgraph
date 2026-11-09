@@ -1,0 +1,31 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "depgraph",
+  "version": "0.1.9",
+  "description": "Codex hooks that add depgraph's findings (unused code, duplicated logic, import cycles, layer violations) to the context, and skills to set depgraph up in a project and to fix what it reports. Installs the depgraph binary of its version from the GitHub release (sha256-verified) when it is not cached.",
+  "author": {
+    "name": "nonchan7720"
+  },
+  "homepage": "https://github.com/nonchan7720/depgraph",
+  "repository": "https://github.com/nonchan7720/depgraph",
+  "license": "Apache-2.0",
+  "keywords": [
+    "dependency-graph",
+    "code-quality",
+    "dead-code",
+    "duplicate-code",
+    "architecture",
+    "hooks"
+  ],
+  "extensions": {
+    "com.openai": {
+      "hooks": "./codex/hooks.json",
+      "interface": {
+        "displayName": "depgraph",
+        "shortDescription": "Finds the debt AI agents leave behind and feeds it back while Codex works",
+        "developerName": "nonchan7720",
+        "category": "Productivity"
+      }
+    }
+  }
+}

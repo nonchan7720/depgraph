@@ -32,7 +32,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### github.com/fsnotify/fsnotify v1.7.0
+### github.com/fsnotify/fsnotify v1.10.1
 
 ```
 Copyright © 2012 The Go Authors. All rights reserved.
@@ -309,7 +309,7 @@ CC-BY-4.0. See https://creativecommons.org/licenses/by/4.0/legalcode for
 the full license text.
 ```
 
-### github.com/neo4j/neo4j-go-driver/v6 v6.3.0
+### github.com/neo4j/neo4j-go-driver/v6 v6.4.0
 
 ```
                                  Apache License

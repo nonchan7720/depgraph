@@ -55,8 +55,10 @@ func passThrough(g *callGraph, cfg rules.Config) []rules.Finding {
 
 // wideFunctions reports the functions that call functions of more
 // packages (directories) of the repository than the limit, their own not
-// counted. A function with a `depgraph:ignore wide-function` comment is
-// left out.
+// counted. Calls of constructors are not counted: building what it needs
+// from many packages is wiring (the constructor of a type takes its parts
+// from wherever they are), using their behaviour is knowing them. A
+// function with a `depgraph:ignore wide-function` comment is left out.
 func wideFunctions(g *callGraph, cfg rules.Config) []rules.Finding {
 	limit := cfg.CalledPackagesLimit()
 	var out []rules.Finding
@@ -67,7 +69,7 @@ func wideFunctions(g *callGraph, cfg rules.Config) []rules.Finding {
 		pkgs := map[string]bool{}
 		for _, call := range c.calls.Calls {
 			for _, to := range g.callees(c, call) {
-				if dir := path.Dir(to.File); dir != path.Dir(c.file) {
+				if dir := path.Dir(to.File); dir != path.Dir(c.file) && !g.constructs(c.lang, to) {
 					pkgs[dir] = true
 				}
 			}

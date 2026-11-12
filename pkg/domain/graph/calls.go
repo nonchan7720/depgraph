@@ -1,22 +1,29 @@
 package graph
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+)
 
 // FuncCalls is a function, method or class of a file with the functions it
 // calls: the function-level dependency graph, joined across the project by
 // the rules (function-cycle).
 //
-// Name is the caller: a function ("Run"), a Go method with its receiver
-// ("T.Run"), a top-level declaration of a TypeScript / Python file (a class
-// stands for its methods).
+// Name is the caller: a function ("Run"), a method with its receiver or
+// class ("T.Run"), a function bound to a constant of a TypeScript /
+// JavaScript file. Line is the 1-based line it is declared at.
 type FuncCalls struct {
 	Name  string `json:"name"`
+	Line  int    `json:"line,omitempty"`
 	Calls []Call `json:"calls,omitempty"`
 	// Forwards: the function only passes its parameters on: its body is one
 	// call (the only one of Calls) with exactly its parameters, in order,
 	// whose result it returns. Never a method (it may be there to satisfy an
 	// interface) or a class.
 	Forwards bool `json:"forwards,omitempty"`
+	// Ignore are the function-level rules a `depgraph:ignore <rule>` comment
+	// of the function exempts it from.
+	Ignore []string `json:"ignore,omitempty"`
 }
 
 // Call is one function called.
@@ -39,11 +46,12 @@ const callSep = "\x1e"
 // Encode returns f as one string (for list properties of the store).
 func (f FuncCalls) Encode() string {
 	parts := make([]string, 0, 1+len(f.Calls))
+	flag := ""
 	if f.Forwards {
-		parts = append(parts, f.Name+usesSep+"f")
-	} else {
-		parts = append(parts, f.Name)
+		flag = "f"
 	}
+	head := strings.Join([]string{f.Name, flag, strings.Join(f.Ignore, ","), strconv.Itoa(f.Line)}, usesSep)
+	parts = append(parts, head)
 	for _, c := range f.Calls {
 		parts = append(parts, c.Target+usesSep+c.Name)
 	}
@@ -53,11 +61,18 @@ func (f FuncCalls) Encode() string {
 // DecodeFuncCalls is the inverse of FuncCalls.Encode.
 func DecodeFuncCalls(s string) (FuncCalls, bool) {
 	parts := strings.Split(s, callSep)
-	if len(parts) < 2 || parts[0] == "" {
+	if len(parts) < 2 {
 		return FuncCalls{}, false
 	}
-	name, flag, _ := strings.Cut(parts[0], usesSep)
-	f := FuncCalls{Name: name, Forwards: flag == "f"}
+	head := strings.Split(parts[0], usesSep) // name, flag, ignored rules, line
+	if len(head) != 4 || head[0] == "" {
+		return FuncCalls{}, false
+	}
+	f := FuncCalls{Name: head[0], Forwards: head[1] == "f"}
+	if head[2] != "" {
+		f.Ignore = strings.Split(head[2], ",")
+	}
+	f.Line, _ = strconv.Atoi(head[3])
 	for _, p := range parts[1:] {
 		target, name, ok := strings.Cut(p, usesSep)
 		if !ok || name == "" {

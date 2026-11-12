@@ -34,10 +34,13 @@ type pendingCall struct {
 // pendingCalls are the calls of one caller.
 type pendingCalls struct {
 	name  string
+	line  int
 	calls []pendingCall
 	// forwards: the caller's body is one call with exactly its parameters
 	// (forward.go)
 	forwards bool
+	// ignore: the rules a depgraph:ignore comment names (ignore.go)
+	ignore []string
 }
 
 // funcCalls resolves the recorded calls.
@@ -69,7 +72,7 @@ func (u *usageCollector) funcCalls(bySpec map[string]imports.Result, goBinds map
 			}
 			return calls[i].Name < calls[j].Name
 		})
-		out = append(out, graph.FuncCalls{Name: fc.name, Calls: calls, Forwards: fc.forwards && len(calls) == 1})
+		out = append(out, graph.FuncCalls{Name: fc.name, Line: fc.line, Calls: calls, Forwards: fc.forwards && len(calls) == 1, Ignore: fc.ignore})
 	}
 	return out
 }
@@ -105,7 +108,7 @@ func (u *usageCollector) goFuncCalls(root *gts.Node) {
 			continue
 		}
 		local := x.goLocalNames(n)
-		fc := pendingCalls{name: caller, forwards: recvType == "" && x.forwards(n)}
+		fc := pendingCalls{name: caller, line: int(n.StartPoint().Row) + 1, forwards: recvType == "" && x.forwards(n), ignore: x.ignoredRules(n)}
 		x.walk(n, func(c *gts.Node) bool { // every call, also inside a closure or another call
 			if x.typ(c) == "call_expression" {
 				if pc, ok := x.goCallee(x.field(c, "function"), local, recvType, recvVar); ok {
@@ -174,19 +177,20 @@ func (x *extractor) goLocalNames(fn *gts.Node) map[string]bool {
 	return out
 }
 
-// declCalls records the calls of every top-level function and class of a
-// TypeScript / JavaScript or Python file.
+// declCalls records the calls of every top-level function of a TypeScript
+// / JavaScript or Python file and of every method of its classes (named
+// Class.method; what a class body runs outside its methods has no caller).
 func (u *usageCollector) declCalls(root *gts.Node) {
 	x := u.x
-	callers := map[string]bool{} // the symbols that can call: functions and classes
+	kinds := map[string]string{} // the symbols that can call: functions and classes
 	for _, s := range x.fg.Symbols {
 		if hasShape[s.Kind] {
-			callers[s.Name] = true
+			kinds[s.Name] = s.Kind
 		}
 	}
 	type decl struct {
-		names []string
-		node  *gts.Node
+		name string
+		node *gts.Node
 	}
 	var decls []decl
 	top := map[string]bool{}
@@ -199,18 +203,27 @@ func (u *usageCollector) declCalls(root *gts.Node) {
 		}
 		var names []string
 		for nm := range x.declNames(n) {
-			if callers[nm] {
+			if kinds[nm] != "" {
 				names = append(names, nm)
 				top[nm] = true
 			}
 		}
-		if len(names) > 0 {
-			sort.Strings(names)
-			decls = append(decls, decl{names, n})
+		if len(names) != 1 {
+			continue // `const f = ..., g = ...`: which calls are whose is not told apart
+		}
+		if kinds[names[0]] != "class" {
+			decls = append(decls, decl{names[0], n})
+			continue
+		}
+		for _, m := range x.methodsOf(n) {
+			if nm := x.fieldText(m, "name"); nm != "" {
+				decls = append(decls, decl{names[0] + "." + nm, m})
+			}
 		}
 	}
 	for _, d := range decls {
-		var calls []pendingCall
+		fc := pendingCalls{name: d.name, line: int(d.node.StartPoint().Row) + 1,
+			forwards: !strings.Contains(d.name, ".") && x.forwards(d.node), ignore: x.ignoredRules(d.node)}
 		x.walk(d.node, func(c *gts.Node) bool {
 			var callee *gts.Node
 			switch x.typ(c) {
@@ -220,24 +233,46 @@ func (u *usageCollector) declCalls(root *gts.Node) {
 				callee = x.field(c, "constructor")
 			}
 			if callee != nil {
-				if pc, ok := u.calleeOf(callee, top); ok {
-					calls = append(calls, pc)
+				if pc, ok := u.calleeOf(callee, top); ok && (pc.spec != "" || pc.name != d.name) { // not its own recursion
+					fc.calls = append(fc.calls, pc)
 				}
 			}
 			return true
 		})
-		for _, nm := range d.names {
-			var own []pendingCall
-			for _, c := range calls {
-				if c.spec != "" || c.name != nm { // not its own recursion
-					own = append(own, c)
-				}
-			}
-			if len(own) > 0 {
-				u.calls = append(u.calls, pendingCalls{name: nm, calls: own, forwards: len(d.names) == 1 && x.forwards(d.node)})
-			}
+		if len(fc.calls) > 0 {
+			u.calls = append(u.calls, fc)
 		}
 	}
+}
+
+// methodsOf are the method definitions of a class declaration (TypeScript
+// / JavaScript method_definition, Python function_definition, also under a
+// decorator).
+func (x *extractor) methodsOf(class *gts.Node) []*gts.Node {
+	if x.typ(class) == "decorated_definition" {
+		class = x.field(class, "definition")
+	}
+	if class == nil {
+		return nil
+	}
+	body := x.field(class, "body")
+	if body == nil {
+		return nil
+	}
+	var out []*gts.Node
+	for i := 0; i < body.NamedChildCount(); i++ {
+		m := body.NamedChild(i)
+		if x.typ(m) == "decorated_definition" {
+			if d := x.field(m, "definition"); d != nil && x.typ(d) == "function_definition" {
+				out = append(out, d)
+			}
+			continue
+		}
+		if t := x.typ(m); t == "method_definition" || t == "function_definition" {
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 // calleeOf is the function the callee expression of a TypeScript / Python

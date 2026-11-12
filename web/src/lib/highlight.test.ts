@@ -45,6 +45,7 @@ describe('findingPackageKeys', () => {
     expect(findingPackageKeys(f('low-cohesion', { pkg: 'a' }))).toEqual(['a']);
     expect(findingPackageKeys(f('function-cycle', { functions: ['p/a.go#Parse', 'p/b.go#expr', 'p/a.go#Parse'] }))).toEqual(['p', 'p', 'p']);
     expect(findingPackageKeys(f('pass-through', { functions: ['api/a.go#Get', 'svc/s.go#Get', 'svc/s.go#load'] }))).toEqual(['api', 'svc', 'svc']);
+    expect(findingPackageKeys(f('wide-function', { file: 'cmd/app/main.go', packages: ['pkg/a', 'pkg/b'] }))).toEqual(['cmd/app', 'pkg/a', 'pkg/b']);
     expect(findingPackageKeys(f('file-cycle', { files: ['src/a.ts', 'src/b.ts', 'src/a.ts'] }))).toEqual(['src', 'src', 'src']);
     expect(findingPackageKeys(f('duplicate-symbol', { files: ['x/y/z.go', 'main.go'] }))).toEqual(['x/y', '.']);
     expect(findingPackageKeys(f('unknown', {}))).toEqual([]);

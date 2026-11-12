@@ -321,7 +321,8 @@
     ],
     "calls": [
       {
-        "name": "UserController",
+        "name": "UserController.list",
+        "line": 15,
         "calls": [
           {
             "target": "src/db/index.ts",

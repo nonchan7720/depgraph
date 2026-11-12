@@ -542,6 +542,7 @@ external, so it never shows up as a dependency. `watch` rescans when one of thes
 | `duplicate-code` | warn | the same logic in several places, whatever the names: identical, or a copy changed a little (see below) |
 | `god-package` | warn | a hub: imported by 10 or more packages and importing 3 or more in-repo packages. A package many depend on that depends on nothing in the repository (a domain model) is stable, not a god package (Stable Dependencies Principle) |
 | `low-cohesion` | info | a Go package (its files) or a TypeScript / Python module (its top-level declarations) splits into parts that nothing inside connects, and every part is used by different code (no user takes two parts): more than one responsibility in one place. A size limit is a linter's; only the whole project shows who uses which part. Tests, generated files, entry points, a unit used whole (a dot import, `export *`, a namespace used as a value) and a unit of data only (entities / DTOs used one per consumer: types without behaviour, data classes, constants, constructors) are left out |
+| `wide-function` | info | a function or method that calls functions of more than `maxPackages` (default 8) packages of the repository, its own not counted: it knows too much of the project to change or test alone. Calls are read as in `function-cycle`, in Go, TypeScript / JavaScript and Python. A function that is wide on purpose (the composition root) is exempted by a comment, see [Exempting a function](#exempting-a-function-depgraphignore). Test code is left out |
 | `duplicate-symbol` | warn | an exported function/class with the same name exists in several files (the files of one Go package count once: they can only share a name through build constraints; Ruby is left out, reopening a class is how Ruby extends it) |
 | `unused-export` | warn | an exported declaration nothing in the project uses, not even its own file (Go: exported functions and types of non-main packages, not methods; TS/JS: `export`ed declarations, followed through re-exports and barrels; Python: public module-level functions and classes; Ruby: classes, modules with something in them and `Struct.new` / `Class.new` constants, never methods) |
 | `unreachable-file` | warn | a TS/JS/Python/Ruby file no entry point reaches through imports; one finding per file nothing imports, listing the files only it leads to |
@@ -622,6 +623,7 @@ rules:                      # per rule: enabled, severity (error | warn | info),
   god-package: {severity: warn, fanIn: 10, fanOut: 3}
   duplicate-symbol: {enabled: false}
   duplicate-code: {minTokens: 50, similarity: 0.8}   # body size and fingerprint similarity
+  wide-function: {maxPackages: 8}                    # most packages a function may call into
   file-cycle: {deferred: true}                       # also the cycles hidden by an import inside a function (Python)
   # duplicate-symbol: {ignore: [main, New, "Test*", "*Handler"]}  # names not checked (replaces the defaults)
   unused-export: {ignore: ["pkg/api/**"]}            # paths not reported (a library's public API)
@@ -659,6 +661,29 @@ pairs `handler → repository / infra / db`, `controller → repository / db`,
 `domain → infra / handler / repository` and `usecase → handler`, and the abstract pairs
 `usecase → infra / db`.
 This repository's own [`.depgraph.yml`](.depgraph.yml) is an example.
+
+### Exempting a function (`depgraph:ignore`)
+
+A function-level finding that is intended is exempted where the function is, with the reason next to it:
+a comment containing `depgraph:ignore <rule> [<rule>...]` directly above the function (no blank line in
+between) or inside it. Text after the rule names is for the reader.
+
+```go
+// Wire builds the application.
+//
+// depgraph:ignore wide-function (the composition root: it wires every package on purpose)
+func Wire(cfg Config) (*App, error) { ... }
+```
+
+```python
+# depgraph:ignore wide-function, pass-through
+def create_app(settings): ...
+```
+
+- Rules it applies to: `wide-function` and `pass-through` (the first function of the chain). The other rules
+  report packages, files or declarations nothing uses, and are configured in `.depgraph.yml`.
+- A comment without a rule name exempts nothing: what is ignored is always written down.
+- It is read with the file, in Go, TypeScript / JavaScript and Python.
 
 ### Frameworks: external packages in layers
 

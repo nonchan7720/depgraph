@@ -501,7 +501,7 @@ import は各エコシステム自身の解決方法で、プロジェクトの�
 
 | rule | severity | 内容 |
 |---|---|---|
-| `import-cycle` | error | パッケージ間の循環 import。8 パッケージ以下の循環に乗る import ごとに、それを通る最短の循環（最大 50 件） |
+| `import-cycle` | error | パッケージ間の循環 import。8 パッケージ以下の循環に乗る import ごとに、それを通る最短の循環（最大 50 件）。Go のテストファイルだけが行っている import は数えません。外部テストパッケージ（`package x_test`）はそのディレクトリのパッケージとは別のパッケージで、`install -> v1` と `v1/defaults_test.go -> install` は Go でビルドできるためです |
 | `module-cycle` | error | モノレポのモジュール間の import 循環（Go モジュール・npm のワークスペースパッケージ・Python プロジェクト・Ruby のアプリケーション / gem / engine / packwerk の pack。`go.mod`・`package.json`・`pyproject.toml`・`setup.py`・`setup.cfg`・`Gemfile`・`*.gemspec`・`package.yml` のあるディレクトリと[コンポーネント](#モノレポcomponents)）。ディレクトリ同士では循環にならないもの（`packages/web/src/a -> packages/kit/src -> packages/web/src/b`）も検出します。1 ホップごとに import を 1 つ示し、`import-cycle` が報告済みの循環は重ねて報告しません |
 | `layer-violation` | error | import してはいけないレイヤーを import している（`handler → repository` など、または独自レイヤー）。レイヤーには外部パッケージも書けるので、フレームワークを import するドメインも違反になる（[フレームワーク](#フレームワークレイヤーに外部パッケージ)参照） |
 | `concrete-dependency` | warn | インターフェース経由でしか使ってはいけないレイヤー（`abstract:`）の実装を、struct / class が保持（フィールド・コンストラクタ引数）または生成している。しかもその実装は、保持側のパッケージ・実装自身のパッケージ・内側のレイヤーで宣言されたインターフェースを満たしている（[レイヤーの内側](#レイヤーの内側依存性逆転と型の漏洩)参照） |

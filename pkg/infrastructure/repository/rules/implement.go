@@ -57,8 +57,8 @@ func (r *Repository) moduleCycles(ctx context.Context, cfg rules.Config, ignore 
 		return nil, nil
 	}
 	rows, err := r.query(ctx, `
-		MATCH (a:Package {project: $project})-[:IMPORTS]->(b:Package {project: $project})
-		WHERE a.external = false AND b.external = false AND a <> b
+		MATCH (a:Package {project: $project})-[e:IMPORTS]->(b:Package {project: $project})
+		WHERE a.external = false AND b.external = false AND a <> b AND coalesce(e.test, false) = false
 		  AND none(rx IN $ignore WHERE a.key =~ rx OR b.key =~ rx)
 		RETURN a.key AS from, b.key AS to
 	`, ignore, nil)
@@ -256,12 +256,15 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 		// repository took 17 s, beyond the hook's budget.) shortestPath, not
 		// GQL SHORTEST, which the 5.26 planner ran ~500x slower here. Cycles
 		// are rotated to start at their smallest key and deduplicated.
+		// An import only Go test files make (e.test, see packageEdge of the
+		// graph store) is no edge of a cycle.
 		rows, err := r.query(ctx, `
-			MATCH (a:Package {project: $project})-[:IMPORTS]->(b:Package {project: $project})
-			WHERE a.external = false AND b.external = false AND a <> b
+			MATCH (a:Package {project: $project})-[e:IMPORTS]->(b:Package {project: $project})
+			WHERE a.external = false AND b.external = false AND a <> b AND coalesce(e.test, false) = false
 			  AND none(rx IN $ignore WHERE a.key =~ rx OR b.key =~ rx)
 			MATCH p = shortestPath((b)-[:IMPORTS*1..7]->(a))
 			WHERE all(x IN nodes(p) WHERE x.external = false AND none(rx IN $ignore WHERE x.key =~ rx))
+			  AND all(i IN relationships(p) WHERE coalesce(i.test, false) = false)
 			WITH [a.key] + [n IN nodes(p) | n.key] AS cyc
 			WITH cyc[0..size(cyc)-1] AS ring
 			WITH ring, reduce(m = 0, i IN range(0, size(ring) - 1) | CASE WHEN ring[i] < ring[m] THEN i ELSE m END) AS s

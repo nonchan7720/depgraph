@@ -71,30 +71,35 @@ func FileCycles(edges [][2]string) [][]string {
 // shortestPath is the shortest path from -> ... -> to over next with at
 // most maxEdges edges (breadth first), nil when there is none.
 func shortestPath(next map[string][]string, from, to string, maxEdges int) []string {
-	prev := map[string]string{from: ""}
+	prev := map[string]string{from: ""} // the node each visited node was reached from
 	level := []string{from}
 	for depth := 0; depth < maxEdges && len(level) > 0; depth++ {
 		var following []string
 		for _, n := range level {
 			for _, m := range next[n] {
-				if _, ok := prev[m]; ok {
+				if _, visited := prev[m]; visited {
 					continue
 				}
 				prev[m] = n
-				if m == to {
-					path := []string{to}
-					for at := n; at != ""; at = prev[at] {
-						path = append(path, at)
-					}
-					slices.Reverse(path)
-					return path
-				}
 				following = append(following, m)
 			}
+		}
+		if _, reached := prev[to]; reached && to != from {
+			return pathTo(prev, to)
 		}
 		level = following
 	}
 	return nil
+}
+
+// pathTo follows prev back from to and returns the path in walking order.
+func pathTo(prev map[string]string, to string) []string {
+	var path []string
+	for at := to; at != ""; at = prev[at] {
+		path = append(path, at)
+	}
+	slices.Reverse(path)
+	return path
 }
 
 // rotateToSmallest returns ring starting at its smallest element.

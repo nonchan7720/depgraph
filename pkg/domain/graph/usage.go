@@ -39,6 +39,9 @@ type Usage struct {
 	// calls (Go, TypeScript / JavaScript, Python): the function-level
 	// dependency graph. Only callers that call something are listed.
 	Calls []FuncCalls `json:"calls,omitempty"`
+	// OwnMembers are the fields and parameters whose type the file's own
+	// package declares (Go), for calls through them (Call.Via).
+	OwnMembers []OwnMember `json:"ownMembers,omitempty"`
 	// Exports maps the names this file exports under another name to the
 	// declaration they stand for ("default" -> "foo", "b" -> "a").
 	Exports []ExportName `json:"exports,omitempty"`

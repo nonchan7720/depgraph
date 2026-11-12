@@ -29,6 +29,7 @@ type pendingCall struct {
 	q    string // Go: the local package name the call is qualified with
 	spec string // TypeScript / Python: the import spec the callee comes from
 	name string
+	via  string // a method called on a member: "Owner|member" (via.go)
 }
 
 // pendingCalls are the calls of one caller.
@@ -50,7 +51,7 @@ func (u *usageCollector) funcCalls(bySpec map[string]imports.Result, goBinds map
 		seen := map[graph.Call]bool{}
 		var calls []graph.Call
 		for _, p := range fc.calls {
-			c, ok := graph.Call{Name: p.name}, true
+			c, ok := graph.Call{Name: p.name, Via: p.via}, true
 			switch {
 			case p.q != "":
 				c.Target, ok = goBinds[p.q]
@@ -93,6 +94,7 @@ func init() {
 // goFuncCalls records the calls of every function and method of a Go file.
 func (u *usageCollector) goFuncCalls(root *gts.Node) {
 	x := u.x
+	u.goOwnFields(root)
 	for i := 0; i < root.NamedChildCount(); i++ {
 		n := root.NamedChild(i)
 		caller, recvType, recvVar := x.fieldText(n, "name"), "", ""
@@ -108,10 +110,14 @@ func (u *usageCollector) goFuncCalls(root *gts.Node) {
 			continue
 		}
 		local := x.goLocalNames(n)
+		params := x.goParamNames(n)
+		u.goOwnMembers(n, caller)
 		fc := pendingCalls{name: caller, line: int(n.StartPoint().Row) + 1, forwards: recvType == "" && x.forwards(n), ignore: x.ignoredRules(n)}
 		x.walk(n, func(c *gts.Node) bool { // every call, also inside a closure or another call
 			if x.typ(c) == "call_expression" {
 				if pc, ok := x.goCallee(x.field(c, "function"), local, recvType, recvVar); ok {
+					fc.calls = append(fc.calls, pc)
+				} else if pc, ok := x.goMemberCall(x.field(c, "function"), caller, params, recvType, recvVar); ok {
 					fc.calls = append(fc.calls, pc)
 				}
 			}
@@ -224,6 +230,7 @@ func (u *usageCollector) declCalls(root *gts.Node) {
 	for _, d := range decls {
 		fc := pendingCalls{name: d.name, line: int(d.node.StartPoint().Row) + 1,
 			forwards: !strings.Contains(d.name, ".") && x.forwards(d.node), ignore: x.ignoredRules(d.node)}
+		params := x.declParams(d.node)
 		x.walk(d.node, func(c *gts.Node) bool {
 			var callee *gts.Node
 			switch x.typ(c) {
@@ -233,7 +240,9 @@ func (u *usageCollector) declCalls(root *gts.Node) {
 				callee = x.field(c, "constructor")
 			}
 			if callee != nil {
-				if pc, ok := u.calleeOf(callee, top); ok && (pc.spec != "" || pc.name != d.name) { // not its own recursion
+				if pc, ok := u.memberCall(callee, d.name, params); ok {
+					fc.calls = append(fc.calls, pc)
+				} else if pc, ok := u.calleeOf(callee, top); ok && (pc.spec != "" || pc.name != d.name) { // not its own recursion
 					fc.calls = append(fc.calls, pc)
 				}
 			}

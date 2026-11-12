@@ -184,6 +184,7 @@ func TestFuncCallsEncoding(t *testing.T) {
 		{Name: "Wire", Ignore: []string{"pass-through", "wide-function"}, Calls: []graph.Call{{Name: "x"}}},
 		{Name: "Both", Forwards: true, Ignore: []string{"wide-function"}, Calls: []graph.Call{{Name: "x"}}},
 		{Name: "K.m", Line: 42, Calls: []graph.Call{{Name: "x"}}},
+		{Name: "S.Run", Calls: []graph.Call{{Name: "Find", Via: "S|repo"}, {Target: "pkg/b", Name: "Do"}}},
 	} {
 		got, ok := graph.DecodeFuncCalls(fc.Encode())
 		if !ok || !reflect.DeepEqual(got, fc) {

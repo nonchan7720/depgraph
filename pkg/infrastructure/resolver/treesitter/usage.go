@@ -76,6 +76,7 @@ type usageCollector struct {
 	tsBind      map[string]tsBinding       // TS/JS: local names bound by imports
 	loads       []pendingUse               // loads.go: imports that load their module
 	calls       []pendingCalls             // calls.go: the functions each function calls
+	ownMembers  []graph.OwnMember          // via.go: fields and parameters of the package's own types
 	tsValues    map[string]bool            // loads.go: specs a TypeScript file uses a value of
 	tsTypeDepth int                        // loads.go: inside `typeof x` of a type
 	pyTypeOnly  bool                       // loads.go: the import being read is under `if TYPE_CHECKING:`
@@ -259,6 +260,7 @@ func (r *Resolver) finishUsage(ctx context.Context, root string, fg *graph.FileG
 		Uses:         dedupUses(us),
 		Loads:        u.loadUses(bySpec),
 		Calls:        u.funcCalls(bySpec, goBinds),
+		OwnMembers:   u.ownMembers,
 		Exports:      u.exports,
 		Keep:         dedupStrings(u.keep),
 		Mentions:     dedupStrings(u.mentions),

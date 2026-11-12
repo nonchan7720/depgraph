@@ -40,6 +40,9 @@ func passThrough(g *callGraph, cfg rules.Config) []rules.Finding {
 		if !c.calls.Forwards || len(c.calls.Calls) != 1 || rules.IgnoresRule(c.calls.Ignore, rules.RulePassThrough) {
 			continue
 		}
+		if c.calls.Calls[0].Via != "" {
+			continue // a method called on a parameter: not a function of its own
+		}
 		if to := g.callees(c, c.calls.Calls[0]); len(to) == 1 {
 			forwards = append(forwards, [2]rules.FuncNode{c.node(), to[0]})
 		}
@@ -68,6 +71,14 @@ func wideFunctions(g *callGraph, cfg rules.Config) []rules.Finding {
 		}
 		pkgs := map[string]bool{}
 		for _, call := range c.calls.Calls {
+			if call.Via != "" {
+				// through a member: the package that declares its type (the
+				// interface), whatever implements it
+				if dir, _ := g.memberCallees(c, call); dir != "" && dir != path.Dir(c.file) {
+					pkgs[dir] = true
+				}
+				continue
+			}
 			for _, to := range g.callees(c, call) {
 				if dir := path.Dir(to.File); dir != path.Dir(c.file) && !g.constructs(c.lang, to) {
 					pkgs[dir] = true

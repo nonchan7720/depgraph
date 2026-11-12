@@ -25,6 +25,30 @@ func TestFileCycles(t *testing.T) {
 	}
 }
 
+// A cycle that only closes through a deferred import is told apart from one
+// that exists when the files are loaded, and can be left out.
+func TestFileCyclesDeferred(t *testing.T) {
+	loads := []FileLoad{
+		{From: "app/a.py", To: "app/b.py"}, {From: "app/b.py", To: "app/a.py"}, // at load time
+		{From: "app/x.py", To: "app/y.py"}, {From: "app/y.py", To: "app/x.py", Deferred: true},
+		{From: "app/y.py", To: "app/z.py", Deferred: true}, // on no cycle
+	}
+	var got []string
+	for _, f := range FileCycleFindings(loads, true) {
+		got = append(got, f.Message)
+	}
+	want := []string{
+		"app/a.py -> app/b.py -> app/a.py",
+		"app/x.py -> app/y.py -> app/x.py (hidden by an import inside a function of app/y.py)",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("findings =\n %q, want\n %q", got, want)
+	}
+	if got := FileCycleFindings(loads, false); len(got) != 1 || got[0].Message != want[0] {
+		t.Errorf("without deferred imports = %+v", got)
+	}
+}
+
 // A cycle longer than fileCycleMax files is not searched for.
 func TestFileCyclesIsBounded(t *testing.T) {
 	var edges [][2]string

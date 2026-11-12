@@ -114,6 +114,11 @@ name = "app.d"
 `)
 	u := usage(t, New(), root, "app/main.py")
 	wantLoads(t, u.Loads, "app#c", "app#helper", "app#sub", "app/a.py#", "app/b.py#x", "app/sub#")
+	for _, l := range u.Loads {
+		if lazy := l.As == graph.LoadDeferred; lazy != (l.Name == "sub") {
+			t.Errorf("load %s#%s: deferred = %v", l.Target, l.Name, lazy)
+		}
+	}
 }
 
 // Go and Ruby files have no loads: a Go package cannot import itself, and

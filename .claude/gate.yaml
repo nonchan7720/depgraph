@@ -41,3 +41,9 @@ consistency_checks:
           - { name: lint, cmd: "mise run lint", files: false }
           - { name: test-all, cmd: "mise run test", files: false }
       - { name: build, cmd: "mise run build", files: false }
+
+# Before stopping, review what the session changed once more (claude-hook-gate
+# stop_review): the diff against the request, callers / tests / docs left
+# behind, changes nobody asked for.
+stop_review:
+  effort: high

@@ -76,6 +76,7 @@ while read -r group name repo; do
     echo "$out" | tail -5
     echo "scan failed"
     status=1
+    "$bin" projects rm "$project" > /dev/null 2>&1 || true # what the failed scan stored
     continue
   fi
   echo "$out" | grep -E '^(scanned|findings)' || true

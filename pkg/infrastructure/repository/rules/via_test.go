@@ -45,6 +45,13 @@ func TestEvaluateFunctionCycleThroughMembers(t *testing.T) {
 			sym("SMTP", "struct"), method("SMTP", "Send"), sym("Fake", "struct"), method("Fake", "Send")},
 			graph.Usage{OwnMembers: []graph.OwnMember{own("Box", "out", "Sender")},
 				Calls: []graph.FuncCalls{viaCall("Box.Flush", "Box", "out", "Send")}}),
+		// an interface embedding another: its method set is not all known
+		file("io/io.go", []graph.Symbol{{Name: "ReadCloser", Kind: "interface", Methods: []string{"Close"}, Embeds: true},
+			sym("Pipe", "struct"), method("Pipe", "Drain")},
+			graph.Usage{OwnMembers: []graph.OwnMember{own("Pipe", "rc", "ReadCloser"), own("closeAll", "p", "Pipe")},
+				Calls: []graph.FuncCalls{viaCall("Pipe.Drain", "Pipe", "rc", "Close")}}),
+		file("io/file.go", []graph.Symbol{{Name: "closeAll", Kind: "function"}, sym("File", "struct"), method("File", "Close")}, graph.Usage{
+			Calls: []graph.FuncCalls{{Name: "File.Close", Calls: []graph.Call{{Name: "closeAll"}}}, viaCall("closeAll", "closeAll", "p", "Drain")}}),
 		file("mail/smtp.go", nil, graph.Usage{Calls: []graph.FuncCalls{viaCall("SMTP.Send", "SMTP", "box", "Flush")},
 			OwnMembers: []graph.OwnMember{own("SMTP", "box", "Box")}}),
 	})

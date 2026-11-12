@@ -237,6 +237,10 @@ func (g *callGraph) implementation(i rules.TypeInfo) *rules.TypeInfo {
 	if t, done := g.impls[i.Ref]; done {
 		return t
 	}
+	if i.Embeds { // its method set is not all known: what implements it is not either
+		g.impls[i.Ref] = nil
+		return nil
+	}
 	var found *rules.TypeInfo
 	seen := map[*rules.TypeInfo]bool{}
 	for _, t := range g.types.byRef {

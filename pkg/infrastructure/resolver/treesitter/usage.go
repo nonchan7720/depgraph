@@ -28,7 +28,7 @@ type pendingUse struct {
 	spec     string
 	name     string
 	reexport bool
-	as       string
+	as       string // a load: graph.LoadDeferred for an import inside a function
 	// prefix: the target is every file under the resolved directory.
 	prefix bool
 }
@@ -77,7 +77,8 @@ type usageCollector struct {
 	loads       []pendingUse               // loads.go: imports that load their module
 	tsValues    map[string]bool            // loads.go: specs a TypeScript file uses a value of
 	tsTypeDepth int                        // loads.go: inside `typeof x` of a type
-	pyDeferred  bool                       // loads.go: the import being read is under `if TYPE_CHECKING:`
+	pyTypeOnly  bool                       // loads.go: the import being read is under `if TYPE_CHECKING:`
+	pyInFunc    bool                       // loads.go: the import being read is inside a function
 	pyBind      map[string]*pyBinding      // Python: local names bound by imports
 }
 

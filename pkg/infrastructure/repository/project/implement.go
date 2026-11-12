@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/nonchan7720/depgraph/pkg/domain/project"
+	graphrepo "github.com/nonchan7720/depgraph/pkg/infrastructure/repository/graph"
 )
 
 // Store is the part of the shared Neo4j connection this repository uses.
@@ -97,10 +98,7 @@ func (r *Projects) List(ctx context.Context) ([]project.Project, error) {
 
 // Delete removes the project node and every graph node of the project.
 func (r *Projects) Delete(ctx context.Context, key string) error {
-	if err := r.st.Exec(ctx, `
-		MATCH (n) WHERE (n:Package OR n:File OR n:Symbol OR n:HookSession) AND n.project = $key
-		DETACH DELETE n
-	`, map[string]any{"key": key}); err != nil {
+	if err := graphrepo.DeleteProjectData(ctx, r.st, key); err != nil {
 		return err
 	}
 	return r.st.Exec(ctx, `MATCH (p:Project {key: $key}) DETACH DELETE p`, map[string]any{"key": key})

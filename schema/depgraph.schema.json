@@ -419,6 +419,33 @@
           },
           "type": "object"
         },
+        "misplaced-function": {
+          "additionalProperties": false,
+          "description": "a function that uses nothing of its own package and minNames or more names of one other package",
+          "properties": {
+            "enabled": {
+              "default": true,
+              "description": "false turns the rule off.",
+              "type": "boolean"
+            },
+            "minNames": {
+              "default": 3,
+              "description": "Report a function that uses nothing of its own package and at least this many names of one other package.",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "severity": {
+              "default": "info",
+              "description": "Severity of the rule's findings.",
+              "enum": [
+                "error",
+                "warn",
+                "info"
+              ]
+            }
+          },
+          "type": "object"
+        },
         "module-cycle": {
           "additionalProperties": false,
           "description": "import cycle between the modules of a monorepo (Go modules, npm packages, Python projects, Ruby gems / packwerk packs, components)",

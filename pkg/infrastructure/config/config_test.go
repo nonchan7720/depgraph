@@ -353,3 +353,16 @@ func TestWideFunctionOption(t *testing.T) {
 		t.Error("maxPackages 0 accepted")
 	}
 }
+
+func TestMisplacedFunctionOption(t *testing.T) {
+	f, err := Parse([]byte("rules:\n  misplaced-function: {minNames: 5}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.Rules.MinMisplacedNames != 5 {
+		t.Errorf("minNames = %d", f.Rules.MinMisplacedNames)
+	}
+	if _, err := Parse([]byte("rules:\n  misplaced-function: {minNames: 0}\n")); err == nil {
+		t.Error("minNames 0 accepted")
+	}
+}

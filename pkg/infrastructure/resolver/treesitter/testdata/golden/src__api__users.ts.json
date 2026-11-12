@@ -329,6 +329,15 @@
             "name": "query"
           }
         ]
+      },
+      {
+        "name": "Helper",
+        "line": 39,
+        "refs": [
+          {
+            "name": "other"
+          }
+        ]
       }
     ],
     "exports": [

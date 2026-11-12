@@ -2,7 +2,9 @@ package rules
 
 import (
 	"path"
+	"slices"
 	"sort"
+	"strings"
 
 	"github.com/nonchan7720/depgraph/pkg/domain/graph"
 	"github.com/nonchan7720/depgraph/pkg/domain/rules"
@@ -84,6 +86,41 @@ func wideFunctions(g *callGraph, cfg rules.Config) []rules.Finding {
 		sort.Strings(list)
 		f := rules.WideFunction(c.file, c.calls.Line, c.calls.Name, list, limit)
 		f.Severity = string(cfg.Severity(rules.RuleWideFunction))
+		out = append(out, f)
+	}
+	return out
+}
+
+// misplacedFunctions reports the functions that use nothing of their own
+// package and several names of exactly one other package. Not a Go main
+// or init function (run, not used).
+func misplacedFunctions(g *callGraph, cfg rules.Config) []rules.Finding {
+	minNames := cfg.MisplacedNamesLimit()
+	var out []rules.Finding
+	for _, c := range g.callers {
+		if rules.IgnoresRule(c.calls.Ignore, rules.RuleMisplacedFunction) || c.calls.Name == "main" || c.calls.Name == "init" {
+			continue
+		}
+		use := rules.FuncUse{Method: strings.Contains(c.calls.Name, "."), Other: map[string][]string{}}
+		own := path.Dir(c.file)
+		for _, ref := range slices.Concat(c.calls.Calls, c.calls.Refs) {
+			pkg, name, ok := g.used(c, ref)
+			switch {
+			case !ok:
+			case pkg == own:
+				use.Own++
+			case !slices.Contains(use.Other[pkg], name):
+				use.Other[pkg] = append(use.Other[pkg], name)
+			}
+		}
+		where := rules.Misplaced(use, minNames)
+		if where == "" {
+			continue
+		}
+		names := use.Other[where]
+		sort.Strings(names)
+		f := rules.MisplacedFunction(c.file, c.calls.Line, c.calls.Name, where, names)
+		f.Severity = string(cfg.Severity(rules.RuleMisplacedFunction))
 		out = append(out, f)
 	}
 	return out

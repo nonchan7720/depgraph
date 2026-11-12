@@ -73,6 +73,9 @@ func optionSchema(rule, option string) jsonObj {
 	case "maxPackages":
 		return jsonObj{"type": "integer", "minimum": 1, "default": rules.DefaultMaxCalledPackages,
 			"description": "Report a function that calls functions of more than this many packages of the repository (its own not counted)."}
+	case "minNames":
+		return jsonObj{"type": "integer", "minimum": 1, "default": rules.DefaultMisplacedNames,
+			"description": "Report a function that uses nothing of its own package and at least this many names of one other package."}
 	case "deferred":
 		return jsonObj{"type": "boolean", "default": rules.DefaultConfig().FileCycleDeferred,
 			"description": "Also report the cycles that only close through an import inside a function (Python): a deferred import hides a cycle, it does not remove it."}

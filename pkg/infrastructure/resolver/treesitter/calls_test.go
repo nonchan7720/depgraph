@@ -80,7 +80,7 @@ func Generic[V any](v V) { helper() }
 		"Generic": {"#helper"},
 	})
 	for _, fc := range usage(t, New(), root, "a/a.go").Calls {
-		if want := map[string]int{"Run": 10, "T.A": 23, "Generic": 36}[fc.Name]; fc.Line != want {
+		if want := map[string]int{"Run": 10, "T.A": 23, "T.B": 28, "Shadow": 31, "Generic": 36}[fc.Name]; len(fc.Calls) > 0 && fc.Line != want {
 			t.Errorf("%s: line %d, want %d", fc.Name, fc.Line, want)
 		}
 	}
@@ -184,6 +184,8 @@ func TestFuncCallsEncoding(t *testing.T) {
 		{Name: "Wire", Ignore: []string{"pass-through", "wide-function"}, Calls: []graph.Call{{Name: "x"}}},
 		{Name: "Both", Forwards: true, Ignore: []string{"wide-function"}, Calls: []graph.Call{{Name: "x"}}},
 		{Name: "K.m", Line: 42, Calls: []graph.Call{{Name: "x"}}},
+		{Name: "uses", Calls: []graph.Call{{Name: "x"}}, Refs: []graph.Call{{Target: "pkg/b", Name: "T"}, {Name: "limit"}}},
+		{Name: "onlyRefs", Refs: []graph.Call{{Target: "pkg/b", Name: "T"}}},
 	} {
 		got, ok := graph.DecodeFuncCalls(fc.Encode())
 		if !ok || !reflect.DeepEqual(got, fc) {

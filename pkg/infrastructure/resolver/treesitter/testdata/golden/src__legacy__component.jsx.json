@@ -45,6 +45,11 @@
         "name": "Button"
       }
     ],
+    "loads": [
+      {
+        "target": "src/ui/Button.tsx"
+      }
+    ],
     "declRefs": [
       {
         "name": "C"

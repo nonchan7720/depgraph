@@ -30,11 +30,13 @@ var ruleOrder = map[string]int{
 	rules.RuleUnusedExport: 6, rules.RuleUnreachableFile: 7, rules.RuleUnreachablePackage: 8, rules.RuleExternalUnclassified: 9,
 	rules.RuleConcreteDependency: 2, rules.RuleTypeLeak: 2,
 	rules.RuleLowCohesion: 4,
+	rules.RuleFileCycle:   1,
 }
 
 var ruleHints = map[string]string{
 	"import-cycle":        "must fix; do not add imports that close a cycle",
 	rules.RuleModuleCycle: "must fix; modules / workspace packages must depend one way",
+	rules.RuleFileCycle:   "files of one directory must depend one way; do not hide the cycle behind a deferred import",
 	"layer-violation":     "must fix; respect layer boundaries",
 	"duplicate-code":      "extract and reuse the shared logic; do not add another copy",
 	"god-package":         "avoid adding more dependents",

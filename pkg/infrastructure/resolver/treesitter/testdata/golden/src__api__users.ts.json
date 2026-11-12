@@ -308,6 +308,17 @@
         "as": "format"
       }
     ],
+    "loads": [
+      {
+        "target": "src/api/shared.ts"
+      },
+      {
+        "target": "src/db/index.ts"
+      },
+      {
+        "target": "src/db/util.ts"
+      }
+    ],
     "exports": [
       {
         "name": "default",

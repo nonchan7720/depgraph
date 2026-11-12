@@ -37,9 +37,11 @@ func (u *usageCollector) pyFile(root *gts.Node) {
 	x.walk(root, func(n *gts.Node) bool {
 		switch x.typ(n) {
 		case "import_statement":
+			u.pyDeferred = x.pyTypeChecking(n)
 			u.pyImport(n, bind)
 			return false
 		case "import_from_statement":
+			u.pyDeferred = x.pyTypeChecking(n)
 			u.pyImportFrom(n, bind)
 			return false
 		}
@@ -84,6 +86,7 @@ func (u *usageCollector) pyImport(n *gts.Node, bind map[string]*pyBinding) {
 		case "dotted_name":
 			spec := x.text(c)
 			u.use(spec, "")
+			u.pyLoad(spec, "")
 			top, _, _ := strings.Cut(spec, ".")
 			b := bind[top]
 			if b == nil || b.alias != "" || b.fromSpec != "" {
@@ -95,6 +98,7 @@ func (u *usageCollector) pyImport(n *gts.Node, bind map[string]*pyBinding) {
 			spec := x.fieldText(c, "name")
 			alias := x.fieldText(c, "alias")
 			u.use(spec, "")
+			u.pyLoad(spec, "")
 			if alias != "" {
 				bind[alias] = &pyBinding{alias: spec}
 			}
@@ -118,9 +122,11 @@ func (u *usageCollector) pyImportFrom(n *gts.Node, bind map[string]*pyBinding) {
 		switch x.typ(c) {
 		case "wildcard_import":
 			u.use(mod, "*")
+			u.pyLoad(mod, "")
 		case "dotted_name":
 			name := x.text(c)
 			u.use(mod, name)
+			u.pyLoad(mod, name)
 			bind[name] = &pyBinding{fromSpec: mod, fromName: name}
 		case "aliased_import":
 			name := x.fieldText(c, "name")
@@ -129,6 +135,7 @@ func (u *usageCollector) pyImportFrom(n *gts.Node, bind map[string]*pyBinding) {
 				continue
 			}
 			u.use(mod, name)
+			u.pyLoad(mod, name)
 			if alias == "" {
 				alias = name
 			}

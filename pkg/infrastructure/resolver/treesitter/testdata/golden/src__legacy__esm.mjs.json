@@ -62,6 +62,14 @@
         "as": "C"
       }
     ],
+    "loads": [
+      {
+        "target": "src/legacy/app.js"
+      },
+      {
+        "target": "src/legacy/component.jsx"
+      }
+    ],
     "declRefs": [
       {
         "name": "value"

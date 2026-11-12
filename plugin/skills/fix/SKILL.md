@@ -1,6 +1,6 @@
 ---
 name: fix
-description: Fix the debt depgraph reports (import-cycle, module-cycle, layer-violation, concrete-dependency, type-leak, duplicate-code, duplicate-symbol, god-package, low-cohesion, unused-export, unreachable-file, unreachable-package) the way the codebase needs, not by silencing the rule. Use when depgraph findings appear in the context (session start, a prompt, or a failing `depgraph gate`), or when the user asks to clean up what depgraph found.
+description: Fix the debt depgraph reports (import-cycle, module-cycle, file-cycle, layer-violation, concrete-dependency, type-leak, duplicate-code, duplicate-symbol, god-package, low-cohesion, unused-export, unreachable-file, unreachable-package) the way the codebase needs, not by silencing the rule. Use when depgraph findings appear in the context (session start, a prompt, or a failing `depgraph gate`), or when the user asks to clean up what depgraph found.
 argument-hint: "[rule or finding]"
 ---
 
@@ -32,6 +32,12 @@ refactor nobody asked for.
   themselves. The finding lists one import per hop. Decide which module is the lower one (the
   library the other builds on) and move what it imports from the higher one down into it or into
   a shared package both depend on; never re-implement it on the other side.
+- **file-cycle** (warn): files of one directory (TypeScript / JavaScript or Python modules) that
+  load each other. Find what the two sides need from each other: move the shared part into a
+  module neither imports back, or pass the dependency in (a parameter, a callback) instead of
+  importing it. An import that is only for types becomes `import type` / goes under
+  `if TYPE_CHECKING:`. Do not hide the cycle behind an import inside a function, and do not
+  merge the files into one that does everything.
 - **layer-violation** (error): a layer imports one it must not (`.depgraph.yml` `forbidden`, or
   the defaults such as handler → repository). Route the call through the layer in between
   (handler → usecase → repository) or depend on an interface the inner layer declares. Change the

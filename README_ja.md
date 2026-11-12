@@ -219,6 +219,28 @@ depgraph projects prune [--dry-run]  # root が存在しなくなったプロジ
 | `--fail-on` / `--timeout` | gate | `warn` / `60s` |
 | `--plugin-root` / `--to` / `--repo` / `--print` / `--remove` | codex install-hooks | `$PLUGIN_ROOT`、`$CLAUDE_PLUGIN_ROOT` か `.` / `$CODEX_HOME/hooks.json` / false / false / false |
 
+### パスの除外: `.depgraphignore`
+
+1 行 1 パターン、`#` でコメント。`/` を含まないパターンはあらゆる深さのファイル名・ディレクトリ名に一致します
+（`*.gen.go`、`tmp*`）。`/` を含むとルートからのパスです（`internal/ent`、`internal/**/testdata`）。先頭の `/` はルート
+に固定します。除外されたパスはスキャンされません。
+
+次のディレクトリ名は、どの深さでも常にスキップされます: `.git`、`node_modules`、`vendor`、`dist`、`build`、`.venv`、
+`venv`、`__pycache__`、`target`、`.next`、`.idea`、`.vscode`、`coverage`、`.cache`、`.worktrees`、`.claude`。
+ソースがこれらの中にある場合（`src/build/startup/` など）は、`.gitignore` と同じ `!` パターンで解除します。
+
+```
+!src/build     # このディレクトリだけ（src/build/node_modules はスキップのまま）
+!build         # build という名前のすべてのディレクトリ
+!/build        # ルートの build だけ
+*.gen.go
+!keep.gen.go   # 先のパターンで除外したファイルを戻す
+```
+
+パターンは順に適用され、最後に一致したものが勝ちます。組み込みの名前は先頭にあるものとして扱います。`!` パターンは
+そのパス自身に一致し、その配下には一致しません。`.gitignore` と同様に、除外されたディレクトリの中は戻せません。
+`\!name` は先頭が `!` の名前そのものに一致します。
+
 ### CI
 
 `scan` と `check` は、何が見つかっても exit 0 です。`--fail-on <error|warn|info>` を付けると、その重大度以上の

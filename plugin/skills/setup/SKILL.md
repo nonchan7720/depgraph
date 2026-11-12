@@ -111,6 +111,9 @@ One pattern per line, `#` comments. A pattern without `/` matches a file or dire
 depth (`*.gen.go`); with `/` it is a path from the root (`internal/ent`, `internal/**/testdata`).
 Ignored paths are not scanned at all (unlike `ignore` in `.depgraph.yml`). Put generated and
 vendored code and fixtures here, never code people write.
+`build`, `dist`, `target`, `coverage`, `vendor` and similar names are always skipped at any depth;
+when real source lives in one (`src/build/`), lift it with a gitignore-style `!src/build` (last
+match wins; `!build` lifts every such directory, `!/build` only the root one).
 
 ## 5. Agent integration (Claude Code, Codex)
 

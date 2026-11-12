@@ -420,3 +420,38 @@ func TestUnusedInternalFrameworkPackage(t *testing.T) {
 	})
 	wantFindings(t, evalUnused(toUnusedFiles(parseRepo(t, root)), rules.DefaultConfig()))
 }
+
+// A directory named like a built-in skip dir (src/build) holds real source;
+// `!src/build` in .depgraphignore must scan it so its imports count as uses.
+func TestUnusedNegatedBuildDir(t *testing.T) {
+	t.Cleanup(resolver.ResetSkipPatterns)
+	resolver.ResetSkipPatterns()
+	root := writeRepo(t, map[string]string{
+		"package.json": `{"name": "app", "private": true}`,
+		"src/components/Widget/WidgetContainer.tsx": "export function WidgetContainer() { return null; }\n",
+		"src/components/Widget/index.ts":            "export * from './WidgetContainer';\n",
+		"src/components/index.ts":                   "export { WidgetContainer as Widget } from './Widget';\n",
+		"src/build/startup/register.tsx":            "import { Widget } from '../../components';\nWidget();\n",
+	})
+	cfg := rules.DefaultConfig()
+	cfg.UnusedEntries = []string{"src/build/startup/**"}
+
+	has := func(got []rules.Finding, sub string) bool {
+		for _, k := range ids(got) {
+			if strings.Contains(k, sub) {
+				return true
+			}
+		}
+		return false
+	}
+	before := evalUnused(toUnusedFiles(parseRepo(t, root)), cfg)
+	if !has(before, "WidgetContainer") {
+		t.Fatalf("precondition: without negation WidgetContainer is falsely unused, got %v", ids(before))
+	}
+
+	resolver.AddSkipPatterns([]string{"!src/build"})
+	after := evalUnused(toUnusedFiles(parseRepo(t, root)), cfg)
+	if has(after, "WidgetContainer") {
+		t.Errorf("with !src/build WidgetContainer must not be reported, got %v", ids(after))
+	}
+}

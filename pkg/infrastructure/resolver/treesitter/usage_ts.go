@@ -214,11 +214,13 @@ func (u *usageCollector) tsExport(n *gts.Node, bind map[string]tsBinding) {
 			return
 		}
 		if v := x.field(n, "value"); v != nil && x.typ(v) == "identifier" {
+			u.tsValue(x.text(v))
 			u.tsExportLocal(x.text(v), "default", bind)
 			return
 		}
 		// `export default bar` parses without a field in some grammars
 		if id := tsChildOfType(x, n, "identifier"); id != nil {
+			u.tsValue(x.text(id))
 			u.tsExportLocal(x.text(id), "default", bind)
 		}
 	}

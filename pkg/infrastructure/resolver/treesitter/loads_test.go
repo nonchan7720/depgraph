@@ -58,6 +58,15 @@ export function f() { return [value, ns.v, <Comp />, { short }, req]; }
 		"src/shorthand.ts#", "src/side.ts#", "src/value.ts#")
 }
 
+// A value imported only to be the default export is loaded too.
+func TestLoadsTypeScriptDefaultExport(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "package.json", `{"name": "app", "private": true}`)
+	writeFile(t, root, "src/x.ts", "export const v = 1;\n")
+	writeFile(t, root, "src/a.ts", "import { v } from './x';\nexport default v;\n")
+	wantLoads(t, usage(t, New(), root, "src/a.ts").Loads, "src/x.ts#")
+}
+
 // JavaScript has no types to erase: every import statement and require()
 // loads its module.
 func TestLoadsJavaScript(t *testing.T) {

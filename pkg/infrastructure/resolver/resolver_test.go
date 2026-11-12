@@ -98,3 +98,107 @@ func TestLoadIgnoreFileFromRoot(t *testing.T) {
 		t.Error("keep/x.go should not be skipped")
 	}
 }
+
+func TestNegationLiftsBuiltinSkipDir(t *testing.T) {
+	t.Cleanup(ResetSkipPatterns)
+	ResetSkipPatterns()
+	AddSkipPatterns([]string{"!src/build"})
+	if ShouldSkipDir("src/build", "build") {
+		t.Error("src/build should be re-included")
+	}
+	if !ShouldSkipDir("build", "build") {
+		t.Error("root build is still skipped")
+	}
+	if !ShouldSkipDir("other/build", "build") {
+		t.Error("other/build is still skipped")
+	}
+	// a negation matches the directory itself, not its descendants
+	if !ShouldSkipDir("src/build/node_modules", "node_modules") {
+		t.Error("src/build/node_modules must stay skipped")
+	}
+	if ShouldSkipPath("src/build/startup/register.tsx") {
+		t.Error("register.tsx under src/build should not be skipped")
+	}
+	if !ShouldSkipPath("src/build/node_modules/x.js") {
+		t.Error("node_modules under src/build should be skipped")
+	}
+	if !ShouldSkipPath("build/x.js") {
+		t.Error("root build should be skipped")
+	}
+}
+
+func TestNegationNameAndAnchored(t *testing.T) {
+	t.Cleanup(ResetSkipPatterns)
+	ResetSkipPatterns()
+	AddSkipPatterns([]string{"!build"})
+	if ShouldSkipDir("a/build", "build") || ShouldSkipDir("build", "build") {
+		t.Error("!build lifts every dir named build")
+	}
+	if !ShouldSkipDir("a/dist", "dist") {
+		t.Error("dist stays skipped")
+	}
+	ResetSkipPatterns()
+	AddSkipPatterns([]string{"!/build"})
+	if ShouldSkipDir("build", "build") {
+		t.Error("!/build lifts the root build")
+	}
+	if !ShouldSkipDir("a/build", "build") {
+		t.Error("!/build must not lift a/build")
+	}
+}
+
+func TestNegationOrderLastWins(t *testing.T) {
+	t.Cleanup(ResetSkipPatterns)
+	ResetSkipPatterns()
+	AddSkipPatterns([]string{"!src/build", "src/build"})
+	if !ShouldSkipDir("src/build", "build") {
+		t.Error("later positive pattern wins over earlier negation")
+	}
+	ResetSkipPatterns()
+	AddSkipPatterns([]string{"src/build", "!src/build"})
+	if ShouldSkipDir("src/build", "build") {
+		t.Error("later negation wins")
+	}
+}
+
+func TestNegationFilePattern(t *testing.T) {
+	t.Cleanup(ResetSkipPatterns)
+	ResetSkipPatterns()
+	AddSkipPatterns([]string{"*.gen.go", "!keep.gen.go"})
+	if !ShouldSkipPath("a/x.gen.go") {
+		t.Error("x.gen.go should be skipped")
+	}
+	if ShouldSkipPath("a/keep.gen.go") {
+		t.Error("keep.gen.go should be re-included")
+	}
+}
+
+func TestNegationDoubleStar(t *testing.T) {
+	t.Cleanup(ResetSkipPatterns)
+	ResetSkipPatterns()
+	AddSkipPatterns([]string{"!src/**/build"})
+	if ShouldSkipDir("src/a/b/build", "build") {
+		t.Error("src/a/b/build should be re-included")
+	}
+	if !ShouldSkipDir("src/a/b/build/node_modules", "node_modules") {
+		t.Error("node_modules under it stays skipped")
+	}
+}
+
+func TestNegationCannotReincludeUnderExcludedParent(t *testing.T) {
+	t.Cleanup(ResetSkipPatterns)
+	ResetSkipPatterns()
+	AddSkipPatterns([]string{"gen", "!gen/keep"})
+	if !ShouldSkipDir("gen", "gen") || !ShouldSkipPath("gen/keep/x.go") {
+		t.Error("a child of an excluded dir stays excluded (gitignore rule)")
+	}
+}
+
+func TestEscapedBang(t *testing.T) {
+	t.Cleanup(ResetSkipPatterns)
+	ResetSkipPatterns()
+	AddSkipPatterns([]string{`\!weird`})
+	if !ShouldSkipDir("!weird", "!weird") {
+		t.Error(`\! should match a literal leading !`)
+	}
+}

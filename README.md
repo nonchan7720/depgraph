@@ -233,6 +233,29 @@ Flags (see `depgraph <command> --help`):
 | `--fail-on` / `--timeout` | gate | `warn` / `60s` |
 | `--plugin-root` / `--to` / `--repo` / `--print` / `--remove` | codex install-hooks | `$PLUGIN_ROOT`, `$CLAUDE_PLUGIN_ROOT` or `.` / `$CODEX_HOME/hooks.json` / false / false / false |
 
+### Excluding paths: `.depgraphignore`
+
+One pattern per line, `#` comments. A pattern without `/` matches a file or directory name at any
+depth (`*.gen.go`, `tmp*`); with `/` it is a path from the root (`internal/ent`,
+`internal/**/testdata`); a leading `/` anchors it at the root. Excluded paths are not scanned.
+
+These directory names are always skipped, at any depth: `.git`, `node_modules`, `vendor`, `dist`,
+`build`, `.venv`, `venv`, `__pycache__`, `target`, `.next`, `.idea`, `.vscode`, `coverage`,
+`.cache`, `.worktrees`, `.claude`. When source lives in one of them (`src/build/startup/`), lift it
+with a `!` pattern, as in `.gitignore`:
+
+```
+!src/build     # only this directory (src/build/node_modules stays skipped)
+!build         # every directory named build
+!/build        # only the root build
+*.gen.go
+!keep.gen.go   # re-include a file an earlier pattern excluded
+```
+
+Patterns apply in order and the last match wins; the built-in names count as coming first. A `!`
+pattern matches the path itself, not what is below it. As in `.gitignore`, nothing inside an
+excluded directory can be re-included. `\!name` matches a literal leading `!`.
+
 ### CI
 
 `scan` and `check` exit 0 whatever they find, unless `--fail-on <error|warn|info>` is given: they

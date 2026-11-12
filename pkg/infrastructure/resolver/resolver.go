@@ -36,8 +36,14 @@ var SkipDirs = map[string]bool{
 	".worktrees": true, ".claude": true,
 }
 
-// extraPatterns are user-supplied exclusions (see AddSkipPatterns).
-var extraPatterns []string
+// skipRule is one user pattern; neg marks a "!pattern" re-inclusion.
+type skipRule struct {
+	pat string
+	neg bool
+}
+
+// extraPatterns are user-supplied rules in order (see AddSkipPatterns).
+var extraPatterns []skipRule
 
 // AddSkipPatterns registers additional exclusions. A pattern without a slash
 // matches a directory or file name anywhere (glob, e.g. "*.gen.go", "tmp*");
@@ -45,13 +51,32 @@ var extraPatterns []string
 // (e.g. "worktrees", "examples/legacy", "internal/**/testdata").
 // A leading slash anchors a single-segment pattern at the repo root ("/worktrees").
 // A trailing slash is ignored.
+//
+// A pattern starting with "!" is a negation (gitignore style): it re-includes
+// a directory or file that a built-in SkipDirs name or an earlier pattern
+// excluded ("!src/build" lifts only that directory, "!build" every directory
+// named build, "!/build" only the root one, "!keep.gen.go" after "*.gen.go").
+// Rules apply in order and the last matching one wins; SkipDirs act as if they
+// came before every pattern. A negation matches the path itself, never its
+// descendants, so "!src/build" leaves src/build/node_modules skipped. As in
+// gitignore, nothing under an excluded directory can be re-included. A leading
+// "\!" matches a literal "!".
 func AddSkipPatterns(patterns []string) {
 	for _, p := range patterns {
-		p = strings.TrimSpace(strings.TrimSuffix(filepath.ToSlash(p), "/"))
+		p = strings.TrimSpace(strings.TrimSuffix(filepath.ToSlash(strings.TrimSpace(p)), "/"))
 		if p == "" || strings.HasPrefix(p, "#") {
 			continue
 		}
-		extraPatterns = append(extraPatterns, p)
+		r := skipRule{pat: p}
+		if strings.HasPrefix(p, `\!`) {
+			r.pat = p[1:]
+		} else if after, ok := strings.CutPrefix(p, "!"); ok {
+			r.pat, r.neg = strings.TrimSpace(after), true
+		}
+		if r.pat == "" || r.pat == "/" {
+			continue
+		}
+		extraPatterns = append(extraPatterns, r)
 	}
 }
 
@@ -90,35 +115,41 @@ func LoadIgnoreFile(path string) error {
 }
 
 func matchPattern(pat, rel, name string) bool {
+	return matchRule(pat, rel, name, true)
+}
+
+// matchExact is matchPattern without descendant matching (for negations).
+func matchExact(pat, rel, name string) bool {
+	return matchRule(pat, rel, name, false)
+}
+
+func matchRule(pat, rel, name string, prefix bool) bool {
 	if after, ok := strings.CutPrefix(pat, "/"); ok { // leading slash: anchored at repo root
-		return matchPath(after, rel)
+		return matchPath(after, rel, prefix)
 	}
 	if strings.Contains(pat, "/") {
-		return matchPath(pat, rel)
+		return matchPath(pat, rel, prefix)
 	}
 	ok, _ := path.Match(pat, name)
 	return ok
 }
 
-func matchPath(pat, rel string) bool {
-	{
-		rel = strings.TrimPrefix(rel, "./")
-		if rel == pat || strings.HasPrefix(rel, pat+"/") {
-			return true
-		}
-		if ok, _ := path.Match(pat, rel); ok {
-			return true
-		}
-		// "a/**/b" style: match any depth
-		if strings.Contains(pat, "**") {
-			re := globToRegexp(pat)
-			return re.MatchString(rel)
-		}
-		return false
+func matchPath(pat, rel string, prefix bool) bool {
+	rel = strings.TrimPrefix(rel, "./")
+	if rel == pat || (prefix && strings.HasPrefix(rel, pat+"/")) {
+		return true
 	}
+	if ok, _ := path.Match(pat, rel); ok {
+		return true
+	}
+	// "a/**/b" style: match any depth
+	if strings.Contains(pat, "**") {
+		return globToRegexp(pat, prefix).MatchString(rel)
+	}
+	return false
 }
 
-func globToRegexp(pat string) *regexp.Regexp {
+func globToRegexp(pat string, descendants bool) *regexp.Regexp {
 	var b strings.Builder
 	b.WriteString("^")
 	for i := 0; i < len(pat); i++ {
@@ -137,22 +168,30 @@ func globToRegexp(pat string) *regexp.Regexp {
 			b.WriteString(regexp.QuoteMeta(string(pat[i])))
 		}
 	}
-	b.WriteString("(?:/.*)?$")
+	if descendants {
+		b.WriteString("(?:/.*)?")
+	}
+	b.WriteString("$")
 	return regexp.MustCompile(b.String())
+}
+
+// applyRules folds the user rules in order over the initial state.
+func applyRules(skipped bool, rel, name string) bool {
+	for _, r := range extraPatterns {
+		if r.neg {
+			if skipped && matchExact(r.pat, rel, name) {
+				skipped = false
+			}
+		} else if !skipped && matchPattern(r.pat, rel, name) {
+			skipped = true
+		}
+	}
+	return skipped
 }
 
 // ShouldSkipDir reports whether a directory (name, repo-relative path) is excluded.
 func ShouldSkipDir(rel, name string) bool {
-	if SkipDirs[name] {
-		return true
-	}
-	rel = filepath.ToSlash(rel)
-	for _, p := range extraPatterns {
-		if matchPattern(p, rel, name) {
-			return true
-		}
-	}
-	return false
+	return applyRules(SkipDirs[name], filepath.ToSlash(rel), name)
 }
 
 // ShouldSkipPath reports whether a repo-relative file path falls under an
@@ -174,10 +213,8 @@ func ShouldSkipPath(rel string) bool {
 			continue
 		}
 		// last component is the file itself: name/path patterns still apply
-		for _, p := range extraPatterns {
-			if matchPattern(p, cur, part) {
-				return true
-			}
+		if applyRules(false, cur, part) {
+			return true
 		}
 	}
 	return false

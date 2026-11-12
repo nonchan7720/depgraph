@@ -41,6 +41,30 @@ func TestEvaluateWideFunction(t *testing.T) {
 		{Path: "app/run_test.go", Package: "app", Language: graph.Go, Symbols: []graph.Symbol{fn("TestRun", 1)},
 			Usage: &graph.Usage{Scope: ".", Calls: []graph.FuncCalls{calls("TestRun", nil, "p1", "p2", "p3", "p4")}}},
 	}
+	// a function that builds what it needs from many packages wires them: a
+	// constructor (Go NewX, a class in TypeScript / Python) is not counted
+	ctor := func(pkg string) *graph.FileGraph {
+		return &graph.FileGraph{Path: pkg + "/x.go", Package: pkg, Language: graph.Go,
+			Symbols: []graph.Symbol{fn("New", 1), fn("NewClient", 3), fn("Do", 5)}, Usage: &graph.Usage{Scope: "."}}
+	}
+	news := graph.FuncCalls{Name: "NewApp", Line: 90}
+	mixed := graph.FuncCalls{Name: "Mixed", Line: 95}
+	for i, p := range []string{"c1", "c2", "c3", "c4"} {
+		files = append(files, ctor(p))
+		news.Calls = append(news.Calls, graph.Call{Target: p, Name: []string{"New", "NewClient"}[i%2]})
+		mixed.Calls = append(mixed.Calls, graph.Call{Target: p, Name: "New"}, graph.Call{Target: p, Name: "Do"})
+	}
+	files = append(files, &graph.FileGraph{Path: "app/wire.go", Package: "app", Language: graph.Go,
+		Symbols: []graph.Symbol{fn("NewApp", 90), fn("Mixed", 95)}, Usage: &graph.Usage{Scope: ".", Calls: []graph.FuncCalls{news, mixed}}})
+	cls := func(name string) graph.Symbol { return graph.Symbol{Name: name, Kind: "class", Exported: true} }
+	build := graph.FuncCalls{Name: "build", Line: 3}
+	for _, d := range []string{"a", "b", "c", "d"} {
+		files = append(files, &graph.FileGraph{Path: "src/" + d + "/svc.ts", Package: "src/" + d, Language: graph.TypeScript,
+			Symbols: []graph.Symbol{cls("Svc")}, Usage: &graph.Usage{Scope: "."}})
+		build.Calls = append(build.Calls, graph.Call{Target: "src/" + d + "/svc.ts", Name: "Svc"})
+	}
+	files = append(files, &graph.FileGraph{Path: "src/main.ts", Package: "src", Language: graph.TypeScript,
+		Symbols: []graph.Symbol{fn("build", 3)}, Usage: &graph.Usage{Scope: ".", Calls: []graph.FuncCalls{build}}})
 	upsertAll(ctx, t, st, key, files)
 	cfg := rules.DefaultConfig()
 	cfg.MaxCalledPackages = 3
@@ -52,7 +76,10 @@ func TestEvaluateWideFunction(t *testing.T) {
 	for _, f := range byRule(fs, rules.RuleWideFunction) {
 		got = append(got, f.Severity+" "+f.Message)
 	}
-	want := []string{"info app/run.go:10 Run calls functions of 4 packages (limit 3): p1, p2, p3, p4"}
+	want := []string{
+		"info app/run.go:10 Run calls functions of 4 packages (limit 3): p1, p2, p3, p4",
+		"info app/wire.go:95 Mixed calls functions of 4 packages (limit 3): c1, c2, c3, c4",
+	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("wide-function =\n %q, want\n %q", got, want)
 	}

@@ -12,6 +12,10 @@ import (
 // reason to change it. A linter counts lines and branches of one function;
 // how many packages it reaches only the whole project shows.
 //
+// Calls of constructors (Go NewX, a class in TypeScript / JavaScript and
+// Python) are not counted: a constructor or a composition root builds its
+// parts from many packages without depending on what they do.
+//
 // A function that is wide on purpose (the composition root that wires the
 // application) says so: `depgraph:ignore wide-function` in a comment on it.
 const RuleWideFunction = "wide-function"

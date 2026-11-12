@@ -129,10 +129,7 @@ func (r *Graph) query(ctx context.Context, cypher string, p map[string]any) ([]m
 
 // Clear deletes the project's graph data (the Project node is kept).
 func (r *Graph) Clear(ctx context.Context) error {
-	return r.run(ctx, `
-		MATCH (n) WHERE (n:Package OR n:File OR n:Symbol OR n:HookSession) AND n.project = $project
-		DETACH DELETE n
-	`, nil)
+	return DeleteProjectData(ctx, r.st, r.project)
 }
 
 // UpsertFile replaces a file's subgraph (file node, its symbols, its imports)

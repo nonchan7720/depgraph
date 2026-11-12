@@ -491,7 +491,8 @@ that supports [MCP Apps](https://modelcontextprotocol.io/extensions/apps) (Claud
 (Package {project, key, name, external})
 (File    {project, path, language, lines, updatedAt,
           scope, entry, internal, generated, uses, exports, keep,   # usage, for the unused-code rules
-          loads})                                                    # the files its imports load, for file-cycle
+          loads,                                                     # the files its imports load, for file-cycle
+          calls})                                                    # the functions its functions call, for function-cycle
 (Symbol  {project, name, kind, exported, line, endLine, language, file})
 
 (Package)-[:CONTAINS]->(File)-[:DECLARES]->(Symbol)
@@ -533,6 +534,7 @@ external, so it never shows up as a dependency. `watch` rescans when one of thes
 | `import-cycle` | error | import cycle between packages: for every import on a cycle of at most 8 packages, the shortest cycle through it (up to 50) |
 | `module-cycle` | error | import cycle between the modules of a monorepo (Go modules, npm workspace packages, Python projects, Ruby applications / gems / engines / packwerk packs: directories with `go.mod`, `package.json`, `pyproject.toml`, `setup.py`, `setup.cfg`, `Gemfile`, `*.gemspec` or `package.yml`, plus [components](#monorepos-components)) through directories that do not form a cycle themselves (`packages/web/src/a -> packages/kit/src -> packages/web/src/b`). One import is listed per hop; a cycle `import-cycle` already reports is not repeated |
 | `file-cycle` | warn | import cycle between the files of one directory (TypeScript / JavaScript and Python modules), which `import-cycle` cannot see because it compares directories: for every import on a cycle of at most 8 files, the shortest cycle through it (up to 50). Only imports that load the module count: not one that is only for types (`import type`, names used only as types, `if TYPE_CHECKING:`) and not `import()`. Go has no such cycles and Ruby constants refer to each other by design, so neither is checked |
+| `function-cycle` | info | Go functions declared in different files of a package that call each other in a cycle (`parse.go Parse -> expr.go expr -> parse.go Parse`): one piece of logic spread over files. Recursion inside one file is not reported, nor a cycle among the methods of one type (a type declared over several files is one unit). Calls are read from the syntax: `f()`, `pkg.F()` and, in a method, `recv.m()`; a call through a field, a parameter or an interface is not followed. In TypeScript / JavaScript and Python such a cycle needs imports, so it is a `file-cycle` or `import-cycle` already |
 | `layer-violation` | error | a package imports a layer it must not import (`handler → repository`, ... or your own layers). Layers may name external packages, so a domain that imports a framework is one too (see [Frameworks](#frameworks-external-packages-in-layers)) |
 | `concrete-dependency` | warn | a struct / class holds (field, constructor parameter) or builds an implementation of a layer it may use only through interfaces (`abstract:`), although that implementation satisfies an interface declared in the holder's package, its own package or the inner layer (see [Inside the layers](#inside-the-layers-dependency-inversion-and-leaking-types)) |
 | `type-leak` | warn | the API of a layer (parameters and results of exported functions / methods, exported fields) exposes a struct or class of a layer it may use only through interfaces (`abstract:`) |

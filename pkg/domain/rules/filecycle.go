@@ -32,6 +32,14 @@ const (
 // starting (and ending) at its smallest file, shortest first, at most
 // fileCycleLimit of them.
 func FileCycles(edges [][2]string) [][]string {
+	return shortestCycles(edges, func(_, _ string) bool { return true })
+}
+
+// shortestCycles returns, for every edge of the graph that through accepts
+// and that lies on a cycle of at most fileCycleMax nodes, the shortest cycle
+// through it: each cycle once, starting (and ending) at its smallest node,
+// shortest first, at most fileCycleLimit of them.
+func shortestCycles(edges [][2]string, through func(from, to string) bool) [][]string {
 	next := map[string][]string{}
 	for _, e := range edges {
 		if e[0] != e[1] && !slices.Contains(next[e[0]], e[1]) {
@@ -45,11 +53,14 @@ func FileCycles(edges [][2]string) [][]string {
 	var out [][]string
 	for _, from := range slices.Sorted(maps.Keys(next)) {
 		for _, to := range next[from] {
+			if !through(from, to) {
+				continue
+			}
 			back := shortestPath(next, to, from, fileCycleMax-1)
 			if back == nil {
 				continue
 			}
-			ring := rotateToSmallest(back) // to ... from: every file of the cycle once
+			ring := rotateToSmallest(back) // to ... from: every node of the cycle once
 			if id := strings.Join(ring, "\x00"); !seen[id] {
 				seen[id] = true
 				out = append(out, append(ring, ring[0]))

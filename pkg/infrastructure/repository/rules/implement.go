@@ -308,6 +308,15 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 		out = append(out, fc...)
 	}
 
+	// 1d. Cycles of calls between functions of different files (funccycle.go).
+	if cfg.Enabled(rules.RuleFunctionCycle) {
+		fc, err := r.functionCycles(ctx, cfg, ignore)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, fc...)
+	}
+
 	// 2. Layer violations: a in from, b in to, and the edge crosses the pair
 	// (a is not also in to, b is not also in from). The pairs of the root
 	// and of every component (components: packages/* expanded over the

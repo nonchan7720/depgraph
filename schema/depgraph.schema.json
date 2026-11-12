@@ -435,6 +435,27 @@
           },
           "type": "object"
         },
+        "pass-through": {
+          "additionalProperties": false,
+          "description": "a chain of two or more functions that only pass their parameters on to the next",
+          "properties": {
+            "enabled": {
+              "default": true,
+              "description": "false turns the rule off.",
+              "type": "boolean"
+            },
+            "severity": {
+              "default": "warn",
+              "description": "Severity of the rule's findings.",
+              "enum": [
+                "error",
+                "warn",
+                "info"
+              ]
+            }
+          },
+          "type": "object"
+        },
         "type-leak": {
           "additionalProperties": false,
           "description": "the API of a layer exposes a concrete type or data of a layer it must use only through an interface (abstract:)",

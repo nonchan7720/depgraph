@@ -12,6 +12,11 @@ import "strings"
 type FuncCalls struct {
 	Name  string `json:"name"`
 	Calls []Call `json:"calls,omitempty"`
+	// Forwards: the function only passes its parameters on: its body is one
+	// call (the only one of Calls) with exactly its parameters, in order,
+	// whose result it returns. Never a method (it may be there to satisfy an
+	// interface) or a class.
+	Forwards bool `json:"forwards,omitempty"`
 }
 
 // Call is one function called.
@@ -34,7 +39,11 @@ const callSep = "\x1e"
 // Encode returns f as one string (for list properties of the store).
 func (f FuncCalls) Encode() string {
 	parts := make([]string, 0, 1+len(f.Calls))
-	parts = append(parts, f.Name)
+	if f.Forwards {
+		parts = append(parts, f.Name+usesSep+"f")
+	} else {
+		parts = append(parts, f.Name)
+	}
 	for _, c := range f.Calls {
 		parts = append(parts, c.Target+usesSep+c.Name)
 	}
@@ -47,7 +56,8 @@ func DecodeFuncCalls(s string) (FuncCalls, bool) {
 	if len(parts) < 2 || parts[0] == "" {
 		return FuncCalls{}, false
 	}
-	f := FuncCalls{Name: parts[0]}
+	name, flag, _ := strings.Cut(parts[0], usesSep)
+	f := FuncCalls{Name: name, Forwards: flag == "f"}
 	for _, p := range parts[1:] {
 		target, name, ok := strings.Cut(p, usesSep)
 		if !ok || name == "" {

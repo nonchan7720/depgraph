@@ -158,10 +158,14 @@ class K:
 }
 
 func TestFuncCallsEncoding(t *testing.T) {
-	fc := graph.FuncCalls{Name: "T.A", Calls: []graph.Call{{Name: "other"}, {Target: "pkg/b", Name: "Do"}}}
-	got, ok := graph.DecodeFuncCalls(fc.Encode())
-	if !ok || !reflect.DeepEqual(got, fc) {
-		t.Errorf("round trip = %+v, %v", got, ok)
+	for _, fc := range []graph.FuncCalls{
+		{Name: "T.A", Calls: []graph.Call{{Name: "other"}, {Target: "pkg/b", Name: "Do"}}},
+		{Name: "Get", Forwards: true, Calls: []graph.Call{{Target: "pkg/b", Name: "Do"}}},
+	} {
+		got, ok := graph.DecodeFuncCalls(fc.Encode())
+		if !ok || !reflect.DeepEqual(got, fc) {
+			t.Errorf("round trip = %+v, %v", got, ok)
+		}
 	}
 	if _, ok := graph.DecodeFuncCalls("broken"); ok {
 		t.Error("a string without a separator decoded")

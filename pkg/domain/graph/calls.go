@@ -16,6 +16,11 @@ type FuncCalls struct {
 	Name  string `json:"name"`
 	Line  int    `json:"line,omitempty"`
 	Calls []Call `json:"calls,omitempty"`
+	// Refs are the names of the repository the function uses without
+	// calling them (types, values), as Call: with Calls, everything it
+	// depends on. For Go, Target "" is any name it uses unqualified that is
+	// not its own (the rules keep those the package declares).
+	Refs []Call `json:"refs,omitempty"`
 	// Forwards: the function only passes its parameters on: its body is one
 	// call (the only one of Calls) with exactly its parameters, in order,
 	// whose result it returns. Never a method (it may be there to satisfy an
@@ -55,6 +60,9 @@ func (f FuncCalls) Encode() string {
 	for _, c := range f.Calls {
 		parts = append(parts, c.Target+usesSep+c.Name)
 	}
+	for _, c := range f.Refs {
+		parts = append(parts, c.Target+usesSep+c.Name+usesSep+"r")
+	}
 	return strings.Join(parts, callSep)
 }
 
@@ -74,11 +82,16 @@ func DecodeFuncCalls(s string) (FuncCalls, bool) {
 	}
 	f.Line, _ = strconv.Atoi(head[3])
 	for _, p := range parts[1:] {
-		target, name, ok := strings.Cut(p, usesSep)
-		if !ok || name == "" {
+		fields := strings.Split(p, usesSep) // target, name [, "r" for a reference]
+		if len(fields) < 2 || fields[1] == "" {
 			return FuncCalls{}, false
 		}
-		f.Calls = append(f.Calls, Call{Target: target, Name: name})
+		c := Call{Target: fields[0], Name: fields[1]}
+		if len(fields) > 2 {
+			f.Refs = append(f.Refs, c)
+		} else {
+			f.Calls = append(f.Calls, c)
+		}
 	}
 	return f, true
 }

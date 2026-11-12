@@ -131,6 +131,17 @@
         "target": "src/db/index.ts"
       }
     ],
+    "calls": [
+      {
+        "name": "inc",
+        "line": 12,
+        "refs": [
+          {
+            "name": "counter"
+          }
+        ]
+      }
+    ],
     "declRefs": [
       {
         "name": "fs"

@@ -116,6 +116,8 @@ type ruleYAML struct {
 	Deferred *bool `yaml:"deferred"`
 	// wide-function
 	MaxPackages *int `yaml:"maxPackages"`
+	// misplaced-function
+	MinNames *int `yaml:"minNames"`
 }
 
 // Load reads root/.depgraph.yml and the .depgraph.yml files below it (a
@@ -445,6 +447,12 @@ func applyRule(c *rules.Config, name string, n yaml.Node) error {
 			return fmt.Errorf("rules.%s: maxPackages %d (want >= 1)", name, *ry.MaxPackages)
 		}
 		c.MaxCalledPackages = *ry.MaxPackages
+	}
+	if ry.MinNames != nil {
+		if *ry.MinNames < 1 {
+			return fmt.Errorf("rules.%s: minNames %d (want >= 1)", name, *ry.MinNames)
+		}
+		c.MinMisplacedNames = *ry.MinNames
 	}
 	if ry.Deferred != nil {
 		c.FileCycleDeferred = *ry.Deferred

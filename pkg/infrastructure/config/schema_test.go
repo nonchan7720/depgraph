@@ -172,6 +172,7 @@ rules:
   duplicate-code: {minTokens: 50, similarity: 0.8}
   file-cycle: {deferred: false}
   wide-function: {maxPackages: 8}
+  misplaced-function: {minNames: 3}
   duplicate-symbol: {enabled: false, ignore: [main]}
   unused-export: {ignore: ["pkg/api/**"]}
   unreachable-file: {entries: ["plugins/**"]}

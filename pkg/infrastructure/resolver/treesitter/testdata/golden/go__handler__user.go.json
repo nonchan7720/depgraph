@@ -218,6 +218,50 @@
         "name": "Repo"
       }
     ],
+    "calls": [
+      {
+        "name": "NewUserHandler",
+        "line": 34,
+        "refs": [
+          {
+            "name": "UserHandler"
+          }
+        ]
+      },
+      {
+        "name": "UserHandler.Get",
+        "line": 36,
+        "refs": [
+          {
+            "name": "UserHandler"
+          }
+        ]
+      },
+      {
+        "name": "UserHandler.name",
+        "line": 42,
+        "refs": [
+          {
+            "name": "Pi"
+          },
+          {
+            "name": "UserHandler"
+          }
+        ]
+      },
+      {
+        "name": "Map",
+        "line": 44,
+        "refs": [
+          {
+            "name": "T"
+          },
+          {
+            "name": "U"
+          }
+        ]
+      }
+    ],
     "decls": [
       "Alias",
       "Default",

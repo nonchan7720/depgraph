@@ -50,6 +50,27 @@
         "target": "src/ui/Button.tsx"
       }
     ],
+    "calls": [
+      {
+        "name": "C",
+        "line": 3,
+        "refs": [
+          {
+            "target": "src/ui/Button.tsx",
+            "name": "Button"
+          }
+        ]
+      },
+      {
+        "name": "D",
+        "line": 4,
+        "refs": [
+          {
+            "name": "C"
+          }
+        ]
+      }
+    ],
     "declRefs": [
       {
         "name": "C"

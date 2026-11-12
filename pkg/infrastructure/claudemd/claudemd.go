@@ -38,7 +38,7 @@ func Render(stats view.Stats, findings []rules.Finding) string {
 	b.WriteString("- Prefer fixing the violations below over adding new code that depends on them.\n\n")
 
 	byRule := map[string][]rules.Finding{}
-	order := []string{"import-cycle", rules.RuleModuleCycle, rules.RuleFileCycle, rules.RuleFunctionCycle, rules.RulePassThrough, rules.RuleWideFunction, "layer-violation", rules.RuleConcreteDependency, rules.RuleTypeLeak, "duplicate-code", "god-package", rules.RuleLowCohesion, "duplicate-symbol",
+	order := []string{"import-cycle", rules.RuleModuleCycle, rules.RuleFileCycle, rules.RuleFunctionCycle, rules.RulePassThrough, rules.RuleWideFunction, rules.RuleMisplacedFunction, "layer-violation", rules.RuleConcreteDependency, rules.RuleTypeLeak, "duplicate-code", "god-package", rules.RuleLowCohesion, "duplicate-symbol",
 		rules.RuleUnusedExport, rules.RuleUnreachableFile, rules.RuleUnreachablePackage, rules.RuleExternalUnclassified}
 	known := map[string]bool{}
 	for _, r := range order {
@@ -61,6 +61,7 @@ func Render(stats view.Stats, findings []rules.Finding) string {
 		rules.RuleFunctionCycle:        "Functions in different files that call each other in a cycle (keep the recursion in one file, or pass the step back in as a parameter)",
 		rules.RulePassThrough:          "Chains of functions that only pass their arguments on (call the function that does the work; do not add another wrapper)",
 		rules.RuleWideFunction:         "Functions that call into too many packages (split them by what they coordinate; a composition root says `depgraph:ignore wide-function`)",
+		rules.RuleMisplacedFunction:    "Functions that only use another package (move them there, unless the layer is intended)",
 		"layer-violation":              "Layer violations (must fix)",
 		"duplicate-code":               "Duplicated code (extract the shared logic and reuse it; do not add another copy)",
 		"god-package":                  "God packages (high fan-in; avoid adding more dependents)",

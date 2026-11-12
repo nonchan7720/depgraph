@@ -63,6 +63,8 @@ export function findingPackageKeys(f: Finding): string[] {
     case 'pass-through':
       // "file#function" per step
       return strs(d.functions).map((fn) => dirOf(fn.slice(0, fn.lastIndexOf('#'))));
+    case 'misplaced-function':
+      return [...strs([d.file]).map(dirOf), ...strs([d.package])];
     case 'wide-function':
       return [...strs([d.file]).map(dirOf), ...strs(d.packages)];
     case 'file-cycle':

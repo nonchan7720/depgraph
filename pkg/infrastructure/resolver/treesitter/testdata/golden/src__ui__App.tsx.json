@@ -97,6 +97,30 @@
         "target": "src/ui/Button.tsx"
       }
     ],
+    "calls": [
+      {
+        "name": "App",
+        "line": 9,
+        "refs": [
+          {
+            "name": "Props"
+          },
+          {
+            "target": "src/ui/Button.tsx",
+            "name": "Button"
+          }
+        ]
+      },
+      {
+        "name": "Page.render",
+        "line": 21,
+        "refs": [
+          {
+            "name": "App"
+          }
+        ]
+      }
+    ],
     "exports": [
       {
         "name": "default",

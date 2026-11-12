@@ -1,6 +1,6 @@
 ---
 name: fix
-description: Fix the debt depgraph reports (import-cycle, module-cycle, file-cycle, function-cycle, pass-through, wide-function, layer-violation, concrete-dependency, type-leak, duplicate-code, duplicate-symbol, god-package, low-cohesion, unused-export, unreachable-file, unreachable-package) the way the codebase needs, not by silencing the rule. Use when depgraph findings appear in the context (session start, a prompt, or a failing `depgraph gate`), or when the user asks to clean up what depgraph found.
+description: Fix the debt depgraph reports (import-cycle, module-cycle, file-cycle, function-cycle, pass-through, wide-function, misplaced-function, layer-violation, concrete-dependency, type-leak, duplicate-code, duplicate-symbol, god-package, low-cohesion, unused-export, unreachable-file, unreachable-package) the way the codebase needs, not by silencing the rule. Use when depgraph findings appear in the context (session start, a prompt, or a failing `depgraph gate`), or when the user asks to clean up what depgraph found.
 argument-hint: "[rule or finding]"
 ---
 

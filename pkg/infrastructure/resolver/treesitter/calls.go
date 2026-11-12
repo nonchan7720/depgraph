@@ -36,6 +36,7 @@ type pendingCalls struct {
 	name  string
 	line  int
 	calls []pendingCall
+	refs  []pendingCall // names used without calling them (refs.go)
 	// forwards: the caller's body is one call with exactly its parameters
 	// (forward.go)
 	forwards bool
@@ -43,13 +44,12 @@ type pendingCalls struct {
 	ignore []string
 }
 
-// funcCalls resolves the recorded calls.
+// funcCalls resolves the recorded calls and references.
 func (u *usageCollector) funcCalls(bySpec map[string]imports.Result, goBinds map[string]string) []graph.FuncCalls {
-	var out []graph.FuncCalls
-	for _, fc := range u.calls {
+	resolve := func(ps []pendingCall) []graph.Call {
 		seen := map[graph.Call]bool{}
-		var calls []graph.Call
-		for _, p := range fc.calls {
+		var out []graph.Call
+		for _, p := range ps {
 			c, ok := graph.Call{Name: p.name}, true
 			switch {
 			case p.q != "":
@@ -60,19 +60,25 @@ func (u *usageCollector) funcCalls(bySpec map[string]imports.Result, goBinds map
 			}
 			if ok && !seen[c] {
 				seen[c] = true
-				calls = append(calls, c)
+				out = append(out, c)
 			}
 		}
-		if len(calls) == 0 {
+		sort.Slice(out, func(i, j int) bool {
+			if out[i].Target != out[j].Target {
+				return out[i].Target < out[j].Target
+			}
+			return out[i].Name < out[j].Name
+		})
+		return out
+	}
+	var out []graph.FuncCalls
+	for _, fc := range u.calls {
+		calls, refs := resolve(fc.calls), resolve(fc.refs)
+		if len(calls) == 0 && len(refs) == 0 {
 			continue
 		}
-		sort.Slice(calls, func(i, j int) bool {
-			if calls[i].Target != calls[j].Target {
-				return calls[i].Target < calls[j].Target
-			}
-			return calls[i].Name < calls[j].Name
-		})
-		out = append(out, graph.FuncCalls{Name: fc.name, Line: fc.line, Calls: calls, Forwards: fc.forwards && len(calls) == 1, Ignore: fc.ignore})
+		out = append(out, graph.FuncCalls{Name: fc.name, Line: fc.line, Calls: calls, Refs: refs,
+			Forwards: fc.forwards && len(calls) == 1, Ignore: fc.ignore})
 	}
 	return out
 }
@@ -117,7 +123,8 @@ func (u *usageCollector) goFuncCalls(root *gts.Node) {
 			}
 			return true
 		})
-		if len(fc.calls) > 0 {
+		fc.refs = x.goRefs(n, local, recvVar)
+		if len(fc.calls) > 0 || len(fc.refs) > 0 {
 			u.calls = append(u.calls, fc)
 		}
 	}
@@ -221,7 +228,9 @@ func (u *usageCollector) declCalls(root *gts.Node) {
 			}
 		}
 	}
+	topAll := x.topLevelNames(root)
 	for _, d := range decls {
+		callees := map[[2]uint32]bool{} // the callee expressions: called, not referred to
 		fc := pendingCalls{name: d.name, line: int(d.node.StartPoint().Row) + 1,
 			forwards: !strings.Contains(d.name, ".") && x.forwards(d.node), ignore: x.ignoredRules(d.node)}
 		x.walk(d.node, func(c *gts.Node) bool {
@@ -233,13 +242,17 @@ func (u *usageCollector) declCalls(root *gts.Node) {
 				callee = x.field(c, "constructor")
 			}
 			if callee != nil {
-				if pc, ok := u.calleeOf(callee, top); ok && (pc.spec != "" || pc.name != d.name) { // not its own recursion
-					fc.calls = append(fc.calls, pc)
+				if pc, ok := u.calleeOf(callee, top); ok {
+					callees[nodeSpan(callee)] = true
+					if pc.spec != "" || pc.name != d.name { // not its own recursion
+						fc.calls = append(fc.calls, pc)
+					}
 				}
 			}
 			return true
 		})
-		if len(fc.calls) > 0 {
+		fc.refs = u.declRefsOf(d.node, d.name, topAll, callees)
+		if len(fc.calls) > 0 || len(fc.refs) > 0 {
 			u.calls = append(u.calls, fc)
 		}
 	}

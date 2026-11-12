@@ -144,6 +144,10 @@ type Config struct {
 	// MaxCalledPackages: the most packages of the repository a function
 	// may call into before wide-function reports it (0: the default).
 	MaxCalledPackages int
+	// MinMisplacedNames: how many names of one other package a function
+	// that uses nothing of its own must use for misplaced-function (0: the
+	// default).
+	MinMisplacedNames int
 	// Clones tunes duplicate-code.
 	Clones CloneOptions
 	// DefaultLayers: Layers are the built-in defaults, a guess from
@@ -195,6 +199,7 @@ func DefaultConfig() Config {
 		GodPackageFanIn:   10,
 		GodPackageFanOut:  3,
 		MaxCalledPackages: DefaultMaxCalledPackages,
+		MinMisplacedNames: DefaultMisplacedNames,
 		FileCycleDeferred: true,
 		Clones:            DefaultCloneOptions(),
 		IgnoreDuplicateNames: []string{
@@ -317,6 +322,9 @@ func (c Config) Validate() error {
 	}
 	if c.MaxCalledPackages < 0 {
 		return fmt.Errorf("rule %s: maxPackages must be at least 1, got %d", RuleWideFunction, c.MaxCalledPackages)
+	}
+	if c.MinMisplacedNames < 0 {
+		return fmt.Errorf("rule %s: minNames must be at least 1, got %d", RuleMisplacedFunction, c.MinMisplacedNames)
 	}
 	if c.GodPackageFanIn < 1 {
 		return fmt.Errorf("rule %s: fanIn must be at least 1, got %d", RuleGodPackage, c.GodPackageFanIn)

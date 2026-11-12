@@ -23,6 +23,9 @@ type callGraph struct {
 	// declaration ("default" -> "render").
 	exports map[funcKey]string
 	files   map[string]bool
+	// goDecls: the package-level names a Go package declares (functions,
+	// types, variables, constants), by package directory.
+	goDecls map[funcKey]bool
 }
 
 // funcKey is a name in a place: a Go package directory or a file.
@@ -42,18 +45,22 @@ func (r *Repository) callGraph(ctx context.Context, ignore []string) (*callGraph
 		  AND f.language IN ['go', 'typescript', 'javascript', 'python']
 		OPTIONAL MATCH (f)-[:DECLARES]->(s:Symbol) WHERE s.kind IN ['function', 'method', 'class']
 		WITH p, f, collect({name: s.name, receiver: s.receiver}) AS syms
-		RETURN p.key AS pkg, f.path AS file, f.language AS lang, f.calls AS calls, f.exports AS exports, syms
+		RETURN p.key AS pkg, f.path AS file, f.language AS lang, f.calls AS calls, f.exports AS exports, f.decls AS decls, syms
 	`, ignore, nil)
 	if err != nil {
 		return nil, fmt.Errorf("call graph: %w", err)
 	}
-	g := &callGraph{goFuncs: map[funcKey][]string{}, fileFuncs: map[funcKey]bool{}, exports: map[funcKey]string{}, files: map[string]bool{}}
+	g := &callGraph{goFuncs: map[funcKey][]string{}, fileFuncs: map[funcKey]bool{}, exports: map[funcKey]string{}, files: map[string]bool{},
+		goDecls: map[funcKey]bool{}}
 	for _, row := range rows {
 		pkg, file, lang := fmt.Sprint(row["pkg"]), fmt.Sprint(row["file"]), fmt.Sprint(row["lang"])
 		if rules.IsTestFile(file) {
 			continue
 		}
 		g.files[file] = true
+		for _, d := range toStrings(row["decls"]) {
+			g.goDecls[funcKey{pkg, d}] = true
+		}
 		syms, _ := row["syms"].([]any)
 		for _, x := range syms {
 			s, _ := x.(map[string]any)
@@ -134,4 +141,26 @@ func (g *callGraph) pythonCallee(call graph.Call) (file, name string) {
 		}
 	}
 	return path.Join(call.Target, "__init__.py"), first
+}
+
+// used is where the name a call or reference of c names is declared: the
+// package (directory) and the name in it; ok is false when it is nothing
+// the project declares.
+func (g *callGraph) used(c caller, ref graph.Call) (pkg, name string, ok bool) {
+	if c.lang == string(graph.Go) {
+		dir := ref.Target
+		if dir == "" {
+			dir = c.pkg
+		}
+		recv, _, _ := strings.Cut(ref.Name, ".") // T.m: a method of the caller's receiver type
+		return dir, ref.Name, g.goDecls[funcKey{dir, recv}]
+	}
+	if ref.Target == "" {
+		return path.Dir(c.file), ref.Name, true
+	}
+	file, name := ref.Target, ref.Name
+	if c.lang == string(graph.Python) {
+		file, name = g.pythonCallee(ref)
+	}
+	return path.Dir(file), name, g.files[file]
 }

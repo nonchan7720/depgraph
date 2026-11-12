@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.12](https://github.com/nonchan7720/depgraph/compare/v0.1.11...v0.1.12) (2026-11-12)
+
+
+### Bug Fixes
+
+* lift built-in skipped directories with negation patterns in .depgraphignore ([#83](https://github.com/nonchan7720/depgraph/issues/83)) ([8f76f32](https://github.com/nonchan7720/depgraph/commit/8f76f32823e06e8ad43f01c1bb6b4c1eba3e2add))
+
 ## [0.1.11](https://github.com/nonchan7720/depgraph/compare/v0.1.10...v0.1.11) (2026-11-09)
 
 

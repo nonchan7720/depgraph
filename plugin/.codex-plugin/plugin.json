@@ -1,6 +1,6 @@
 {
   "name": "depgraph",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "description": "Codex hooks that add depgraph's findings (unused code, duplicated logic, import cycles, layer violations) to the context, and skills to set depgraph up in a project and to fix what it reports. Installs the depgraph binary of its version from the GitHub release (sha256-verified) when it is not cached.",
   "author": {
     "name": "nonchan7720"

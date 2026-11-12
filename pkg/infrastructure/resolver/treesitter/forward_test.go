@@ -87,12 +87,13 @@ export function a(x: number, y?: string) {
 export const b = (x: number, y = 'd') => k(x, y);
 export const viaAwait = async (...xs: number[]) => { return await rest(...xs); };
 function rest(...xs: number[]) { return xs; }
+export const bare = x => rest(x);
 export function changes(x: number) { return k(x + 1); }
 export function picks(o: { x: number }) { return k(o.x); }
 export function two(x: number) { k(x); return rest(x); }
 export class K { m(x: number) { return k(x); } }
 `)
-	wantForwarders(t, forwardersOf(t, root, "src/a.ts"), "a>#b", "b>src/c.ts#k", "viaAwait>#rest")
+	wantForwarders(t, forwardersOf(t, root, "src/a.ts"), "a>#b", "b>src/c.ts#k", "bare>#rest", "viaAwait>#rest")
 }
 
 // Python: a docstring does not count as a statement; *args / **kwargs and

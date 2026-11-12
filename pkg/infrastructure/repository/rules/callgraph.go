@@ -120,18 +120,18 @@ func (g *callGraph) callees(c caller, call graph.Call) []rules.FuncNode {
 
 // pythonCallee is the module file and the name in it a Python call names:
 // Target is a module file, or a package directory whose first name is a
-// submodule ("services.show" of app: show of app/services.py) or a name of
-// its __init__.py.
+// submodule ("services.show" of app: show of app/services.py) or else a
+// name of its __init__.py.
 func (g *callGraph) pythonCallee(call graph.Call) (file, name string) {
-	if g.files[call.Target] {
-		name, _, _ = strings.Cut(call.Name, ".")
-		return call.Target, name
-	}
-	file = loadedFile(g.files, graph.Use{Target: call.Target, Name: call.Name})
 	first, rest, _ := strings.Cut(call.Name, ".")
-	if path.Base(file) == "__init__.py" && path.Dir(file) == call.Target {
-		return file, first // a name of the package itself
+	if g.files[call.Target] {
+		return call.Target, first
 	}
-	name, _, _ = strings.Cut(rest, ".")
-	return file, name
+	for _, mod := range []string{first + ".py", first + "/__init__.py"} {
+		if p := path.Join(call.Target, mod); g.files[p] {
+			name, _, _ = strings.Cut(rest, ".")
+			return p, name
+		}
+	}
+	return path.Join(call.Target, "__init__.py"), first
 }

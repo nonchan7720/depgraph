@@ -27,7 +27,11 @@ func (x *extractor) forwards(n *gts.Node) bool {
 	if fn == nil {
 		return false
 	}
-	params, ok := x.paramNames(x.field(fn, "parameters"))
+	ps := x.field(fn, "parameters")
+	if ps == nil {
+		ps = x.field(fn, "parameter") // x => f(x)
+	}
+	params, ok := x.paramNames(ps)
 	if !ok {
 		return false
 	}
@@ -61,12 +65,12 @@ func (x *extractor) functionOf(n *gts.Node) *gts.Node {
 	return nil
 }
 
-// paramNames are the names of a parameter list, in order; ok is false when
-// a parameter has no single name. An arrow function with one bare
-// parameter has no list: ps is that identifier.
+// paramNames are the names of a parameter list, in order (none for nil:
+// no parameters); ok is false when a parameter has no single name. An arrow
+// function with one bare parameter has no list: ps is that identifier.
 func (x *extractor) paramNames(ps *gts.Node) (names []string, ok bool) {
 	if ps == nil {
-		return nil, true // func() / def f(): no parameters... or `x => f(x)` handled by the caller's field
+		return nil, true
 	}
 	if x.typ(ps) == "identifier" {
 		return []string{x.text(ps)}, true

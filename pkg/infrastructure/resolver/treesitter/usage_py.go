@@ -37,11 +37,11 @@ func (u *usageCollector) pyFile(root *gts.Node) {
 	x.walk(root, func(n *gts.Node) bool {
 		switch x.typ(n) {
 		case "import_statement":
-			u.pyDeferred = x.pyTypeChecking(n)
+			u.pyTypeOnly, u.pyInFunc = x.pyTypeChecking(n), x.pyInFunction(n)
 			u.pyImport(n, bind)
 			return false
 		case "import_from_statement":
-			u.pyDeferred = x.pyTypeChecking(n)
+			u.pyTypeOnly, u.pyInFunc = x.pyTypeChecking(n), x.pyInFunction(n)
 			u.pyImportFrom(n, bind)
 			return false
 		}

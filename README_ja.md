@@ -504,7 +504,7 @@ import は各エコシステム自身の解決方法で、プロジェクトの�
 |---|---|---|
 | `import-cycle` | error | パッケージ間の循環 import。8 パッケージ以下の循環に乗る import ごとに、それを通る最短の循環（最大 50 件） |
 | `module-cycle` | error | モノレポのモジュール間の import 循環（Go モジュール・npm のワークスペースパッケージ・Python プロジェクト・Ruby のアプリケーション / gem / engine / packwerk の pack。`go.mod`・`package.json`・`pyproject.toml`・`setup.py`・`setup.cfg`・`Gemfile`・`*.gemspec`・`package.yml` のあるディレクトリと[コンポーネント](#モノレポcomponents)）。ディレクトリ同士では循環にならないもの（`packages/web/src/a -> packages/kit/src -> packages/web/src/b`）も検出します。1 ホップごとに import を 1 つ示し、`import-cycle` が報告済みの循環は重ねて報告しません |
-| `file-cycle` | warn | 1 つのディレクトリ内のファイル同士の循環 import（TypeScript / JavaScript と Python のモジュール）。`import-cycle` はディレクトリ同士を比べるので、これは見えません。8 ファイル以下の循環に乗る import ごとに、それを通る最短の循環（最大 50 件）を報告します。数えるのはモジュールを読み込む import だけで、型のためだけの import（`import type`、型としてしか使われない名前、`if TYPE_CHECKING:`）と `import()` は数えません。Go にはこの循環がなく、Ruby の定数は互いに参照し合うのが普通なので、どちらも対象外です |
+| `file-cycle` | warn | 1 つのディレクトリ内のファイル同士の循環 import（TypeScript / JavaScript と Python のモジュール）。`import-cycle` はディレクトリ同士を比べるので、これは見えません。8 ファイル以下の循環に乗る import ごとに、それを通る最短の循環（最大 50 件）を報告します。数えるのはモジュールを読み込む import だけで、型のためだけの import（`import type`、型としてしか使われない名前、`if TYPE_CHECKING:`）と `import()` は数えません。Python で、関数の中の import によってだけ閉じる循環は、そのファイルが隠している循環として報告します（遅延 import は循環を隠すだけで、なくしません）。`deferred: false` でこれを報告しないようにできます。Go にはこの循環がなく、Ruby の定数は互いに参照し合うのが普通なので、どちらも対象外です |
 | `layer-violation` | error | import してはいけないレイヤーを import している（`handler → repository` など、または独自レイヤー）。レイヤーには外部パッケージも書けるので、フレームワークを import するドメインも違反になる（[フレームワーク](#フレームワークレイヤーに外部パッケージ)参照） |
 | `concrete-dependency` | warn | インターフェース経由でしか使ってはいけないレイヤー（`abstract:`）の実装を、struct / class が保持（フィールド・コンストラクタ引数）または生成している。しかもその実装は、保持側のパッケージ・実装自身のパッケージ・内側のレイヤーで宣言されたインターフェースを満たしている（[レイヤーの内側](#レイヤーの内側依存性逆転と型の漏洩)参照） |
 | `type-leak` | warn | レイヤーの API（公開関数・メソッドの引数と戻り値、公開フィールド）が、インターフェース経由でしか使ってはいけないレイヤー（`abstract:`）の struct / class を露出している |
@@ -575,6 +575,7 @@ rules:                      # ルールごと: enabled、severity（error | warn
   god-package: {severity: warn, fanIn: 10, fanOut: 3}
   duplicate-symbol: {enabled: false}
   duplicate-code: {minTokens: 50, similarity: 0.8}   # 本体の大きさと指紋の類似度
+  file-cycle: {deferred: true}                       # 関数内 import で隠れた循環（Python）も報告する
   # duplicate-symbol: {ignore: [main, New, "Test*", "*Handler"]}  # 対象外の名前（デフォルトを置き換える）
   unused-export: {ignore: ["pkg/api/**"]}            # 報告しないパス（ライブラリの公開 API など）
   unreachable-file: {entries: ["plugins/**"]}       # depgraph から見えないエントリポイント

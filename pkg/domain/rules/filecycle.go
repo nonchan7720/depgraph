@@ -16,7 +16,8 @@ const RuleFileCycle = "file-cycle"
 
 func init() {
 	builtin = append(builtin, Rule{Name: RuleFileCycle, Severity: SeverityWarn,
-		Description: "import cycle between the files of one directory (TypeScript / JavaScript, Python)"})
+		Description: "import cycle between the files of one directory (TypeScript / JavaScript, Python)",
+		Options:     []string{"deferred"}})
 }
 
 const (
@@ -32,6 +33,14 @@ const (
 // starting (and ending) at its smallest file, shortest first, at most
 // fileCycleLimit of them.
 func FileCycles(edges [][2]string) [][]string {
+	return shortestCycles(edges, func(_, _ string) bool { return true })
+}
+
+// shortestCycles returns, for every edge of the graph that through accepts
+// and that lies on a cycle of at most fileCycleMax nodes, the shortest cycle
+// through it: each cycle once, starting (and ending) at its smallest node,
+// shortest first, at most fileCycleLimit of them.
+func shortestCycles(edges [][2]string, through func(from, to string) bool) [][]string {
 	next := map[string][]string{}
 	for _, e := range edges {
 		if e[0] != e[1] && !slices.Contains(next[e[0]], e[1]) {
@@ -45,11 +54,14 @@ func FileCycles(edges [][2]string) [][]string {
 	var out [][]string
 	for _, from := range slices.Sorted(maps.Keys(next)) {
 		for _, to := range next[from] {
+			if !through(from, to) {
+				continue
+			}
 			back := shortestPath(next, to, from, fileCycleMax-1)
 			if back == nil {
 				continue
 			}
-			ring := rotateToSmallest(back) // to ... from: every file of the cycle once
+			ring := rotateToSmallest(back) // to ... from: every node of the cycle once
 			if id := strings.Join(ring, "\x00"); !seen[id] {
 				seen[id] = true
 				out = append(out, append(ring, ring[0]))
@@ -111,6 +123,62 @@ func rotateToSmallest(ring []string) []string {
 		}
 	}
 	return append(append([]string(nil), ring[s:]...), ring[:s]...)
+}
+
+// FileLoad is one edge of file-cycle: From loads To. Deferred: only when a
+// function of From runs (an import inside a function).
+type FileLoad struct {
+	From, To string
+	Deferred bool
+}
+
+// FileCycleFindings reports the cycles of loads: first those that exist
+// when the files are loaded, then (with deferred) those that only close
+// through a deferred import, which name the files that hide them.
+func FileCycleFindings(loads []FileLoad, deferred bool) []Finding {
+	var eager, all [][2]string
+	lazy := map[[2]string]bool{}
+	for _, l := range loads {
+		e := [2]string{l.From, l.To}
+		if !l.Deferred {
+			eager = append(eager, e)
+		}
+		all = append(all, e)
+	}
+	isEager := map[[2]string]bool{}
+	for _, e := range eager {
+		isEager[e] = true
+	}
+	for _, l := range loads {
+		if e := [2]string{l.From, l.To}; l.Deferred && !isEager[e] {
+			lazy[e] = true
+		}
+	}
+	var out []Finding
+	for _, cyc := range FileCycles(eager) {
+		out = append(out, FileCycle(cyc))
+	}
+	if !deferred || len(lazy) == 0 {
+		return out
+	}
+	hidden := shortestCycles(all, func(from, to string) bool { return lazy[[2]string{from, to}] })
+	for _, cyc := range hidden {
+		var by []string
+		for i := 0; i+1 < len(cyc); i++ {
+			if lazy[[2]string{cyc[i], cyc[i+1]}] && !slices.Contains(by, cyc[i]) {
+				by = append(by, cyc[i])
+			}
+		}
+		sort.Strings(by)
+		f := FileCycle(cyc)
+		f.Message += " (hidden by an import inside a function of " + strings.Join(by, ", ") + ")"
+		f.Data["deferred"] = by
+		out = append(out, f)
+	}
+	if len(out) > fileCycleLimit {
+		out = out[:fileCycleLimit]
+	}
+	return out
 }
 
 // FileCycle reports the cycle files (the first file repeated at the end).

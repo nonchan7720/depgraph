@@ -1,6 +1,7 @@
 package treesitter
 
 import (
+	"sort"
 	"strings"
 
 	gts "github.com/odvcencio/gotreesitter"
@@ -18,7 +19,8 @@ import (
 //     whose names is used as a value (the compiler drops it); `export type`
 //   - TypeScript / JavaScript: import() (require() does load)
 //   - Python: an import under `if TYPE_CHECKING:`. An import inside a
-//     function counts: that is how a cycle is hidden, not removed
+//     function counts, marked graph.LoadDeferred: that is how a cycle is
+//     hidden, not removed
 //   - a path or module name in a string
 
 // load records that the file loads spec (name: the name a Python
@@ -34,10 +36,20 @@ func (u *usageCollector) loadUses(bySpec map[string]imports.Result) []graph.Use 
 	var out []graph.Use
 	for _, p := range u.loads {
 		if res, ok := bySpec[p.spec]; ok && res.Kind == imports.InRepo && res.File != "" {
-			out = append(out, graph.Use{Target: strings.TrimSuffix(res.File, "/"), Name: p.name})
+			out = append(out, graph.Use{Target: strings.TrimSuffix(res.File, "/"), Name: p.name, As: p.as})
 		}
 	}
-	return dedupUses(out)
+	// the same module loaded at the top and again inside a function is loaded
+	sort.SliceStable(out, func(i, j int) bool { return out[i].As < out[j].As })
+	seen := map[[2]string]bool{}
+	kept := out[:0]
+	for _, l := range out {
+		if k := [2]string{l.Target, l.Name}; !seen[k] {
+			seen[k] = true
+			kept = append(kept, l)
+		}
+	}
+	return dedupUses(kept)
 }
 
 // tsValue records that the local name is used as a value: when an import
@@ -98,9 +110,24 @@ func (u *usageCollector) tsLoads(root *gts.Node) {
 // pyLoad records an import statement's load, unless the statement is under
 // `if TYPE_CHECKING:`.
 func (u *usageCollector) pyLoad(spec, name string) {
-	if !u.pyDeferred {
-		u.load(spec, name)
+	if u.pyTypeOnly || spec == "" {
+		return
 	}
+	l := pendingUse{spec: spec, name: name}
+	if u.pyInFunc {
+		l.as = graph.LoadDeferred
+	}
+	u.loads = append(u.loads, l)
+}
+
+// pyInFunction reports whether n is inside a function or method body.
+func (x *extractor) pyInFunction(n *gts.Node) bool {
+	for p := n.Parent(); p != nil; p = p.Parent() {
+		if x.typ(p) == "function_definition" {
+			return true
+		}
+	}
+	return false
 }
 
 // pyTypeChecking reports whether n is in the body of an

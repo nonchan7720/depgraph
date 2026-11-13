@@ -536,6 +536,7 @@ import は各エコシステム自身の解決方法で、プロジェクトの�
 | `duplicate-code` | warn | 名前に関係なく、同じロジックが複数箇所にある（完全に同じ、または少し手を加えた複製。下記） |
 | `god-package` | warn | ハブ：10 パッケージ以上から import され、かつリポジトリ内の 3 パッケージ以上を import している。多くから依存されてもリポジトリ内の何にも依存しないパッケージ（ドメインモデルなど）は安定しており、god package ではない（安定依存の原則） |
 | `low-cohesion` | info | Go のパッケージ（ファイル単位）や TypeScript / Python のモジュール（トップレベルの宣言単位）が、内部で何もつながっていない部分に分かれ、しかも部分ごとに使う側が別（2 つの部分を使う側が無い）：1 か所に複数の責務がある。サイズの上限は linter の仕事で、誰がどの部分を使うかはプロジェクト全体を見て初めて分かる。テスト・生成ファイル・エントリポイント・まるごと使われる単位（dot import、`export *`、値として使われる名前空間）・データだけの単位（利用側ごとに 1 つずつ使われるエンティティ / DTO：振る舞いの無い型、データクラス、定数、コンストラクタ）は対象外 |
+| `wide-function` | info | リポジトリ内の `maxPackages`（デフォルト 8）を超える数のパッケージの関数を呼んでいる関数・メソッド（自パッケージは数えません）。プロジェクトのことを知りすぎていて、単独で変更もテストもできない関数です。コンストラクターの呼び出し（Go の `NewX`、`new C()`、Python のクラス生成）は数えません。多くのパッケージから部品を組み立てるのは配線であって、その振る舞いを知っていることにはならないためです。呼び出しは `function-cycle` と同じ方法で Go・TypeScript / JavaScript・Python について読みます。意図して広い関数（コンポジションルート）はコメントで対象外にできます（[関数を対象外にする](#関数を対象外にする-depgraphignore)）。テストコードは対象外です |
 | `duplicate-symbol` | warn | 同名の exported function/class が複数ファイルに存在（1 つの Go パッケージのファイルは 1 か所と数える。同名が両立するのは build constraint で分けたときだけのため。Ruby は対象外: クラスの再オープンは Ruby の拡張方法そのもの） |
 | `unused-export` | warn | プロジェクト内の誰も（自ファイルでさえ）使っていない export（Go: main 以外のパッケージの exported な関数と型。メソッドは対象外 / TS・JS: `export` された宣言。re-export・barrel を辿る / Python: モジュール直下の public な関数とクラス / Ruby: クラス、中身のあるモジュール、`Struct.new` / `Class.new` の定数。メソッドは対象外） |
 | `unreachable-file` | warn | どのエントリポイントからも import で辿れない TS/JS/Python/Ruby ファイル。誰も import していないファイルごとに 1 件で、そのファイル経由でしか辿れないファイルを併記 |
@@ -600,6 +601,7 @@ rules:                      # ルールごと: enabled、severity（error | warn
   god-package: {severity: warn, fanIn: 10, fanOut: 3}
   duplicate-symbol: {enabled: false}
   duplicate-code: {minTokens: 50, similarity: 0.8}   # 本体の大きさと指紋の類似度
+  wide-function: {maxPackages: 8}                    # 1 つの関数が呼び出してよいパッケージ数の上限
   file-cycle: {deferred: true}                       # 関数内 import で隠れた循環（Python）も報告する
   # duplicate-symbol: {ignore: [main, New, "Test*", "*Handler"]}  # 対象外の名前（デフォルトを置き換える）
   unused-export: {ignore: ["pkg/api/**"]}            # 報告しないパス（ライブラリの公開 API など）
@@ -636,6 +638,26 @@ store:                      # Neo4j の用意の仕方（Neo4j 参照）。フ�
 `controller → repository / db`、`domain → infra / handler / repository`、`usecase → handler`、
 abstract ペア `usecase → infra / db` です。
 このリポジトリ自身の [`.depgraph.yml`](.depgraph.yml) が例になります。
+
+### 関数を対象外にする (`depgraph:ignore`)
+
+意図どおりの関数単位の指摘は、その関数のある場所で、理由と一緒に対象外にします。関数の直前（空行を挟まない）か関数の中のコメントに `depgraph:ignore <rule> [<rule>...]` と書きます。ルール名の後ろの文は読む人向けです。
+
+```go
+// Wire はアプリケーションを組み立てる。
+//
+// depgraph:ignore wide-function (コンポジションルート: 全パッケージを意図して配線している)
+func Wire(cfg Config) (*App, error) { ... }
+```
+
+```python
+# depgraph:ignore wide-function, pass-through
+def create_app(settings): ...
+```
+
+- 対象のルールは `wide-function` と `pass-through`（連鎖の先頭の関数）です。その他のルールはパッケージ・ファイル・使われていない宣言を報告するもので、`.depgraph.yml` で設定します。
+- ルール名のないコメントは何も対象外にしません。何を無視したかは必ず書き残します。
+- Go・TypeScript / JavaScript・Python で、ファイルと一緒に読み込まれます。
 
 ### フレームワーク：レイヤーに外部パッケージ
 

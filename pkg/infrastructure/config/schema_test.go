@@ -171,6 +171,7 @@ rules:
   god-package: {severity: warn, fanIn: 10, fanOut: 3}
   duplicate-code: {minTokens: 50, similarity: 0.8}
   file-cycle: {deferred: false}
+  wide-function: {maxPackages: 8}
   duplicate-symbol: {enabled: false, ignore: [main]}
   unused-export: {ignore: ["pkg/api/**"]}
   unreachable-file: {entries: ["plugins/**"]}

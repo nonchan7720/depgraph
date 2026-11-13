@@ -310,7 +310,7 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 
 	// 1d. The function-level call graph (callgraph.go): cycles of calls
 	// across files and chains of functions that only forward (callrules.go).
-	if cfg.Enabled(rules.RuleFunctionCycle) || cfg.Enabled(rules.RulePassThrough) {
+	if cfg.Enabled(rules.RuleFunctionCycle) || cfg.Enabled(rules.RulePassThrough) || cfg.Enabled(rules.RuleWideFunction) {
 		g, err := r.callGraph(ctx, ignore)
 		if err != nil {
 			return nil, err
@@ -320,6 +320,9 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 		}
 		if cfg.Enabled(rules.RulePassThrough) {
 			out = append(out, passThrough(g, cfg)...)
+		}
+		if cfg.Enabled(rules.RuleWideFunction) {
+			out = append(out, wideFunctions(g, cfg)...)
 		}
 	}
 

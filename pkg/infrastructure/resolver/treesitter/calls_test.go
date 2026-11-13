@@ -79,6 +79,11 @@ func Generic[V any](v V) { helper() }
 		"T.A":     {"#T.B", "#T.f", "#other"},
 		"Generic": {"#helper"},
 	})
+	for _, fc := range usage(t, New(), root, "a/a.go").Calls {
+		if want := map[string]int{"Run": 10, "T.A": 23, "Generic": 36}[fc.Name]; fc.Line != want {
+			t.Errorf("%s: line %d, want %d", fc.Name, fc.Line, want)
+		}
+	}
 }
 
 // TypeScript: calls and `new` of the file's own declarations and of what
@@ -106,16 +111,24 @@ export function f() {
 function local() { f(); }
 export const arrow = () => local();
 export class K {
+  static make() { return new K(); }
   m() { g(); this.m(); }
+  n = () => local();
 }
 const value = g();
 `)
 	wantCalls(t, callsOf(t, root, "src/a.ts"), map[string][]string{
-		"f":     {"#local", "src/b.ts#g", "src/b.ts#h", "src/c.ts#k", "src/d.ts#default"},
-		"local": {"#f"},
-		"arrow": {"#local"},
-		"K":     {"src/b.ts#g"},
+		"f":      {"#local", "src/b.ts#g", "src/b.ts#h", "src/c.ts#k", "src/d.ts#default"},
+		"local":  {"#f"},
+		"arrow":  {"#local"},
+		"K.make": {"#K"},
+		"K.m":    {"src/b.ts#g"},
 	})
+	for _, fc := range usage(t, New(), root, "src/a.ts").Calls {
+		if want := map[string]int{"f": 6, "local": 15, "arrow": 16, "K.make": 18, "K.m": 19}[fc.Name]; fc.Line != want {
+			t.Errorf("%s: line %d, want %d", fc.Name, fc.Line, want)
+		}
+	}
 }
 
 // Python: calls of the module's own functions and classes, of imported
@@ -146,14 +159,21 @@ def local():
 
 
 class K:
+    limit = hh()
+
     def m(self):
         g()
         self.m()
+
+    @staticmethod
+    def make():
+        return K()
 `)
 	wantCalls(t, callsOf(t, root, "app/a.py"), map[string][]string{
-		"f":     {"#K", "#local", "app#c.k", "app/b.py#g", "app/b.py#h", "app/d.py#run"},
-		"local": {"#f"},
-		"K":     {"app/b.py#g"},
+		"f":      {"#K", "#local", "app#c.k", "app/b.py#g", "app/b.py#h", "app/d.py#run"},
+		"local":  {"#f"},
+		"K.m":    {"app/b.py#g"},
+		"K.make": {"#K"},
 	})
 }
 
@@ -161,6 +181,9 @@ func TestFuncCallsEncoding(t *testing.T) {
 	for _, fc := range []graph.FuncCalls{
 		{Name: "T.A", Calls: []graph.Call{{Name: "other"}, {Target: "pkg/b", Name: "Do"}}},
 		{Name: "Get", Forwards: true, Calls: []graph.Call{{Target: "pkg/b", Name: "Do"}}},
+		{Name: "Wire", Ignore: []string{"pass-through", "wide-function"}, Calls: []graph.Call{{Name: "x"}}},
+		{Name: "Both", Forwards: true, Ignore: []string{"wide-function"}, Calls: []graph.Call{{Name: "x"}}},
+		{Name: "K.m", Line: 42, Calls: []graph.Call{{Name: "x"}}},
 	} {
 		got, ok := graph.DecodeFuncCalls(fc.Encode())
 		if !ok || !reflect.DeepEqual(got, fc) {

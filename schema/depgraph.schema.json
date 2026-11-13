@@ -586,6 +586,33 @@
             }
           },
           "type": "object"
+        },
+        "wide-function": {
+          "additionalProperties": false,
+          "description": "a function that calls functions of more than maxPackages packages of the repository",
+          "properties": {
+            "enabled": {
+              "default": true,
+              "description": "false turns the rule off.",
+              "type": "boolean"
+            },
+            "maxPackages": {
+              "default": 8,
+              "description": "Report a function that calls functions of more than this many packages of the repository (its own not counted).",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "severity": {
+              "default": "info",
+              "description": "Severity of the rule's findings.",
+              "enum": [
+                "error",
+                "warn",
+                "info"
+              ]
+            }
+          },
+          "type": "object"
         }
       },
       "type": "object"

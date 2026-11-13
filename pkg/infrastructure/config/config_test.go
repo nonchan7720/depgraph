@@ -340,3 +340,16 @@ func TestFileCycleDeferredOption(t *testing.T) {
 		t.Error("deferred accepted for import-cycle")
 	}
 }
+
+func TestWideFunctionOption(t *testing.T) {
+	f, err := Parse([]byte("rules:\n  wide-function: {maxPackages: 12}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.Rules.MaxCalledPackages != 12 {
+		t.Errorf("maxPackages = %d", f.Rules.MaxCalledPackages)
+	}
+	if _, err := Parse([]byte("rules:\n  wide-function: {maxPackages: 0}\n")); err == nil {
+		t.Error("maxPackages 0 accepted")
+	}
+}

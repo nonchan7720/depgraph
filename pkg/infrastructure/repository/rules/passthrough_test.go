@@ -44,6 +44,9 @@ func TestEvaluatePassThrough(t *testing.T) {
 		file("app/services.py", graph.Python, []graph.Symbol{fn("show")},
 			graph.Usage{Calls: []graph.FuncCalls{fwd("show", "app/repo.py", "load")}}),
 		file("app/repo.py", graph.Python, []graph.Symbol{fn("load")}, graph.Usage{}),
+		// a chain whose first function says it is intended
+		file("api/kept.go", graph.Go, []graph.Symbol{fn("Kept")}, graph.Usage{Calls: []graph.FuncCalls{
+			{Name: "Kept", Forwards: true, Ignore: []string{"pass-through"}, Calls: []graph.Call{{Target: "svc", Name: "Get"}}}}}),
 		// forwards to something that is no function of the project: no chain
 		file("src/d.ts", graph.TypeScript, []graph.Symbol{fn("d")},
 			graph.Usage{Calls: []graph.FuncCalls{fwd("d", "src/c.ts", "missing")}}),

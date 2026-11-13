@@ -23,6 +23,8 @@ type callGraph struct {
 	// declaration ("default" -> "render").
 	exports map[funcKey]string
 	files   map[string]bool
+	// classes: the classes of the TypeScript / JavaScript and Python files
+	classes map[funcKey]bool
 }
 
 // funcKey is a name in a place: a Go package directory or a file.
@@ -41,13 +43,14 @@ func (r *Repository) callGraph(ctx context.Context, ignore []string) (*callGraph
 		WHERE p.external = false AND none(rx IN $ignore WHERE p.key =~ rx) AND coalesce(f.generated, false) = false
 		  AND f.language IN ['go', 'typescript', 'javascript', 'python']
 		OPTIONAL MATCH (f)-[:DECLARES]->(s:Symbol) WHERE s.kind IN ['function', 'method', 'class']
-		WITH p, f, collect({name: s.name, receiver: s.receiver}) AS syms
+		WITH p, f, collect({name: s.name, receiver: s.receiver, kind: s.kind}) AS syms
 		RETURN p.key AS pkg, f.path AS file, f.language AS lang, f.calls AS calls, f.exports AS exports, syms
 	`, ignore, nil)
 	if err != nil {
 		return nil, fmt.Errorf("call graph: %w", err)
 	}
-	g := &callGraph{goFuncs: map[funcKey][]string{}, fileFuncs: map[funcKey]bool{}, exports: map[funcKey]string{}, files: map[string]bool{}}
+	g := &callGraph{goFuncs: map[funcKey][]string{}, fileFuncs: map[funcKey]bool{}, exports: map[funcKey]string{}, files: map[string]bool{},
+		classes: map[funcKey]bool{}}
 	for _, row := range rows {
 		pkg, file, lang := fmt.Sprint(row["pkg"]), fmt.Sprint(row["file"]), fmt.Sprint(row["lang"])
 		if rules.IsTestFile(file) {
@@ -63,6 +66,9 @@ func (r *Repository) callGraph(ctx context.Context, ignore []string) (*callGraph
 			}
 			if lang != string(graph.Go) {
 				g.fileFuncs[funcKey{file, name}] = true
+				if kind, _ := s["kind"].(string); kind == "class" {
+					g.classes[funcKey{file, name}] = true
+				}
 				continue
 			}
 			if recv, _ := s["receiver"].(string); recv != "" {
@@ -134,4 +140,16 @@ func (g *callGraph) pythonCallee(call graph.Call) (file, name string) {
 		}
 	}
 	return path.Join(call.Target, "__init__.py"), first
+}
+
+// constructs reports whether calling the function to (from a caller in
+// language lang) builds a value rather than doing work: a Go constructor by
+// its name (New, NewClient, T.New), a class in TypeScript / JavaScript
+// (new C()) and Python (C()).
+func (g *callGraph) constructs(lang string, to rules.FuncNode) bool {
+	if lang == string(graph.Go) {
+		name := to.Name[strings.LastIndexByte(to.Name, '.')+1:]
+		return strings.HasPrefix(name, "New")
+	}
+	return g.classes[funcKey{to.File, to.Name}]
 }

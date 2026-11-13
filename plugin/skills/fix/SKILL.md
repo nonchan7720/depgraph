@@ -1,6 +1,6 @@
 ---
 name: fix
-description: Fix the debt depgraph reports (import-cycle, module-cycle, file-cycle, function-cycle, pass-through, layer-violation, concrete-dependency, type-leak, duplicate-code, duplicate-symbol, god-package, low-cohesion, unused-export, unreachable-file, unreachable-package) the way the codebase needs, not by silencing the rule. Use when depgraph findings appear in the context (session start, a prompt, or a failing `depgraph gate`), or when the user asks to clean up what depgraph found.
+description: Fix the debt depgraph reports (import-cycle, module-cycle, file-cycle, function-cycle, pass-through, wide-function, layer-violation, concrete-dependency, type-leak, duplicate-code, duplicate-symbol, god-package, low-cohesion, unused-export, unreachable-file, unreachable-package) the way the codebase needs, not by silencing the rule. Use when depgraph findings appear in the context (session start, a prompt, or a failing `depgraph gate`), or when the user asks to clean up what depgraph found.
 argument-hint: "[rule or finding]"
 ---
 
@@ -49,6 +49,12 @@ refactor nobody asked for.
   between. When a layer is there on purpose (a public API in front of an internal package),
   keep that one and remove the others. Do not add a statement to a wrapper to make it look like
   more than a wrapper.
+- **wide-function** (info): a function that calls functions of more packages of the repository
+  than `maxPackages` (default 8). Group the calls by what they are for and move each group into a
+  function of the package that owns that concern, so the function coordinates a few steps
+  instead of knowing every package. Only a function that is wide on purpose (the composition
+  root that wires the application) keeps its shape: put `depgraph:ignore wide-function` and the
+  reason in a comment on it. Do not add that comment to make a finding go away.
 - **layer-violation** (error): a layer imports one it must not (`.depgraph.yml` `forbidden`, or
   the defaults such as handler → repository). Route the call through the layer in between
   (handler → usecase → repository) or depend on an interface the inner layer declares. Change the

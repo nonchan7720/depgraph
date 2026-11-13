@@ -70,6 +70,9 @@ func optionSchema(rule, option string) jsonObj {
 	case "similarity":
 		return jsonObj{"type": "number", "exclusiveMinimum": 0, "maximum": 1, "default": rules.DefaultCloneOptions().MinSimilarity,
 			"description": "Minimum Jaccard similarity of the bodies' fingerprints (1: the same shape)."}
+	case "maxPackages":
+		return jsonObj{"type": "integer", "minimum": 1, "default": rules.DefaultMaxCalledPackages,
+			"description": "Report a function that calls functions of more than this many packages of the repository (its own not counted)."}
 	case "deferred":
 		return jsonObj{"type": "boolean", "default": rules.DefaultConfig().FileCycleDeferred,
 			"description": "Also report the cycles that only close through an import inside a function (Python): a deferred import hides a cycle, it does not remove it."}

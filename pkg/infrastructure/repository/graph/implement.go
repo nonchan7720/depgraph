@@ -280,6 +280,18 @@ func (r *Graph) DeleteFile(ctx context.Context, relPath string) error {
 	`, map[string]any{"path": relPath})
 }
 
+// packageEdge merges the package-level import p -> q from the file-level
+// imports (f) matched before it. test: every file that imports q is a Go
+// test file. Such an import closes no cycle: an external test package
+// (package x_test) is not the package of its directory, and a test file is
+// only compiled with the tests of its own package, so Go builds
+// `install -> v1` with `v1/defaults_test.go -> install`. The cycle rules
+// leave these edges out.
+const packageEdge = `
+		WITH p, q, all(x IN collect(f) WHERE x.language = 'go' AND x.path ENDS WITH '_test.go') AS test
+		MERGE (p)-[e:IMPORTS]->(q)
+		SET e.test = test`
+
 // RebuildPackageImports recomputes (Package)-[:IMPORTS]->(Package) for one package
 // from its files' imports.
 func (r *Graph) RebuildPackageImports(ctx context.Context, pkgKey string) error {
@@ -290,9 +302,9 @@ func (r *Graph) RebuildPackageImports(ctx context.Context, pkgKey string) error 
 		return err
 	}
 	return r.run(ctx, `
-		MATCH (p:Package {project: $project, key: $pkg})-[:CONTAINS]->(:File)-[:IMPORTS]->(q:Package)
+		MATCH (p:Package {project: $project, key: $pkg})-[:CONTAINS]->(f:File)-[:IMPORTS]->(q:Package)
 		WHERE q <> p
-		MERGE (p)-[:IMPORTS]->(q)
+		`+packageEdge+`
 	`, map[string]any{"pkg": pkgKey})
 }
 
@@ -302,9 +314,9 @@ func (r *Graph) RebuildAllPackageImports(ctx context.Context) error {
 		return err
 	}
 	return r.run(ctx, `
-		MATCH (p:Package {project: $project})-[:CONTAINS]->(:File)-[:IMPORTS]->(q:Package)
+		MATCH (p:Package {project: $project})-[:CONTAINS]->(f:File)-[:IMPORTS]->(q:Package)
 		WHERE q <> p
-		MERGE (p)-[:IMPORTS]->(q)
+		`+packageEdge+`
 	`, nil)
 }
 

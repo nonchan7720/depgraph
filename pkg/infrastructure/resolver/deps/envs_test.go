@@ -1,6 +1,8 @@
 package deps
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 )
@@ -181,6 +183,15 @@ end
 gem "local", path: "vendor/local"
 `
 
+// isolateGems hides the gems installed on this machine from the test.
+func isolateGems(t *testing.T) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	for _, k := range []string{"GEM_HOME", "GEM_PATH", "BUNDLE_PATH"} {
+		t.Setenv(k, "")
+	}
+}
+
 func vendored(files map[string]string, gems map[string]map[string]string) map[string]string {
 	for gem, lib := range gems {
 		for name, body := range lib {
@@ -194,6 +205,7 @@ func vendored(files map[string]string, gems map[string]map[string]string) map[st
 // repository (vendor/bundle): what they are required as and the constants
 // they declare are read from their files. Any other gem is left out.
 func TestDeclaredRuby(t *testing.T) {
+	isolateGems(t)
 	root := tree(t, vendored(map[string]string{"Gemfile": gemfile}, map[string]map[string]string{
 		"rails-7.1.0":     {"lib/rails.rb": "module Rails\nend\n"},
 		"sidekiq-7.0.0":   {"lib/sidekiq.rb": "module Sidekiq\n  class Client\n  end\nend\n", "lib/sidekiq/api.rb": "module Sidekiq\nend\n", "lib/sidekiq/rails.rb": "module Sidekiq\n  class Rails < ::Rails::Engine\n  end\nend\n"},
@@ -236,7 +248,7 @@ func TestDeclaredRuby(t *testing.T) {
 		// Bundler.require loads it when the application boots
 		"rack-cors": {Doubt: "Bundler requires it when the application boots, so it may act without being referenced"},
 		// Rails loads its engine when the application boots
-		"sidekiq": {Doubt: "it hooks into Rails (a railtie or an engine), which loads it without a reference"},
+		"sidekiq": {Use: "loaded by Rails (it has a railtie or an engine)"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("facts = %+v, want %+v", got, want)
@@ -244,6 +256,7 @@ func TestDeclaredRuby(t *testing.T) {
 }
 
 func TestRubyNamedByAFile(t *testing.T) {
+	isolateGems(t)
 	root := tree(t, vendored(map[string]string{
 		"Gemfile":            "gem \"rubocop\", require: false\ngem \"puma\"\ngem \"leftover\", require: false\n",
 		".rubocop.yml":       "require:\n  - rubocop-rails\n",
@@ -263,5 +276,71 @@ func TestRubyNamedByAFile(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("facts = %+v, want %+v", got, want)
+	}
+}
+
+// gemsAt writes gems (directory name -> lib files) into a gems directory.
+func gemsAt(t *testing.T, dir string, gems map[string]map[string]string) {
+	t.Helper()
+	for gem, lib := range gems {
+		for name, body := range lib {
+			p := filepath.Join(dir, gem, filepath.FromSlash(name))
+			if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+}
+
+// Gems are usually installed outside the repository: they are found where
+// Bundler and RubyGems look (BUNDLE_PATH, GEM_HOME, GEM_PATH, the version
+// managers below the home directory), in the version Gemfile.lock locks.
+func TestGemsOutsideTheRepository(t *testing.T) {
+	isolateGems(t)
+	home, gemHome, gemPath, bundlePath := t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("GEM_HOME", gemHome)
+	t.Setenv("GEM_PATH", gemPath+string(os.PathListSeparator)+filepath.Join(gemPath, "missing"))
+	root := tree(t, map[string]string{
+		"Gemfile":        "gem \"in-home\"\ngem \"in-path\"\ngem \"in-rbenv\"\ngem \"in-bundle\"\ngem \"locked\"\ngem \"native\"\ngem \"nowhere\"\n",
+		"Gemfile.lock":   "GEM\n  remote: https://rubygems.org/\n  specs:\n    locked (2.0.0)\n    native (1.5.0-x86_64-linux)\n      dep (>= 1)\n\nDEPENDENCIES\n  locked\n",
+		".bundle/config": "---\nBUNDLE_PATH: \"" + filepath.ToSlash(bundlePath) + "\"\n",
+	})
+	gemsAt(t, filepath.Join(gemHome, "gems"), map[string]map[string]string{
+		"in-home-1.0.0": {"lib/in_home.rb": "module InHome\nend\n"},
+		// two versions installed: the locked one is read
+		"locked-1.0.0": {"lib/locked_old.rb": "module LockedOld\nend\n"},
+		"locked-2.0.0": {"lib/locked.rb": "module Locked\nend\n"},
+	})
+	gemsAt(t, filepath.Join(gemPath, "gems"), map[string]map[string]string{
+		"in-path-1.0.0":             {"lib/in_path.rb": "module InPath\nend\n"},
+		"native-1.5.0-x86_64-linux": {"lib/native.rb": "module Native\nend\n"},
+	})
+	gemsAt(t, filepath.Join(home, ".rbenv/versions/3.3.0/lib/ruby/gems/3.3.0/gems"), map[string]map[string]string{
+		"in-rbenv-1.0.0": {"lib/in_rbenv.rb": "module InRbenv\nend\n"},
+	})
+	gemsAt(t, filepath.Join(bundlePath, "ruby/3.3.0/gems"), map[string]map[string]string{
+		"in-bundle-1.0.0": {"lib/in_bundle.rb": "module InBundle\nend\n"},
+	})
+	m := byPath(t, Declared(root, nil), "Gemfile")
+	if got, want := names(m), []string{"in-bundle", "in-home", "in-path", "in-rbenv", "locked", "native"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("deps = %q, want %q", got, want)
+	}
+	for key, want := range map[string]string{"ext:in_home": "in-home", "ext:locked": "locked", "ext:locked_old": "", "ext:native": "native", "ext:in_bundle": "in-bundle"} {
+		if got := m.Provider(key); got != want {
+			t.Errorf("Provider(%s) = %q, want %q", key, got, want)
+		}
+	}
+	if got, want := m.Constants("in-rbenv"), []string{"InRbenv"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("constants of in-rbenv = %q, want %q", got, want)
+	}
+	// installing a gem changes what is known: the graph is linked again
+	before := Signature(root, Declared(root, nil))
+	gemsAt(t, filepath.Join(gemHome, "gems"), map[string]map[string]string{"nowhere-1.0.0": {"lib/nowhere.rb": ""}})
+	if Signature(root, Declared(root, nil)) == before {
+		t.Error("an installed gem did not change the signature")
 	}
 }

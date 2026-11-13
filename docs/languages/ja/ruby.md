@@ -42,8 +42,9 @@ Rails のコードは、他のファイルを `require` ではなく定数で参
 ### 報告するもの
 
 - `unused-dependency`: `Gemfile` の gem のうち、どのファイルも require せず、その定数をどのファイルも参照せず、誰も名前を挙げて
-  いないもの。gem が何という名前で require され、どんな定数を宣言するかを知るために、リポジトリ内にインストールされた bundle
-  （`vendor/bundle`）が必要です。それ以外の gem はスキップします。`require: false` の gem は `error`、それ以外は `warn` です
+  いないもの。gem が何という名前で require され、どんな定数を宣言するかは、インストール済みの gem（bundle のパス、
+  `GEM_HOME` / `GEM_PATH`、rbenv / asdf / mise / rvm）のうちロックされたバージョンから読みます。インストールされていない gem は
+  スキップし、railtie や engine を持つ gem は使用中とみなします。`require: false` の gem は `error`、それ以外は `warn` です
   （起動時に Bundler が require するため）。[未使用の依存パッケージ](../../ja/rules.md#未使用の依存パッケージ)を参照してください。
 - `unused-export`: クラス、中身のあるモジュール、クラスである定数（`Struct.new`・`Class.new`・`Data.define`）。メソッドは報告しません（コールバック・ルーティング・ビュー・`send` が名前で呼ぶため）。
 - `unreachable-file`: どのエントリポイントからも辿れない Ruby ファイル。

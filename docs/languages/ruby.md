@@ -60,8 +60,9 @@ See [Frameworks](../configuration.md#frameworks-external-packages-in-layers).
 ### What is reported
 
 - `unused-dependency`: a gem of the `Gemfile` that no file requires, whose constants no file refers to and
-  that nothing names. Only with the bundle installed inside the repository (`vendor/bundle`), which says
-  what a gem is required as and which constants it declares; any other gem is skipped. `error` for a gem
+  that nothing names. What a gem is required as and which constants it declares is read from the installed
+  gems (the bundle's path, `GEM_HOME` / `GEM_PATH`, rbenv / asdf / mise / rvm), in the locked version; a gem
+  that is not installed is skipped, and one with a railtie or an engine is used. `error` for a gem
   with `require: false`, `warn` otherwise (Bundler requires it at boot). See
   [Unused dependencies](../rules.md#unused-dependencies).
 - `unused-export`: classes, modules with something in them, and constants that are classes

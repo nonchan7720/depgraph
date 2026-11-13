@@ -17,11 +17,12 @@ import (
 
 // Python distributions and Ruby gems are imported under names their
 // manifests do not give (PyYAML is `yaml`, rack-cors is `Rack::Cors`). The
-// names are read from where the project installs them inside the
-// repository: the dist-info of a virtual environment (.venv, venv), the
-// files of a vendored bundle (vendor/bundle, or BUNDLE_PATH of
-// .bundle/config). A dependency that is not installed there, or whose names
-// another one shares, is not known: it is left out, never reported.
+// names are read from where the project installs them: the dist-info of a
+// virtual environment in the repository (.venv, venv), the files of the
+// installed gems (gemDirs: the bundle's path, GEM_HOME / GEM_PATH, the
+// version managers below the home directory). A dependency that is not
+// installed there, or whose names another one shares, is not known: it is
+// left out, never reported.
 
 // env is what is installed for a manifest.
 type env struct {
@@ -36,12 +37,14 @@ type env struct {
 	paths   map[string][]string // pypi: its packages in site-packages (directories and modules)
 	dists   map[string]string   // pypi: every installed distribution -> its name as installed
 	tops    map[string][]string // pypi: every installed distribution -> its packages
+	gemDirs map[string]string   // gem: where it is installed (may be outside the repository; never shown)
+	loaded  map[string]bool     // gem: its files were read (loadGem)
 }
 
 func newEnv(dir string) *env {
 	return &env{dir: dir, imports: map[string][]string{}, consts: map[string][]string{}, groups: map[string][]string{},
 		scripts: map[string][]string{}, railtie: map[string]bool{}, manual: map[string]bool{}, paths: map[string][]string{},
-		dists: map[string]string{}, tops: map[string][]string{}}
+		dists: map[string]string{}, tops: map[string][]string{}, gemDirs: map[string]string{}, loaded: map[string]bool{}}
 }
 
 // Constants are the top-level constants the gem name declares.
@@ -49,6 +52,7 @@ func (m Manifest) Constants(name string) []string {
 	if m.env == nil {
 		return nil
 	}
+	m.env.loadGem(name)
 	return m.env.consts[name]
 }
 
@@ -59,8 +63,9 @@ func (e *env) signature() string {
 	}
 	var b strings.Builder
 	for _, name := range slices.Sorted(maps.Keys(e.imports)) {
-		b.WriteString(name + "=" + strings.Join(e.imports[name], ",") + ";" + strings.Join(e.consts[name], ",") + ";" +
-			strings.Join(e.groups[name], ",") + ";" + strings.Join(e.scripts[name], ",") + "\x1f")
+		// a gem by its version (its directory's name): its files are read later
+		b.WriteString(name + "=" + strings.Join(e.imports[name], ",") + ";" + filepath.Base(e.gemDirs[name]) + ";" +
+			strings.Join(e.groups[name], ",") + "\x1f")
 	}
 	return b.String()
 }
@@ -415,8 +420,8 @@ var (
 // maxGemFiles is how many Ruby files of one gem are read for its constants.
 const maxGemFiles = 400
 
-// readGemfile returns the Gemfile of dir with the gems whose files are in
-// the bundle installed inside the repository.
+// readGemfile returns the Gemfile of dir with the gems whose files are
+// found where the bundle is installed (gemDirs).
 func readGemfile(root, dir string) (Manifest, bool) {
 	rel := path.Join(dir, "Gemfile")
 	b, err := safefile.ReadManifest(root, rel)
@@ -424,11 +429,12 @@ func readGemfile(root, dir string) (Manifest, bool) {
 		return Manifest{}, false
 	}
 	m := Manifest{Path: rel, Dir: dir, Ecosystem: Gem}
-	gems := bundledGems(root, dir)
-	if gems == nil {
+	installed := installedGems(gemDirs(root, dir))
+	if len(installed) == 0 {
 		return m, true
 	}
-	m.env = newEnv(gems.dir)
+	locked := lockedGems(root, dir)
+	m.env = newEnv("")
 	seen := map[string]bool{}
 	for i, line := range strings.Split(string(b), "\n") {
 		gm := gemRe.FindStringSubmatch(line)
@@ -437,10 +443,22 @@ func readGemfile(root, dir string) (Manifest, bool) {
 		}
 		name := gm[1]
 		seen[name] = true
-		gemDir, ok := gems.byName[name]
-		if !ok || !m.env.readGem(root, name, gemDir) {
+		gemDir := pickGem(installed[name], name, locked[name])
+		if gemDir == "" {
 			continue
 		}
+		// what it is required as: the entries of its lib directory
+		entries, err := os.ReadDir(filepath.Join(gemDir, "lib"))
+		if err != nil || len(entries) == 0 {
+			continue
+		}
+		requires := make([]string, 0, len(entries))
+		for _, en := range entries {
+			requires = append(requires, strings.TrimSuffix(en.Name(), ".rb"))
+		}
+		sort.Strings(requires)
+		m.env.imports[name] = slices.Compact(requires)
+		m.env.gemDirs[name] = gemDir
 		m.env.manual[name] = gemManualRe.MatchString(gm[2])
 		m.Deps = append(m.Deps, Dependency{Name: name, Section: "gem", Line: i + 1})
 	}
@@ -448,60 +466,115 @@ func readGemfile(root, dir string) (Manifest, bool) {
 	return m, true
 }
 
-type bundle struct {
-	dir    string
-	byName map[string]string // gem -> its directory, repo-relative
-}
-
-// bundledGems finds the gems installed for the Gemfile of dir inside the
-// repository: <BUNDLE_PATH or vendor/bundle>/ruby/*/gems (nil when the
-// bundle is installed elsewhere).
-func bundledGems(root, dir string) *bundle {
-	bundlePath := "vendor/bundle"
-	if b, err := safefile.ReadManifest(root, path.Join(dir, ".bundle", "config")); err == nil {
-		if bm := bundlePathRe.FindSubmatch(b); bm != nil {
-			bundlePath = strings.TrimSpace(string(bm[1]))
+// gemDirs are the directories that hold installed gems (<gem>-<version>
+// directories) for the Gemfile of dir, where Bundler and RubyGems look:
+// the bundle's path (BUNDLE_PATH of the environment or of .bundle/config,
+// else vendor/bundle), GEM_HOME and GEM_PATH, and the Ruby installations of
+// the version managers below the home directory. Nothing is executed, so
+// a Ruby installed elsewhere is found through GEM_HOME / GEM_PATH only.
+func gemDirs(root, dir string) []string {
+	var globs []string
+	base := filepath.Join(root, filepath.FromSlash(dir))
+	bundlePath := os.Getenv("BUNDLE_PATH")
+	if bundlePath == "" {
+		bundlePath = "vendor/bundle"
+		if b, err := safefile.ReadManifest(root, path.Join(dir, ".bundle", "config")); err == nil {
+			if bm := bundlePathRe.FindSubmatch(b); bm != nil {
+				bundlePath = strings.TrimSpace(string(bm[1]))
+			}
 		}
 	}
-	if path.IsAbs(bundlePath) || !inRepo(root, dir, bundlePath) {
-		return nil
+	if !filepath.IsAbs(filepath.FromSlash(bundlePath)) {
+		bundlePath = filepath.Join(base, filepath.FromSlash(bundlePath))
 	}
-	matches, _ := filepath.Glob(filepath.Join(root, filepath.FromSlash(dir), filepath.FromSlash(bundlePath), "ruby", "*", "gems"))
-	if len(matches) == 0 {
-		return nil
+	globs = append(globs, filepath.Join(filepath.FromSlash(bundlePath), "ruby", "*", "gems"), filepath.Join(filepath.FromSlash(bundlePath), "gems"))
+	for _, p := range append([]string{os.Getenv("GEM_HOME")}, filepath.SplitList(os.Getenv("GEM_PATH"))...) {
+		if p != "" {
+			globs = append(globs, filepath.Join(p, "gems"))
+		}
 	}
-	sort.Strings(matches)
-	rel, ok := relTo(root, matches[len(matches)-1])
-	if !ok {
-		return nil
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		for _, g := range []string{
+			".gem/ruby/*/gems", ".local/share/gem/ruby/*/gems",
+			".rbenv/versions/*/lib/ruby/gems/*/gems", ".asdf/installs/ruby/*/lib/ruby/gems/*/gems",
+			".local/share/mise/installs/ruby/*/lib/ruby/gems/*/gems", ".rvm/gems/*/gems",
+		} {
+			globs = append(globs, filepath.Join(home, filepath.FromSlash(g)))
+		}
 	}
-	out := &bundle{dir: rel, byName: map[string]string{}}
-	entries, _ := os.ReadDir(matches[len(matches)-1])
-	for _, e := range entries {
-		if e.IsDir() {
-			out.byName[gemVersionRe.ReplaceAllString(e.Name(), "")] = path.Join(rel, e.Name())
+	var out []string
+	for _, g := range globs {
+		matches, _ := filepath.Glob(g)
+		sort.Sort(sort.Reverse(sort.StringSlice(matches))) // the newest Ruby first
+		for _, d := range matches {
+			if !slices.Contains(out, d) {
+				out = append(out, d)
+			}
 		}
 	}
 	return out
 }
 
-// readGem reads what the gem name is required as (the entries of its lib
-// directory), the constants its files declare at the top level, the
-// commands it installs and whether it hooks into Rails. It reports whether
-// the gem has anything to require.
-func (e *env) readGem(root, name, gemDir string) bool {
-	lib := filepath.Join(root, filepath.FromSlash(gemDir), "lib")
-	entries, err := os.ReadDir(lib)
-	if err != nil {
-		return false
+// installedGems are the gem directories of dirs by gem name, in the order
+// of dirs.
+func installedGems(dirs []string) map[string][]string {
+	out := map[string][]string{}
+	for _, dir := range dirs {
+		entries, _ := os.ReadDir(dir)
+		for _, e := range entries {
+			if e.IsDir() {
+				name := gemVersionRe.ReplaceAllString(e.Name(), "")
+				out[name] = append(out[name], filepath.Join(dir, e.Name()))
+			}
+		}
 	}
-	requires := map[string]bool{}
-	for _, en := range entries {
-		requires[strings.TrimSuffix(en.Name(), ".rb")] = true
+	return out
+}
+
+var lockedGemRe = regexp.MustCompile(`(?m)^    ([A-Za-z0-9_.-]+) \(([^)]+)\)`)
+
+// lockedGems are the versions the Gemfile.lock of dir locks, by gem.
+func lockedGems(root, dir string) map[string]string {
+	out := map[string]string{}
+	if b, err := safefile.ReadManifest(root, path.Join(dir, "Gemfile.lock")); err == nil {
+		for _, lm := range lockedGemRe.FindAllSubmatch(b, -1) {
+			out[string(lm[1])] = string(lm[2])
+		}
 	}
+	return out
+}
+
+// pickGem is the directory of the gem name among dirs: the locked version
+// when there is one (also built for a platform), else the first found.
+func pickGem(dirs []string, name, version string) string {
+	if version != "" {
+		for _, d := range dirs {
+			if b := filepath.Base(d); b == name+"-"+version || strings.HasPrefix(b, name+"-"+version+"-") ||
+				strings.HasPrefix(name+"-"+version, b+"-") {
+				return d
+			}
+		}
+		return ""
+	}
+	if len(dirs) == 0 {
+		return ""
+	}
+	return dirs[0]
+}
+
+// loadGem reads, once, the constants the files of the gem name declare at
+// the top level, the commands it installs and whether it hooks into Rails.
+// It is not read with the manifest: a bundle has thousands of files, and
+// only a gem nothing requires needs more than its name.
+func (e *env) loadGem(name string) {
+	gemDir, ok := e.gemDirs[name]
+	if !ok || e.loaded[name] {
+		return
+	}
+	e.loaded[name] = true
 	consts := map[string]bool{}
 	read := 0
-	_ = filepath.WalkDir(lib, func(p string, d os.DirEntry, err error) error {
+	_ = filepath.WalkDir(filepath.Join(gemDir, "lib"), func(p string, d os.DirEntry, err error) error {
 		if err != nil {
 			return skipOn(d)
 		}
@@ -511,12 +584,12 @@ func (e *env) readGem(root, name, gemDir string) bool {
 		if d.IsDir() || !strings.HasSuffix(d.Name(), ".rb") || !d.Type().IsRegular() {
 			return nil
 		}
-		rel, ok := relTo(root, p)
+		rel, ok := relTo(gemDir, p)
 		if !ok {
 			return nil
 		}
 		read++
-		b, _, err := safefile.Read(root, rel, maxSearchFile)
+		b, _, err := safefile.Read(gemDir, rel, maxSearchFile)
 		if err != nil {
 			return nil
 		}
@@ -529,28 +602,32 @@ func (e *env) readGem(root, name, gemDir string) bool {
 		return nil
 	})
 	for _, bin := range []string{"exe", "bin"} {
-		scripts, _ := os.ReadDir(filepath.Join(root, filepath.FromSlash(gemDir), bin))
+		scripts, _ := os.ReadDir(filepath.Join(gemDir, bin))
 		for _, s := range scripts {
 			if s.Type().IsRegular() {
 				e.scripts[name] = append(e.scripts[name], s.Name())
 			}
 		}
 	}
-	e.imports[name] = slices.Sorted(maps.Keys(requires))
 	e.consts[name] = slices.Sorted(maps.Keys(consts))
-	return len(requires) > 0
 }
 
 // rubySearch starts the facts of the gems names of m, which no file
 // requires and whose constants no file refers to. What is left to find is
 // a file that names the gem or one of its commands (a Procfile, a script, a
 // configuration). A gem Bundler requires when the application boots
-// (anything but `require: false`) may act without being referenced: it
-// extends other classes, or Rails loads its railtie.
+// (anything but `require: false`) may act without being referenced (it
+// extends other classes). One with a railtie or an engine is used: Rails
+// loads it.
 func (m Manifest) rubySearch(names []string) *search {
 	s := &search{m: m, facts: make(map[string]Fact, len(names)), words: map[string][]word{}}
 	for _, n := range names {
+		m.env.loadGem(n)
 		s.facts[n] = Fact{}
+		if m.env.railtie[n] {
+			s.facts[n] = Fact{Use: "loaded by Rails (it has a railtie or an engine)"}
+			continue
+		}
 		s.words[n] = []word{{text: n}}
 		for _, script := range m.env.scripts[n] {
 			if script != n {
@@ -560,8 +637,6 @@ func (m Manifest) rubySearch(names []string) *search {
 	}
 	s.doubt = func(n string, complete bool) string {
 		switch {
-		case m.env.railtie[n]:
-			return "it hooks into Rails (a railtie or an engine), which loads it without a reference"
 		case !m.env.manual[n]:
 			return "Bundler requires it when the application boots, so it may act without being referenced"
 		case !complete:

@@ -6,7 +6,7 @@ import "fmt"
 // of go.mod; dependencies, devDependencies and optionalDependencies of
 // package.json; pyproject.toml and requirements files; a Gemfile) that no
 // code imports and nothing else names. A Python distribution or a gem whose
-// import names are not known (it is not installed inside the repository) is
+// import names are not known (it is not installed where depgraph looks) is
 // not checked. Dependencies pile up when code is removed or rewritten and the
 // manifest is not: they are installed, audited and updated for nothing. A
 // compiler sees the imports of one file, never the manifest.

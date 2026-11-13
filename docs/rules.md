@@ -193,13 +193,16 @@ imports of one file, never the manifest.
 In `go.mod` and `package.json` an import names its package exactly (a Go import path starts with
 the module's path, a JavaScript import with the package's name). Python distributions and Ruby gems
 are imported under names their manifests do not give (`PyYAML` is `yaml`, `rack-cors` is
-`Rack::Cors`), so those names are read from where the project installs them **inside the
-repository**: the `dist-info` of a virtual environment (`.venv`, `venv`) for `pyproject.toml`
+`Rack::Cors`), so those names are read from where the project installs them:
+the `dist-info` of a virtual environment in the repository (`.venv`, `venv`) for `pyproject.toml`
 (`[project]`, `[dependency-groups]`, Poetry) and `requirements*.txt` / `requirements/*.txt`, and
-the files of a vendored bundle (`vendor/bundle`, or `BUNDLE_PATH` of `.bundle/config`) for a
-`Gemfile`. A dependency whose names are not known is skipped, never reported: one that is not
-installed there, or a distribution that shares its only module with another (`google.*`). Without
-such an environment, nothing of that manifest is reported.
+the files of the installed gems for a `Gemfile`. Gems are looked for where Bundler and RubyGems
+keep them, in the version `Gemfile.lock` locks: the bundle's path (`BUNDLE_PATH`, `.bundle/config`,
+else `vendor/bundle`), `GEM_HOME` and `GEM_PATH`, and the Ruby installations of rbenv, asdf, mise and
+rvm below the home directory (nothing is executed; for a Ruby installed elsewhere set `GEM_PATH`).
+A dependency whose names are not known is skipped, never reported: one that is not installed
+there, or a distribution that shares its only module with another (`google.*`). Where nothing is
+installed, nothing of that manifest is reported.
 
 A dependency is **used**, and never reported, when:
 
@@ -225,7 +228,7 @@ A dependency is **used**, and never reported, when:
   is run (`gunicorn` in a `Procfile`);
 - **Ruby**: a file requires it, refers to one of the constants its files declare (Rails code uses
   a gem through its constants), or names it or one of its commands (a `Procfile`, a script, a CI
-  workflow).
+  workflow); or the gem has a railtie or an engine (Rails loads it).
 
 Not dependencies at all: indirect requirements, `peerDependencies`, and what the repository provides
 itself (a module or workspace package of it, a local `replace`, `workspace:` / `file:` / `link:`).
@@ -244,7 +247,7 @@ A finding is not certain when the package is an add-on by its name or its peer (
 be read from `node_modules`. A Python distribution is not certain when it registers entry points
 another package loads (`pytest-cov`) or holds type stubs (`types-*`). A gem is certain only with
 `require: false`: any other gem is required by Bundler when the application boots and may act
-without being referenced (it extends other classes, or Rails loads its railtie). Every `go.mod`
+without being referenced (it extends other classes). Every `go.mod`
 finding is certain. With `severity: warn` the certain
 findings are `warn` and the others `info`.
 

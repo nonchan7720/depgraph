@@ -227,12 +227,17 @@ func TestUnusedDependencySettings(t *testing.T) {
 }
 
 // Python distributions and gems are checked when the repository holds
-// where they are installed (a virtual environment, a vendored bundle): what
+// where they are installed (a virtual environment, the installed gems): what
 // is imported, required or referred to by a constant is used, the rest is
 // reported. Without that, nothing is known and nothing is reported.
 func TestEvaluateUnusedDependencyPythonRuby(t *testing.T) {
 	ctx, st := connect(t)
 	key := fmt.Sprintf("zz_test_%d_deps_envs", time.Now().UnixNano())
+	// only the gems of the fixture, not this machine's
+	t.Setenv("HOME", t.TempDir())
+	for _, k := range []string{"GEM_HOME", "GEM_PATH", "BUNDLE_PATH"} {
+		t.Setenv(k, "")
+	}
 	site := ".venv/lib/python3.12/site-packages/"
 	gems := "vendor/bundle/ruby/3.3.0/gems/"
 	root := projectTree(t, map[string]string{

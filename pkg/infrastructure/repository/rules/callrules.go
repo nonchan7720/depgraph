@@ -11,15 +11,20 @@ import (
 
 // functionCycles reports the cycles of calls across the files of the Go
 // packages: for every call between two files, the shortest way back closes
-// the shortest cycle through it (at most 8 functions). Not a cycle among
+// the shortest cycle through it (at most 8 functions; of several shortest
+// ways, the smallest by its functions, so that the cycle reported for a
+// graph is always the same). Not a cycle among
 // the methods of one type: a type declared over several files is one unit.
 func (r *Repository) functionCycles(ctx context.Context, cfg rules.Config) ([]rules.Finding, error) {
 	rows, err := r.query(ctx, `
 		MATCH (a:Function {project: $project, lang: 'go'})-[:CALLS]->(b:Function {project: $project, lang: 'go'})
 		WHERE a.file <> b.file
-		MATCH p = shortestPath((b)-[:CALLS*1..7]->(a))
+		MATCH p = allShortestPaths((b)-[:CALLS*1..7]->(a))
 		WHERE all(x IN nodes(p) WHERE x.lang = 'go')
-		WITH [a] + nodes(p)[0..-1] AS ring
+		// of several shortest ways back, always the same one: the smallest
+		WITH a, b, nodes(p) AS back, [n IN nodes(p) | n.key] AS keys ORDER BY keys
+		WITH a, b, head(collect(back)) AS back
+		WITH [a] + back[0..-1] AS ring
 		WHERE NOT (ring[0].recv IS NOT NULL AND all(n IN ring WHERE coalesce(n.recv, '') = ring[0].recv))
 		WITH ring, [n IN ring | n.file + '\u0000' + n.name] AS ids
 		WITH ring, ids, reduce(m = 0, i IN range(0, size(ids) - 1) | CASE WHEN ids[i] < ids[m] THEN i ELSE m END) AS s

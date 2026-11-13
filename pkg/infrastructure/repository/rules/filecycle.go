@@ -76,9 +76,12 @@ func (r *Repository) fileCycles(ctx context.Context, cfg rules.Config) ([]rules.
 	rows, err := r.query(ctx, `
 		MATCH (a:File {project: $project})-[e:LOADS]->(b:File {project: $project})
 		WHERE e.eager
-		MATCH p = shortestPath((b)-[:LOADS*1..7]->(a))
+		MATCH p = allShortestPaths((b)-[:LOADS*1..7]->(a))
 		WHERE all(l IN relationships(p) WHERE l.eager)
-		WITH [a.path] + [n IN nodes(p) | n.path][0..-1] AS ring
+		// of several shortest ways back, always the same one: the smallest
+		WITH a, b, [n IN nodes(p) | n.path] AS back ORDER BY back
+		WITH a, b, head(collect(back)) AS back
+		WITH [a.path] + back[0..-1] AS ring
 		WITH ring, reduce(m = 0, i IN range(0, size(ring) - 1) | CASE WHEN ring[i] < ring[m] THEN i ELSE m END) AS s
 		WITH DISTINCT ring[s..] + ring[..s] AS ring
 		RETURN ring ORDER BY size(ring), ring LIMIT $limit
@@ -95,11 +98,13 @@ func (r *Repository) fileCycles(ctx context.Context, cfg rules.Config) ([]rules.
 		rows, err := r.query(ctx, `
 			MATCH (a:File {project: $project})-[e:LOADS]->(b:File {project: $project})
 			WHERE NOT e.eager
-			MATCH p = shortestPath((b)-[:LOADS*1..7]->(a))
+			MATCH p = allShortestPaths((b)-[:LOADS*1..7]->(a))
+			WITH a, b, e, p, [n IN nodes(p) | n.path] AS back ORDER BY back
+			WITH a, b, e, head(collect(p)) AS p
 			WITH [a.path] + [n IN nodes(p) | n.path][0..-1] AS ring,
 			     [l IN [e] + relationships(p) WHERE NOT l.eager | startNode(l).path] AS hidden
 			WITH ring, hidden, reduce(m = 0, i IN range(0, size(ring) - 1) | CASE WHEN ring[i] < ring[m] THEN i ELSE m END) AS s
-			WITH ring[s..] + ring[..s] AS ring, hidden
+			WITH ring[s..] + ring[..s] AS ring, hidden ORDER BY hidden
 			WITH ring, head(collect(hidden)) AS hidden
 			RETURN ring, COLLECT { UNWIND hidden AS h WITH DISTINCT h RETURN h ORDER BY h } AS by
 			ORDER BY size(ring), ring LIMIT $limit

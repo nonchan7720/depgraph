@@ -116,10 +116,12 @@ func (r *Repository) moduleCycles(ctx context.Context, cfg rules.Config, found [
 	}
 	rows, err := r.query(ctx, `
 		MATCH (a:Module {project: $project})-[e:IMPORTS]->(b:Module {project: $project})
-		MATCH p = shortestPath((b)-[:IMPORTS*1..7]->(a))
+		MATCH p = allShortestPaths((b)-[:IMPORTS*1..7]->(a))
+		WITH a, b, e, p, [n IN nodes(p) | n.key] AS back ORDER BY back
+		WITH a, b, e, head(collect(p)) AS p
 		WITH [a.key] + [n IN nodes(p) | n.key][0..-1] AS ring, [e] + relationships(p) AS hops
 		WITH ring, hops, reduce(m = 0, i IN range(0, size(ring) - 1) | CASE WHEN ring[i] < ring[m] THEN i ELSE m END) AS s
-		WITH ring[s..] + ring[..s] AS ring, [h IN hops[s..] + hops[..s] | h.from + ' -> ' + h.to] AS imports
+		WITH ring[s..] + ring[..s] AS ring, [h IN hops[s..] + hops[..s] | h.from + ' -> ' + h.to] AS imports ORDER BY imports
 		WITH ring, head(collect(imports)) AS imports
 		WITH ring, imports, COLLECT { UNWIND ring AS m RETURN m ORDER BY m } AS members
 		WHERE NOT reduce(set = '', m IN members | set + m + '\u0000') IN $known
@@ -318,16 +320,20 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 		// the shortest cycle through that import: every import on a cycle of
 		// at most 8 packages is reported, in polynomial time. (Enumerating
 		// every elementary cycle, as before, is exponential: a 700-file
-		// repository took 17 s, beyond the hook's budget.) shortestPath, not
-		// GQL SHORTEST, which the 5.26 planner ran ~500x slower here. Cycles
+		// repository took 17 s, beyond the hook's budget.) allShortestPaths, not
+		// GQL SHORTEST, which the 5.26 planner ran ~500x slower here. Of
+		// several shortest ways back the smallest (by its keys) is taken, so
+		// the cycles reported for a graph are the same in every run. Cycles
 		// are rotated to start at their smallest key and deduplicated.
 		rows, err := r.query(ctx, `
 			MATCH (a:Package {project: $project})-[:IMPORTS]->(b:Package {project: $project})
 			WHERE a.external = false AND b.external = false AND a <> b
 			  AND none(rx IN $ignore WHERE a.key =~ rx OR b.key =~ rx)
-			MATCH p = shortestPath((b)-[:IMPORTS*1..7]->(a))
+			MATCH p = allShortestPaths((b)-[:IMPORTS*1..7]->(a))
 			WHERE all(x IN nodes(p) WHERE x.external = false AND none(rx IN $ignore WHERE x.key =~ rx))
-			WITH [a.key] + [n IN nodes(p) | n.key] AS cyc
+			WITH a, b, [n IN nodes(p) | n.key] AS back ORDER BY back
+			WITH a, b, head(collect(back)) AS back
+			WITH [a.key] + back AS cyc
 			WITH cyc[0..size(cyc)-1] AS ring
 			WITH ring, reduce(m = 0, i IN range(0, size(ring) - 1) | CASE WHEN ring[i] < ring[m] THEN i ELSE m END) AS s
 			WITH ring[s..] + ring[..s] AS r

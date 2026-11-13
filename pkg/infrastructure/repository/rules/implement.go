@@ -118,6 +118,7 @@ func (r *Repository) moduleCycles(ctx context.Context, cfg rules.Config, found [
 	}
 	rows, err := r.query(ctx, `
 		MATCH (a:Module {project: $project})-[e:MODULE_IMPORTS]->(b:Module {project: $project})
+		WHERE a <> b
 		MATCH p = allShortestPaths((b)-[:MODULE_IMPORTS*1..7]->(a))
 		WITH a, b, e, p, [n IN nodes(p) | n.key] AS back ORDER BY back
 		WITH a, b, e, head(collect(p)) AS p

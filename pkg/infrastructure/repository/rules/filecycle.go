@@ -75,7 +75,9 @@ func (r *Repository) fileCycles(ctx context.Context, cfg rules.Config) ([]rules.
 	const limit = 50
 	rows, err := r.query(ctx, `
 		MATCH (a:File {project: $project})-[e:LOADS]->(b:File {project: $project})
-		WHERE e.eager
+		// a <> b is known before the search: on a plan that pairs the files
+		// first, shortestPath fails on a pair of the same file
+		WHERE e.eager AND a <> b
 		MATCH p = allShortestPaths((b)-[:LOADS*1..7]->(a))
 		WHERE all(l IN relationships(p) WHERE l.eager)
 		// of several shortest ways back, always the same one: the smallest
@@ -97,7 +99,7 @@ func (r *Repository) fileCycles(ctx context.Context, cfg rules.Config) ([]rules.
 	if cfg.FileCycleDeferred && len(out) < limit {
 		rows, err := r.query(ctx, `
 			MATCH (a:File {project: $project})-[e:LOADS]->(b:File {project: $project})
-			WHERE NOT e.eager
+			WHERE NOT e.eager AND a <> b
 			MATCH p = allShortestPaths((b)-[:LOADS*1..7]->(a))
 			WITH a, b, e, p, [n IN nodes(p) | n.path] AS back ORDER BY back
 			WITH a, b, e, head(collect(p)) AS p

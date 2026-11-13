@@ -138,6 +138,12 @@ type Config struct {
 	// UnusedIgnore: path globs (files or Go package dirs) the unused-code
 	// rules never report, e.g. a library's public API.
 	UnusedIgnore []string
+	// FileCycleDeferred: file-cycle also reports the cycles that only close
+	// through an import inside a function.
+	FileCycleDeferred bool
+	// MaxCalledPackages: the most packages of the repository a function
+	// may call into before wide-function reports it (0: the default).
+	MaxCalledPackages int
 	// Clones tunes duplicate-code.
 	Clones CloneOptions
 	// DefaultLayers: Layers are the built-in defaults, a guess from
@@ -184,11 +190,13 @@ func DefaultConfig() Config {
 			{"domain", "infra"}, {"domain", "handler"}, {"domain", "repository"},
 			{"usecase", "handler"},
 		},
-		AbstractLayers:   [][2]string{{"usecase", "infra"}, {"usecase", "db"}},
-		DefaultLayers:    true,
-		GodPackageFanIn:  10,
-		GodPackageFanOut: 3,
-		Clones:           DefaultCloneOptions(),
+		AbstractLayers:    [][2]string{{"usecase", "infra"}, {"usecase", "db"}},
+		DefaultLayers:     true,
+		GodPackageFanIn:   10,
+		GodPackageFanOut:  3,
+		MaxCalledPackages: DefaultMaxCalledPackages,
+		FileCycleDeferred: true,
+		Clones:            DefaultCloneOptions(),
 		IgnoreDuplicateNames: []string{
 			"main", "init", "TestMain", "New", "String", "Error", "Close", "Run", "Validate",
 			"default", "index", "setup", "teardown", "handler", "render", "App",
@@ -306,6 +314,9 @@ func (c Config) Validate() error {
 	}
 	if c.GodPackageFanOut < 0 {
 		return fmt.Errorf("rule %s: fanOut must be at least 1, got %d", RuleGodPackage, c.GodPackageFanOut)
+	}
+	if c.MaxCalledPackages < 0 {
+		return fmt.Errorf("rule %s: maxPackages must be at least 1, got %d", RuleWideFunction, c.MaxCalledPackages)
 	}
 	if c.GodPackageFanIn < 1 {
 		return fmt.Errorf("rule %s: fanIn must be at least 1, got %d", RuleGodPackage, c.GodPackageFanIn)

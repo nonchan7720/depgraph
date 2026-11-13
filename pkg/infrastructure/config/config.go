@@ -112,6 +112,10 @@ type ruleYAML struct {
 	// duplicate-code
 	MinTokens  *int     `yaml:"minTokens"`
 	Similarity *float64 `yaml:"similarity"`
+	// file-cycle
+	Deferred *bool `yaml:"deferred"`
+	// wide-function
+	MaxPackages *int `yaml:"maxPackages"`
 }
 
 // Load reads root/.depgraph.yml and the .depgraph.yml files below it (a
@@ -435,6 +439,15 @@ func applyRule(c *rules.Config, name string, n yaml.Node) error {
 			return fmt.Errorf("rules.%s: minTokens %d (want > 0)", name, *ry.MinTokens)
 		}
 		c.Clones.MinTokens = *ry.MinTokens
+	}
+	if ry.MaxPackages != nil {
+		if *ry.MaxPackages < 1 {
+			return fmt.Errorf("rules.%s: maxPackages %d (want >= 1)", name, *ry.MaxPackages)
+		}
+		c.MaxCalledPackages = *ry.MaxPackages
+	}
+	if ry.Deferred != nil {
+		c.FileCycleDeferred = *ry.Deferred
 	}
 	if ry.Similarity != nil {
 		if *ry.Similarity <= 0 || *ry.Similarity > 1 {

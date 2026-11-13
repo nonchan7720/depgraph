@@ -308,6 +308,29 @@
         "as": "format"
       }
     ],
+    "loads": [
+      {
+        "target": "src/api/shared.ts"
+      },
+      {
+        "target": "src/db/index.ts"
+      },
+      {
+        "target": "src/db/util.ts"
+      }
+    ],
+    "calls": [
+      {
+        "name": "UserController.list",
+        "line": 15,
+        "calls": [
+          {
+            "target": "src/db/index.ts",
+            "name": "query"
+          }
+        ]
+      }
+    ],
     "exports": [
       {
         "name": "default",

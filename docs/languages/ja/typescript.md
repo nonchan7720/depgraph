@@ -64,6 +64,7 @@ esbuild の resolver で解決します:
 
 - `concrete-dependency` と `type-leak` は、クラスのフィールド、`constructor` の引数、引数と戻り値、`new T()` を読みます。クラスが implements / extends と宣言していれば、その interface を満たすとみなします。[レイヤーの内側](../../../README_ja.md#レイヤーの内側依存性逆転と型の漏洩)を参照してください。
 - `low-cohesion` はモジュールをトップレベルの宣言単位で分けて見ます。
+- `file-cycle` は、ファイルがどのモジュールを読み込むかを見ます。対象は `import` 文、`export ... from`、`import x = require()`、`require()` です。ファイルの読み込み時に何も読み込まれないもの、つまり `import type` / `export type`、`type` 付きの指定、型としてしか使われていない import（TypeScript が消します）、`import()`、文字列中のパスは対象外です。報告するのは 1 つのディレクトリ内の循環だけで、ディレクトリをまたぐ循環は `import-cycle` が報告します。
 
 ## 言語サーバ
 

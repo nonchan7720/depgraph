@@ -327,3 +327,29 @@ func TestEmptyAbstractClearsTheDefaultPairs(t *testing.T) {
 		t.Errorf("abstract pairs = %v, default layers = %v", f.Rules.AbstractLayers, f.Rules.DefaultLayers)
 	}
 }
+
+func TestFileCycleDeferredOption(t *testing.T) {
+	f, err := Parse([]byte("rules:\n  file-cycle: {deferred: false}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.Rules.FileCycleDeferred || !rules.DefaultConfig().FileCycleDeferred {
+		t.Errorf("deferred = %v, default %v", f.Rules.FileCycleDeferred, rules.DefaultConfig().FileCycleDeferred)
+	}
+	if _, err := Parse([]byte("rules:\n  import-cycle: {deferred: false}\n")); err == nil {
+		t.Error("deferred accepted for import-cycle")
+	}
+}
+
+func TestWideFunctionOption(t *testing.T) {
+	f, err := Parse([]byte("rules:\n  wide-function: {maxPackages: 12}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.Rules.MaxCalledPackages != 12 {
+		t.Errorf("maxPackages = %d", f.Rules.MaxCalledPackages)
+	}
+	if _, err := Parse([]byte("rules:\n  wide-function: {maxPackages: 0}\n")); err == nil {
+		t.Error("maxPackages 0 accepted")
+	}
+}

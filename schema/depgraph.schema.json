@@ -276,6 +276,53 @@
           },
           "type": "object"
         },
+        "file-cycle": {
+          "additionalProperties": false,
+          "description": "import cycle between the files of one directory (TypeScript / JavaScript, Python)",
+          "properties": {
+            "deferred": {
+              "default": true,
+              "description": "Also report the cycles that only close through an import inside a function (Python): a deferred import hides a cycle, it does not remove it.",
+              "type": "boolean"
+            },
+            "enabled": {
+              "default": true,
+              "description": "false turns the rule off.",
+              "type": "boolean"
+            },
+            "severity": {
+              "default": "warn",
+              "description": "Severity of the rule's findings.",
+              "enum": [
+                "error",
+                "warn",
+                "info"
+              ]
+            }
+          },
+          "type": "object"
+        },
+        "function-cycle": {
+          "additionalProperties": false,
+          "description": "functions in different files of a Go package that call each other in a cycle",
+          "properties": {
+            "enabled": {
+              "default": true,
+              "description": "false turns the rule off.",
+              "type": "boolean"
+            },
+            "severity": {
+              "default": "info",
+              "description": "Severity of the rule's findings.",
+              "enum": [
+                "error",
+                "warn",
+                "info"
+              ]
+            }
+          },
+          "type": "object"
+        },
         "god-package": {
           "additionalProperties": false,
           "description": "a hub: imported by many packages and importing many",
@@ -383,6 +430,27 @@
             },
             "severity": {
               "default": "error",
+              "description": "Severity of the rule's findings.",
+              "enum": [
+                "error",
+                "warn",
+                "info"
+              ]
+            }
+          },
+          "type": "object"
+        },
+        "pass-through": {
+          "additionalProperties": false,
+          "description": "a chain of two or more functions that only pass their parameters on to the next",
+          "properties": {
+            "enabled": {
+              "default": true,
+              "description": "false turns the rule off.",
+              "type": "boolean"
+            },
+            "severity": {
+              "default": "warn",
               "description": "Severity of the rule's findings.",
               "enum": [
                 "error",
@@ -509,6 +577,33 @@
             },
             "severity": {
               "default": "warn",
+              "description": "Severity of the rule's findings.",
+              "enum": [
+                "error",
+                "warn",
+                "info"
+              ]
+            }
+          },
+          "type": "object"
+        },
+        "wide-function": {
+          "additionalProperties": false,
+          "description": "a function that calls functions of more than maxPackages packages of the repository",
+          "properties": {
+            "enabled": {
+              "default": true,
+              "description": "false turns the rule off.",
+              "type": "boolean"
+            },
+            "maxPackages": {
+              "default": 8,
+              "description": "Report a function that calls functions of more than this many packages of the repository (its own not counted).",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "severity": {
+              "default": "info",
               "description": "Severity of the rule's findings.",
               "enum": [
                 "error",

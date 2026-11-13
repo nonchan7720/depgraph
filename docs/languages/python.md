@@ -62,6 +62,15 @@ matches the submodules (`sqlalchemy.orm`). Which Python version to use is set pe
   Protocols, ABCs, dataclasses, pydantic models and Enums are not implementations. See
   [Inside the layers](../../README.md#inside-the-layers-dependency-inversion-and-leaking-types).
 - `low-cohesion` splits a module by its top-level declarations.
+- `file-cycle` reads the `import` and `from ... import` statements of a module, also those inside functions, but not
+  those under `if TYPE_CHECKING:`. A cycle that only closes through an import inside a function is reported as hidden by
+  that file (a deferred import hides a cycle, it does not remove it); `rules: {file-cycle: {deferred: false}}` leaves
+  those out. `from pkg import name`
+  loads the submodule `pkg/name.py` when there is one; else the module `name` comes from: `pkg/__init__.py` when it
+  declares the name, or the module `pkg/__init__.py` imports it from (a module that takes a name its own package only
+  passes on depends on the module that declares it). A module that imports its own package as a module (`import pkg`,
+  `from .. import pkg`) adds nothing: the package is loaded before its modules anyway. Only cycles inside one directory are
+  reported; across directories it is an `import-cycle`.
 
 ## Language server
 

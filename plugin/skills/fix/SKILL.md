@@ -1,6 +1,6 @@
 ---
 name: fix
-description: Fix the debt depgraph reports (import-cycle, module-cycle, layer-violation, concrete-dependency, type-leak, duplicate-code, duplicate-symbol, god-package, low-cohesion, unused-export, unreachable-file, unreachable-package) the way the codebase needs, not by silencing the rule. Use when depgraph findings appear in the context (session start, a prompt, or a failing `depgraph gate`), or when the user asks to clean up what depgraph found.
+description: Fix the debt depgraph reports (import-cycle, module-cycle, file-cycle, function-cycle, pass-through, wide-function, layer-violation, concrete-dependency, type-leak, duplicate-code, duplicate-symbol, god-package, low-cohesion, unused-export, unreachable-file, unreachable-package) the way the codebase needs, not by silencing the rule. Use when depgraph findings appear in the context (session start, a prompt, or a failing `depgraph gate`), or when the user asks to clean up what depgraph found.
 argument-hint: "[rule or finding]"
 ---
 
@@ -32,6 +32,29 @@ refactor nobody asked for.
   themselves. The finding lists one import per hop. Decide which module is the lower one (the
   library the other builds on) and move what it imports from the higher one down into it or into
   a shared package both depend on; never re-implement it on the other side.
+- **file-cycle** (warn): files of one directory (TypeScript / JavaScript or Python modules) that
+  load each other. Find what the two sides need from each other: move the shared part into a
+  module neither imports back, or pass the dependency in (a parameter, a callback) instead of
+  importing it. An import that is only for types becomes `import type` / goes under
+  `if TYPE_CHECKING:`. Do not hide the cycle behind an import inside a function, and do not
+  merge the files into one that does everything.
+- **function-cycle** (info): Go functions declared in different files of a package that call
+  each other in a cycle. When it is one recursive algorithm, keep its functions in one file.
+  When one side only needs a step of the other, pass that step in as a function parameter (or
+  an interface the caller implements) instead of calling back. Do not inline one function into
+  the other to make the finding disappear.
+- **pass-through** (warn): a chain of two or more functions that only pass their parameters on
+  to the next; the last function of the finding does the work. Make the callers of the first
+  call the last one (or the one layer that is the intended API) and delete the functions in
+  between. When a layer is there on purpose (a public API in front of an internal package),
+  keep that one and remove the others. Do not add a statement to a wrapper to make it look like
+  more than a wrapper.
+- **wide-function** (info): a function that calls functions of more packages of the repository
+  than `maxPackages` (default 8). Group the calls by what they are for and move each group into a
+  function of the package that owns that concern, so the function coordinates a few steps
+  instead of knowing every package. Only a function that is wide on purpose (the composition
+  root that wires the application) keeps its shape: put `depgraph:ignore wide-function` and the
+  reason in a comment on it. Do not add that comment to make a finding go away.
 - **layer-violation** (error): a layer imports one it must not (`.depgraph.yml` `forbidden`, or
   the defaults such as handler → repository). Route the call through the layer in between
   (handler → usecase → repository) or depend on an interface the inner layer declares. Change the

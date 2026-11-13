@@ -233,6 +233,29 @@ Flags (see `depgraph <command> --help`):
 | `--fail-on` / `--timeout` | gate | `warn` / `60s` |
 | `--plugin-root` / `--to` / `--repo` / `--print` / `--remove` | codex install-hooks | `$PLUGIN_ROOT`, `$CLAUDE_PLUGIN_ROOT` or `.` / `$CODEX_HOME/hooks.json` / false / false / false |
 
+### Excluding paths: `.depgraphignore`
+
+One pattern per line, `#` comments. A pattern without `/` matches a file or directory name at any
+depth (`*.gen.go`, `tmp*`); with `/` it is a path from the root (`internal/ent`,
+`internal/**/testdata`); a leading `/` anchors it at the root. Excluded paths are not scanned.
+
+These directory names are always skipped, at any depth: `.git`, `node_modules`, `vendor`, `dist`,
+`build`, `.venv`, `venv`, `__pycache__`, `target`, `.next`, `.idea`, `.vscode`, `coverage`,
+`.cache`, `.worktrees`, `.claude`. When source lives in one of them (`src/build/startup/`), lift it
+with a `!` pattern, as in `.gitignore`:
+
+```
+!src/build     # only this directory (src/build/node_modules stays skipped)
+!build         # every directory named build
+!/build        # only the root build
+*.gen.go
+!keep.gen.go   # re-include a file an earlier pattern excluded
+```
+
+Patterns apply in order and the last match wins; the built-in names count as coming first. A `!`
+pattern matches the path itself, not what is below it. As in `.gitignore`, nothing inside an
+excluded directory can be re-included. `\!name` matches a literal leading `!`.
+
 ### CI
 
 `scan` and `check` exit 0 whatever they find, unless `--fail-on <error|warn|info>` is given: they
@@ -490,7 +513,9 @@ that supports [MCP Apps](https://modelcontextprotocol.io/extensions/apps) (Claud
 (Project {key, name, root, origin, base, worktree, lastScanAt})
 (Package {project, key, name, external})
 (File    {project, path, language, lines, updatedAt,
-          scope, entry, internal, generated, uses, exports, keep})   # usage, for the unused-code rules
+          scope, entry, internal, generated, uses, exports, keep,   # usage, for the unused-code rules
+          loads,                                                     # the files its imports load, for file-cycle
+          calls, ownMembers})                                        # the functions its functions call, and the fields / parameters of the package's own types
 (Symbol  {project, name, kind, exported, line, endLine, language, file})
 
 (Package)-[:CONTAINS]->(File)-[:DECLARES]->(Symbol)
@@ -531,12 +556,16 @@ external, so it never shows up as a dependency. `watch` rescans when one of thes
 |---|---|---|
 | `import-cycle` | error | import cycle between packages: for every import on a cycle of at most 8 packages, the shortest cycle through it (up to 50). An import only Go test files make is not counted: an external test package (`package x_test`) is another package than the one in its directory, and Go builds `install -> v1` with `v1/defaults_test.go -> install` |
 | `module-cycle` | error | import cycle between the modules of a monorepo (Go modules, npm workspace packages, Python projects, Ruby applications / gems / engines / packwerk packs: directories with `go.mod`, `package.json`, `pyproject.toml`, `setup.py`, `setup.cfg`, `Gemfile`, `*.gemspec` or `package.yml`, plus [components](#monorepos-components)) through directories that do not form a cycle themselves (`packages/web/src/a -> packages/kit/src -> packages/web/src/b`). One import is listed per hop; a cycle `import-cycle` already reports is not repeated |
+| `file-cycle` | warn | import cycle between the files of one directory (TypeScript / JavaScript and Python modules), which `import-cycle` cannot see because it compares directories: for every import on a cycle of at most 8 files, the shortest cycle through it (up to 50). Only imports that load the module count: not one that is only for types (`import type`, names used only as types, `if TYPE_CHECKING:`) and not `import()`. A Python cycle that only closes through an import inside a function is reported as hidden by that file (a deferred import hides a cycle, it does not remove it); `deferred: false` leaves those out. Go has no such cycles and Ruby constants refer to each other by design, so neither is checked |
+| `function-cycle` | info | Go functions declared in different files of a package that call each other in a cycle (`parse.go Parse -> expr.go expr -> parse.go Parse`): one piece of logic spread over files. Recursion inside one file is not reported, nor a cycle among the methods of one type (a type declared over several files is one unit). Calls are read from the syntax: `f()`, `pkg.F()` and, in a method, `recv.m()`. A method called on a field of the receiver or on a parameter (`s.repo.Find()`, `r.Find()`) is followed by the member's declared type: to the method of a struct / class, or through an interface to its implementation when exactly one type of the project implements it. With several implementations which one runs is not known, and the call is not followed. In TypeScript / JavaScript and Python such a cycle needs imports, so it is a `file-cycle` or `import-cycle` already |
+| `pass-through` | warn | a chain of two or more functions that only pass their parameters on to the next (`api.Get -> service.Get -> load`): the body is one call with exactly the function's parameters, in order, whose result is returned. Layers that add a name and nothing else. One wrapper is an API choice and is not reported; methods are never counted (they may be there to satisfy an interface), nor decorated Python functions. Calls are followed as in `function-cycle`, in Go, TypeScript / JavaScript and Python. Test code is left out |
 | `layer-violation` | error | a package imports a layer it must not import (`handler → repository`, ... or your own layers). Layers may name external packages, so a domain that imports a framework is one too (see [Frameworks](#frameworks-external-packages-in-layers)) |
 | `concrete-dependency` | warn | a struct / class holds (field, constructor parameter) or builds an implementation of a layer it may use only through interfaces (`abstract:`), although that implementation satisfies an interface declared in the holder's package, its own package or the inner layer (see [Inside the layers](#inside-the-layers-dependency-inversion-and-leaking-types)) |
 | `type-leak` | warn | the API of a layer (parameters and results of exported functions / methods, exported fields) exposes a struct or class of a layer it may use only through interfaces (`abstract:`) |
 | `duplicate-code` | warn | the same logic in several places, whatever the names: identical, or a copy changed a little (see below) |
 | `god-package` | warn | a hub: imported by 10 or more packages and importing 3 or more in-repo packages. A package many depend on that depends on nothing in the repository (a domain model) is stable, not a god package (Stable Dependencies Principle) |
 | `low-cohesion` | info | a Go package (its files) or a TypeScript / Python module (its top-level declarations) splits into parts that nothing inside connects, and every part is used by different code (no user takes two parts): more than one responsibility in one place. A size limit is a linter's; only the whole project shows who uses which part. Tests, generated files, entry points, a unit used whole (a dot import, `export *`, a namespace used as a value) and a unit of data only (entities / DTOs used one per consumer: types without behaviour, data classes, constants, constructors) are left out |
+| `wide-function` | info | a function or method that calls functions of more than `maxPackages` (default 8) packages of the repository, its own not counted: it knows too much of the project to change or test alone. A method called on a field or a parameter counts the package that declares the member's type (the interface), not the packages that implement it. Calls of constructors (Go `NewX`, `new C()`, a Python class) are not counted: building its parts from many packages is wiring, not knowing what they do. Calls are read as in `function-cycle`, in Go, TypeScript / JavaScript and Python. A function that is wide on purpose (the composition root) is exempted by a comment, see [Exempting a function](#exempting-a-function-depgraphignore). Test code is left out |
 | `duplicate-symbol` | warn | an exported function/class with the same name exists in several files (the files of one Go package count once: they can only share a name through build constraints; Ruby is left out, reopening a class is how Ruby extends it) |
 | `unused-export` | warn | an exported declaration nothing in the project uses, not even its own file (Go: exported functions and types of non-main packages, not methods; TS/JS: `export`ed declarations, followed through re-exports and barrels; Python: public module-level functions and classes; Ruby: classes, modules with something in them and `Struct.new` / `Class.new` constants, never methods) |
 | `unreachable-file` | warn | a TS/JS/Python/Ruby file no entry point reaches through imports; one finding per file nothing imports, listing the files only it leads to |
@@ -617,6 +646,8 @@ rules:                      # per rule: enabled, severity (error | warn | info),
   god-package: {severity: warn, fanIn: 10, fanOut: 3}
   duplicate-symbol: {enabled: false}
   duplicate-code: {minTokens: 50, similarity: 0.8}   # body size and fingerprint similarity
+  wide-function: {maxPackages: 8}                    # most packages a function may call into
+  file-cycle: {deferred: true}                       # also the cycles hidden by an import inside a function (Python)
   # duplicate-symbol: {ignore: [main, New, "Test*", "*Handler"]}  # names not checked (replaces the defaults)
   unused-export: {ignore: ["pkg/api/**"]}            # paths not reported (a library's public API)
   unreachable-file: {entries: ["plugins/**"]}       # entry points depgraph cannot see
@@ -653,6 +684,29 @@ pairs `handler → repository / infra / db`, `controller → repository / db`,
 `domain → infra / handler / repository` and `usecase → handler`, and the abstract pairs
 `usecase → infra / db`.
 This repository's own [`.depgraph.yml`](.depgraph.yml) is an example.
+
+### Exempting a function (`depgraph:ignore`)
+
+A function-level finding that is intended is exempted where the function is, with the reason next to it:
+a comment containing `depgraph:ignore <rule> [<rule>...]` directly above the function (no blank line in
+between) or inside it. Text after the rule names is for the reader.
+
+```go
+// Wire builds the application.
+//
+// depgraph:ignore wide-function (the composition root: it wires every package on purpose)
+func Wire(cfg Config) (*App, error) { ... }
+```
+
+```python
+# depgraph:ignore wide-function, pass-through
+def create_app(settings): ...
+```
+
+- Rules it applies to: `wide-function` and `pass-through` (the first function of the chain). The other rules
+  report packages, files or declarations nothing uses, and are configured in `.depgraph.yml`.
+- A comment without a rule name exempts nothing: what is ignored is always written down.
+- It is read with the file, in Go, TypeScript / JavaScript and Python.
 
 ### Frameworks: external packages in layers
 

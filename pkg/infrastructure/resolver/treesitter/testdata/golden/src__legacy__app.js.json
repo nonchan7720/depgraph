@@ -123,6 +123,14 @@
         "name": "run"
       }
     ],
+    "loads": [
+      {
+        "target": "src/api/users.ts"
+      },
+      {
+        "target": "src/db/index.ts"
+      }
+    ],
     "declRefs": [
       {
         "name": "fs"

@@ -82,6 +82,10 @@ published, so only the repository uses it:
   results, and `new T()`. An implementation satisfies an interface when its class says it implements or
   extends it. See [Inside the layers](../../README.md#inside-the-layers-dependency-inversion-and-leaking-types).
 - `low-cohesion` splits a module by its top-level declarations.
+- `file-cycle` reads which modules a file loads: `import` and `export ... from` statements, `import x = require()`
+  and `require()`. Left out, because nothing is loaded when the file is: `import type` / `export type`, a
+  `type` specifier, an import whose names are only used as types (TypeScript erases it), `import()` and
+  paths in strings. Only cycles inside one directory are reported; across directories it is an `import-cycle`.
 
 ## Language server
 

@@ -177,6 +177,28 @@
         "name": "thing"
       }
     ],
+    "loads": [
+      {
+        "target": "app",
+        "name": "models"
+      },
+      {
+        "target": "app/models.py",
+        "name": "Base"
+      },
+      {
+        "target": "app/models.py",
+        "name": "User"
+      },
+      {
+        "target": "app/services",
+        "name": "helper"
+      },
+      {
+        "target": "app/services/helper.py",
+        "name": "thing"
+      }
+    ],
     "keep": [
       "Helper",
       "Point"

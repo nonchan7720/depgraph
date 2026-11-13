@@ -110,6 +110,12 @@ func (t TypeInfo) implements(i TypeInfo) bool {
 	return true
 }
 
+// Abstraction reports whether the type is an interface / abstract class.
+func (t TypeInfo) Abstraction() bool { return t.abstraction() }
+
+// ImplementsType reports whether t implements the abstraction i (see implements).
+func (t TypeInfo) ImplementsType(i TypeInfo) bool { return t.implements(i) }
+
 // TypeIndex looks up the types of the repository.
 type TypeIndex interface {
 	Type(graph.TypeRef) (TypeInfo, bool)

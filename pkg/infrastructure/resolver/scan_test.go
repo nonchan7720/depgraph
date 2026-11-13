@@ -334,3 +334,38 @@ func TestScanRepoSkipsRefusedFiles(t *testing.T) {
 		t.Errorf("scanned %v", got)
 	}
 }
+
+func TestScanRepoNegationScansLiftedDir(t *testing.T) {
+	t.Cleanup(ResetSkipPatterns)
+	root := t.TempDir()
+	for _, rel := range []string{"src/build/startup/register.go", "src/build/node_modules/x.go", "build/y.go", "src/a.go"} {
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	scan := func() []string {
+		var got []string
+		r := &fakeResolver{resolve: func(_ context.Context, rel string) (*graph.FileGraph, error) {
+			return &graph.FileGraph{Path: rel}, nil
+		}}
+		if err := ScanRepo(context.Background(), r, root, func(fg *graph.FileGraph) error {
+			got = append(got, fg.Path)
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	ResetSkipPatterns()
+	if got := scan(); !slices.Equal(got, []string{"src/a.go"}) {
+		t.Fatalf("without negation: %v", got)
+	}
+	AddSkipPatterns([]string{"!src/build"})
+	if got := scan(); !slices.Equal(got, []string{"src/a.go", "src/build/startup/register.go"}) {
+		t.Fatalf("with negation: %v", got)
+	}
+}

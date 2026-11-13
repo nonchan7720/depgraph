@@ -9,7 +9,7 @@ pnpm = "12.14.0"
 # release builds (.goreleaser.yaml); the release workflow uses this same pin
 "aqua:goreleaser/goreleaser" = "2.19.0"
 "go:golang.org/x/tools/gopls" = "0.24.0"
-"npm:typescript-language-server" = "6.0.2"
+"npm:typescript-language-server" = "6.0.3"
 "npm:typescript" = "7.0.2"
 "npm:pyright" = "1.1.414"
 

@@ -54,7 +54,7 @@ jobs:
           ref: ${{ needs.release-please.outputs.releases_created == 'true' && needs.release-please.outputs.tag_name || github.sha }}
           persist-credentials: false
       # Go / node / pnpm / goreleaser pinned in mise.toml (web:build runs as a goreleaser hook)
-      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+      - uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
         with:
           install: true
           install_args: go node pnpm aqua:goreleaser/goreleaser

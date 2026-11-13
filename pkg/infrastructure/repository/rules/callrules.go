@@ -1,101 +1,122 @@
 package rules
 
 import (
-	"path"
-	"sort"
+	"context"
 
-	"github.com/nonchan7720/depgraph/pkg/domain/graph"
 	"github.com/nonchan7720/depgraph/pkg/domain/rules"
 )
 
+// The rules over the function-level call graph: Cypher over the linked
+// graph (Function, CALLS, FORWARDS, CALLS_INTO; see link.go, callgraph.go).
+
 // functionCycles reports the cycles of calls across the files of the Go
-// packages of the call graph.
-func functionCycles(g *callGraph, cfg rules.Config) []rules.Finding {
-	var edges [][2]rules.FuncNode
-	for _, c := range g.callers {
-		if c.lang != string(graph.Go) {
-			continue
-		}
-		for _, call := range c.calls.Calls {
-			for _, to := range g.callees(c, call) {
-				edges = append(edges, [2]rules.FuncNode{c.node(), to})
-			}
-		}
+// packages: for every call between two files, the shortest way back closes
+// the shortest cycle through it (at most 8 functions; of several shortest
+// ways, the smallest by its functions, so that the cycle reported for a
+// graph is always the same). Not a cycle among
+// the methods of one type: a type declared over several files is one unit.
+func (r *Repository) functionCycles(ctx context.Context, cfg rules.Config) ([]rules.Finding, error) {
+	rows, err := r.query(ctx, `
+		MATCH (a:Function {project: $project, lang: 'go'})-[:CALLS]->(b:Function {project: $project, lang: 'go'})
+		WHERE a.file <> b.file
+		MATCH p = allShortestPaths((b)-[:CALLS*1..7]->(a))
+		WHERE all(x IN nodes(p) WHERE x.lang = 'go')
+		// of several shortest ways back, always the same one: the smallest
+		WITH a, b, nodes(p) AS back, [n IN nodes(p) | n.key] AS keys ORDER BY keys
+		WITH a, b, head(collect(back)) AS back
+		WITH [a] + back[0..-1] AS ring
+		WHERE NOT (ring[0].recv IS NOT NULL AND all(n IN ring WHERE coalesce(n.recv, '') = ring[0].recv))
+		WITH ring, [n IN ring | n.file + '\u0000' + n.name] AS ids
+		WITH ring, ids, reduce(m = 0, i IN range(0, size(ids) - 1) | CASE WHEN ids[i] < ids[m] THEN i ELSE m END) AS s
+		WITH ring[s..] + ring[..s] AS ring, ids[s..] + ids[..s] AS ids
+		WITH DISTINCT ids, [n IN ring | [n.file, n.name]] AS cycle
+		RETURN cycle ORDER BY size(ids), ids LIMIT 50
+	`, nil, nil)
+	if err != nil {
+		return nil, err
 	}
 	var out []rules.Finding
-	for _, cyc := range rules.FunctionCycles(edges) {
-		f := rules.FunctionCycle(cyc)
+	for _, row := range rows {
+		nodes := funcNodes(row["cycle"])
+		f := rules.FunctionCycle(append(nodes, nodes[0]))
 		f.Severity = string(cfg.Severity(rules.RuleFunctionCycle))
 		out = append(out, f)
 	}
-	return out
+	return out, nil
 }
 
-// passThrough reports the chains of functions that only forward. A
-// forward whose target is not exactly one function of the project ends no
-// chain and starts none.
-func passThrough(g *callGraph, cfg rules.Config) []rules.Finding {
-	var forwards [][2]rules.FuncNode
-	for _, c := range g.callers {
-		if !c.calls.Forwards || len(c.calls.Calls) != 1 || rules.IgnoresRule(c.calls.Ignore, rules.RulePassThrough) {
-			continue
-		}
-		if c.calls.Calls[0].Via != "" {
-			continue // a method called on a parameter: not a function of its own
-		}
-		if to := g.callees(c, c.calls.Calls[0]); len(to) == 1 {
-			forwards = append(forwards, [2]rules.FuncNode{c.node(), to[0]})
-		}
+// passThrough reports the chains of at least two functions that only pass
+// their parameters on: from a function nothing forwards to, to the first
+// function that does something else. A ring of forwarders has no such end.
+func (r *Repository) passThrough(ctx context.Context, cfg rules.Config) ([]rules.Finding, error) {
+	rows, err := r.query(ctx, `
+		MATCH (head:Function {project: $project})-[:FORWARDS]->(:Function)
+		WHERE NOT (:Function)-[:FORWARDS]->(head)
+		MATCH p = (head)-[:FORWARDS*2..]->(last:Function)
+		WHERE NOT (last)-[:FORWARDS]->(:Function)
+		RETURN [n IN nodes(p) | [n.file, n.name]] AS chain
+		ORDER BY head.file, head.name LIMIT 50
+	`, nil, nil)
+	if err != nil {
+		return nil, err
 	}
 	var out []rules.Finding
-	for _, chain := range rules.PassThroughChains(forwards) {
-		f := rules.PassThrough(chain)
+	for _, row := range rows {
+		f := rules.PassThrough(funcNodes(row["chain"]))
 		f.Severity = string(cfg.Severity(rules.RulePassThrough))
 		out = append(out, f)
 	}
-	return out
+	return out, nil
 }
 
-// wideFunctions reports the functions that call functions of more
-// packages (directories) of the repository than the limit, their own not
-// counted. Calls of constructors are not counted: building what it needs
-// from many packages is wiring (the constructor of a type takes its parts
-// from wherever they are), using their behaviour is knowing them. A
-// function with a `depgraph:ignore wide-function` comment is left out.
-func wideFunctions(g *callGraph, cfg rules.Config) []rules.Finding {
+// wideFunctions reports the functions that call functions of more packages
+// (directories) of the repository than the limit, their own not counted. A
+// call through a member counts the package that declares the member's type
+// (CALLS_INTO), whatever implements it. Calls of constructors are not
+// counted: building what it needs from many packages is wiring, using their
+// behaviour is knowing them. A function with a `depgraph:ignore
+// wide-function` comment is left out.
+func (r *Repository) wideFunctions(ctx context.Context, cfg rules.Config) ([]rules.Finding, error) {
 	limit := cfg.CalledPackagesLimit()
+	rows, err := r.query(ctx, `
+		MATCH (f:Function {project: $project})
+		WHERE f.caller AND NOT $rule IN coalesce(f.ignore, [])
+		CALL {
+			WITH f
+			MATCH (f)-[c:CALLS]->(g:Function)
+			WHERE NOT c.via AND NOT c.construct AND g.dir <> f.dir
+			RETURN g.dir AS dir
+			UNION
+			WITH f
+			MATCH (f)-[:CALLS_INTO]->(p:Package)
+			WHERE p.key <> f.dir
+			RETURN p.key AS dir
+		}
+		WITH f, dir ORDER BY dir
+		WITH f, collect(dir) AS packages
+		WHERE size(packages) > $limit
+		RETURN f.file AS file, f.line AS line, f.name AS name, packages
+	`, nil, map[string]any{"limit": limit, "rule": rules.RuleWideFunction})
+	if err != nil {
+		return nil, err
+	}
 	var out []rules.Finding
-	for _, c := range g.callers {
-		if len(c.calls.Calls) <= limit || rules.IgnoresRule(c.calls.Ignore, rules.RuleWideFunction) {
-			continue
-		}
-		pkgs := map[string]bool{}
-		for _, call := range c.calls.Calls {
-			if call.Via != "" {
-				// through a member: the package that declares its type (the
-				// interface), whatever implements it
-				if dir, _ := g.memberCallees(c, call); dir != "" && dir != path.Dir(c.file) {
-					pkgs[dir] = true
-				}
-				continue
-			}
-			for _, to := range g.callees(c, call) {
-				if dir := path.Dir(to.File); dir != path.Dir(c.file) && !g.constructs(c.lang, to) {
-					pkgs[dir] = true
-				}
-			}
-		}
-		if len(pkgs) <= limit {
-			continue
-		}
-		list := make([]string, 0, len(pkgs))
-		for p := range pkgs {
-			list = append(list, p)
-		}
-		sort.Strings(list)
-		f := rules.WideFunction(c.file, c.calls.Line, c.calls.Name, list, limit)
+	for _, row := range rows {
+		f := rules.WideFunction(str(row["file"]), toInt(row["line"]), str(row["name"]), toStrings(row["packages"]), limit)
 		f.Severity = string(cfg.Severity(rules.RuleWideFunction))
 		out = append(out, f)
+	}
+	return out, nil
+}
+
+// funcNodes are the functions of a list of [file, name] pairs.
+func funcNodes(v any) []rules.FuncNode {
+	pairs, _ := v.([]any)
+	out := make([]rules.FuncNode, 0, len(pairs))
+	for _, p := range pairs {
+		if fn := toStrings(p); len(fn) == 2 {
+			out = append(out, rules.FuncNode{File: fn[0], Name: fn[1]})
+		}
 	}
 	return out
 }

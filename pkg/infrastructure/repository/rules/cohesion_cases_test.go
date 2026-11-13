@@ -1,14 +1,42 @@
 package rules
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+	"time"
+
+	graphrepo "github.com/nonchan7720/depgraph/pkg/infrastructure/repository/graph"
+
+	"github.com/nonchan7720/depgraph/pkg/domain/rules"
 )
 
+// The cases the Go implementation of low-cohesion was tested with, before
+// the rule became Cypher over the linked parts (cohesion.go).
+
+// lowCohesionOf stores the parts of units and returns the findings.
+func lowCohesionOf(t *testing.T, units []rules.CohesionUnit) []rules.Finding {
+	t.Helper()
+	ctx, st := connect(t)
+	key := fmt.Sprintf("zz_test_%d_cohesion", time.Now().UnixNano())
+	t.Cleanup(func() { _ = graphrepo.ForProject(st, key).Clear(ctx) })
+	r := New(st, key)
+	want := newLinked()
+	linkUnits(units, want)
+	if err := r.storeLinked(ctx, want); err != nil {
+		t.Fatal(err)
+	}
+	fs, err := r.lowCohesion(ctx, rules.DefaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fs
+}
+
 func TestLowCohesion(t *testing.T) {
-	split := CohesionUnit{
+	split := rules.CohesionUnit{
 		Key: "pkg/util", What: "package",
-		Parts: []CohesionPart{
+		Parts: []rules.CohesionPart{
 			{ID: "parse.go", Names: []string{"Parse", "Token"}},
 			{ID: "lex.go", Names: []string{"Lex"}},
 			{ID: "render.go", Names: []string{"Render"}},
@@ -30,11 +58,11 @@ func TestLowCohesion(t *testing.T) {
 	connected.Key = "pkg/connected"
 	connected.Links = [][2]int{{0, 1}, {1, 2}}
 	// a part nobody outside uses does not count
-	small := CohesionUnit{Key: "pkg/small", What: "package",
-		Parts: []CohesionPart{{ID: "a.go", Names: []string{"A"}}, {ID: "b.go", Names: []string{"B"}}},
+	small := rules.CohesionUnit{Key: "pkg/small", What: "package",
+		Parts: []rules.CohesionPart{{ID: "a.go", Names: []string{"A"}}, {ID: "b.go", Names: []string{"B"}}},
 		Users: map[string][]string{"A": {"x"}, "B": {"y"}}}
-	got := LowCohesion([]CohesionUnit{split, shared, connected, small})
-	if len(got) != 1 || got[0].ID != "pkg/util" || got[0].Rule != RuleLowCohesion {
+	got := lowCohesionOf(t, []rules.CohesionUnit{split, shared, connected, small})
+	if len(got) != 1 || got[0].ID != "pkg/util" || got[0].Rule != rules.RuleLowCohesion {
 		t.Fatalf("findings = %+v", got)
 	}
 	for _, want := range []string{
@@ -52,18 +80,18 @@ func TestLowCohesion(t *testing.T) {
 // A package of data (entities, DTOs) used one type per consumer is normal
 // architecture, not two responsibilities.
 func TestLowCohesionSkipsData(t *testing.T) {
-	models := CohesionUnit{Key: "app/model", What: "package",
-		Parts: []CohesionPart{{ID: "user.go", Names: []string{"User", "NewUser"}, Data: true}, {ID: "order.go", Names: []string{"Order"}, Data: true}},
+	models := rules.CohesionUnit{Key: "app/model", What: "package",
+		Parts: []rules.CohesionPart{{ID: "user.go", Names: []string{"User", "NewUser"}, Data: true}, {ID: "order.go", Names: []string{"Order"}, Data: true}},
 		Users: map[string][]string{"User": {"svc/user"}, "NewUser": {"svc/user"}, "Order": {"svc/order"}}}
-	if got := LowCohesion([]CohesionUnit{models}); len(got) != 0 {
+	if got := lowCohesionOf(t, []rules.CohesionUnit{models}); len(got) != 0 {
 		t.Errorf("data: %+v", got)
 	}
 	// behaviour on one side is enough to say the package does two things
 	models.Parts[1].Data = false
-	if got := LowCohesion([]CohesionUnit{models}); len(got) != 1 {
+	if got := lowCohesionOf(t, []rules.CohesionUnit{models}); len(got) != 1 {
 		t.Errorf("data and behaviour: %+v", got)
 	}
-	if r, _ := Lookup(RuleLowCohesion); r.Severity != SeverityInfo {
+	if r, _ := rules.Lookup(rules.RuleLowCohesion); r.Severity != rules.SeverityInfo {
 		t.Errorf("severity %s", r.Severity)
 	}
 }

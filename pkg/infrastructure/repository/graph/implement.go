@@ -78,6 +78,21 @@ func (s *Store) EnsureSchema(ctx context.Context) error {
 		`CREATE CONSTRAINT package_project_key IF NOT EXISTS FOR (p:Package) REQUIRE (p.project, p.key) IS UNIQUE`,
 		`CREATE CONSTRAINT file_project_path IF NOT EXISTS FOR (f:File) REQUIRE (f.project, f.path) IS UNIQUE`,
 		`CREATE CONSTRAINT hook_session_project_id IF NOT EXISTS FOR (h:HookSession) REQUIRE (h.project, h.id) IS UNIQUE`,
+		`CREATE CONSTRAINT function_project_key IF NOT EXISTS FOR (f:Function) REQUIRE (f.project, f.key) IS UNIQUE`,
+		`CREATE CONSTRAINT module_project_key IF NOT EXISTS FOR (m:Module) REQUIRE (m.project, m.key) IS UNIQUE`,
+		`CREATE CONSTRAINT type_project_key IF NOT EXISTS FOR (t:Type) REQUIRE (t.project, t.key) IS UNIQUE`,
+		`CREATE CONSTRAINT use_project_key IF NOT EXISTS FOR (u:Use) REQUIRE (u.project, u.key) IS UNIQUE`,
+		`CREATE CONSTRAINT part_project_key IF NOT EXISTS FOR (p:Part) REQUIRE (p.project, p.key) IS UNIQUE`,
+		`CREATE CONSTRAINT root_project_key IF NOT EXISTS FOR (r:Root) REQUIRE (r.project, r.key) IS UNIQUE`,
+		`CREATE CONSTRAINT ext_import_project_key IF NOT EXISTS FOR (i:ExtImport) REQUIRE (i.project, i.key) IS UNIQUE`,
+		`CREATE CONSTRAINT link_state_project IF NOT EXISTS FOR (s:LinkState) REQUIRE s.project IS UNIQUE`,
+		`CREATE INDEX function_project IF NOT EXISTS FOR (n:Function) ON (n.project)`,
+		`CREATE INDEX module_project IF NOT EXISTS FOR (n:Module) ON (n.project)`,
+		`CREATE INDEX type_project IF NOT EXISTS FOR (n:Type) ON (n.project)`,
+		`CREATE INDEX use_project IF NOT EXISTS FOR (n:Use) ON (n.project)`,
+		`CREATE INDEX part_project IF NOT EXISTS FOR (n:Part) ON (n.project)`,
+		`CREATE INDEX root_project IF NOT EXISTS FOR (n:Root) ON (n.project)`,
+		`CREATE INDEX extimport_project IF NOT EXISTS FOR (n:ExtImport) ON (n.project)`,
 		`CREATE INDEX package_project IF NOT EXISTS FOR (p:Package) ON (p.project)`,
 		`CREATE INDEX file_project IF NOT EXISTS FOR (f:File) ON (f.project)`,
 		`CREATE INDEX symbol_project IF NOT EXISTS FOR (s:Symbol) ON (s.project)`,
@@ -142,7 +157,7 @@ func (r *Graph) UpsertFile(ctx context.Context, fg *graph.FileGraph) error {
 			"name": sym.Name, "kind": sym.Kind, "exported": sym.Exported,
 			"line": sym.Line, "endLine": sym.EndLine,
 			// code shape (duplicate-code); null for symbols without one, so not stored
-			"tokens": nonZero(sym.Tokens), "cloneHash": nonEmpty(sym.CloneHash), "fingerprints": nonEmptyList(sym.Fingerprints),
+			"tokens": nonZero(sym.Tokens), "cloneHash": nonEmpty(sym.CloneHash), "fingerprints": nonEmptyList(distinct(sym.Fingerprints)),
 			// members (null when unset, so not stored)
 			"receiver": nonEmpty(sym.Receiver), "methods": nonEmptyStrings(sym.Methods), "abstract": nonFalse(sym.Abstract),
 			"data": nonFalse(sym.Data), "implements": nonEmptyStrings(sym.Implements), "embeds": nonFalse(sym.Embeds),
@@ -361,6 +376,20 @@ func nonEmptyList(xs []int64) any {
 		return nil
 	}
 	return xs
+}
+
+// distinct returns xs without repeated values, in order: the fingerprints
+// of a body are compared as a set (clones.go of the rules).
+func distinct(xs []int64) []int64 {
+	seen := make(map[int64]bool, len(xs))
+	out := xs[:0:0]
+	for _, x := range xs {
+		if !seen[x] {
+			seen[x] = true
+			out = append(out, x)
+		}
+	}
+	return out
 }
 
 func nonFalse(b bool) any {

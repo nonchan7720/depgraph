@@ -13,10 +13,22 @@ import (
 )
 
 // Unused code at project level (unused-export, unreachable-file,
-// unreachable-package). Every file's usage (graph.Usage, stored on its File
-// node) is read in one query and joined in Go: uses are resolved through
-// re-exports and Python packages, entry points seed a reachability walk,
-// and unreachable files are grouped under the file nothing imports.
+// unreachable-package). Every file is stored with what it uses (graph.Usage,
+// on its File node). Linking resolves those uses across the project
+// (through re-exports, Python packages, Ruby constants) and stores them:
+//
+//	(Root {key: 'unused', usage})                the entry points hang off it
+//	(Root)-[:ENTRY {why}]->(File)                an entry point
+//	(File)-[:USES_FILE]->(File)                  a file uses (imports, names) another
+//	(File)-[:GO_PKG]->(File)                     the files of a Go package: reached together
+//	(File)-[:USES_NAMES {names}]->(File)         the names of a file another (or itself) uses
+//	(File)-[:USES_GO {names}]->(Package)         the same, of a Go package
+//	(Root)-[:USES_ALL]->(File), (Root)-[:USES_ALL_GO]->(Package)   every export is used
+//	(Package)-[:USES_GO_PKG]->(Package)          a Go package uses another
+//
+// Then Cypher statements mark what no entry point reaches (File.reached,
+// File.dead / Package.dead and the file or package each dead one is
+// reported under: deadRoot), and the rules read the marks.
 
 // unusedFile is one File node with its usage and declarations.
 type unusedFile struct {
@@ -38,7 +50,8 @@ type unusedSymbol struct {
 	Line       int
 }
 
-func (r *Repository) evaluateUnused(ctx context.Context, cfg rules.Config) ([]rules.Finding, error) {
+// unusedFiles reads every file of the project with its usage.
+func (r *Repository) unusedFiles(ctx context.Context) ([]unusedFile, error) {
 	rows, err := r.query(ctx, `
 		MATCH (f:File {project: $project})
 		OPTIONAL MATCH (f)-[:DECLARES]->(s:Symbol)
@@ -84,7 +97,7 @@ func (r *Repository) evaluateUnused(ctx context.Context, cfg rules.Config) ([]ru
 		}
 		files = append(files, f)
 	}
-	return evalUnused(files, cfg), nil
+	return files, nil
 }
 
 func str(v any) string {
@@ -99,15 +112,15 @@ func str(v any) string {
 
 // reportedKinds are the declarations unused-export reports, per language.
 // Go methods are never reported: an interface may need them, and interface
-// satisfaction is invisible to a syntactic analysis.
-var reportedKinds = map[string]map[string]bool{
-	"go":         {"function": true, "struct": true, "interface": true, "type": true},
-	"typescript": {"function": true, "class": true, "interface": true, "type": true, "enum": true, "variable": true},
-	"javascript": {"function": true, "class": true, "variable": true},
-	"python":     {"function": true, "class": true},
-	// Ruby methods are called by name from callbacks, routes, views and
-	// send: only constants are reported
-	"ruby": {"class": true, "module": true},
+// satisfaction is invisible to a syntactic analysis. Ruby methods are
+// called by name from callbacks, routes, views and send: only constants
+// are reported.
+var reportedKinds = map[string]any{
+	"go":         []string{"function", "struct", "interface", "type"},
+	"typescript": []string{"function", "class", "interface", "type", "enum", "variable"},
+	"javascript": []string{"function", "class", "variable"},
+	"python":     []string{"function", "class"},
+	"ruby":       []string{"class", "module"},
 }
 
 // unusedIndex is the project's files and the uses resolved onto them.
@@ -135,12 +148,18 @@ type unusedIndex struct {
 
 func goKey(dir string) string { return "go:" + dir }
 
-func evalUnused(files []unusedFile, cfg rules.Config) []rules.Finding {
+// linkUnused resolves the uses of files and adds them to the linked graph.
+// When a file was stored by a depgraph without usage, nothing is linked
+// (Root.usage is false) and the rules report nothing: rescan first.
+func linkUnused(files []unusedFile, cfg rules.Config, want *linked) {
+	root := nodeID{"Root", "unused"}
 	for _, f := range files {
 		if !f.HasUsage {
-			return nil // stored by a depgraph without usage: rescan first
+			want.node(root, map[string]any{"usage": false})
+			return
 		}
 	}
+	want.node(root, map[string]any{"usage": true})
 	ix := &unusedIndex{
 		files: map[string]*unusedFile{}, dirs: map[string][]string{},
 		used: map[string]map[string]map[string]bool{}, usedAll: map[string]bool{},
@@ -157,22 +176,9 @@ func evalUnused(files []unusedFile, cfg rules.Config) []rules.Finding {
 	sort.Strings(ix.paths)
 	ix.indexRuby()
 
-	extra, unusedIgnore, err := cfg.UnusedGlobs()
+	extra, _, err := cfg.UnusedGlobs()
 	if err != nil {
-		return nil // Validate reports it
-	}
-	pkgIgnore, err := cfg.IgnoreGlobs()
-	if err != nil {
-		return nil
-	}
-	// ignored: a path (file or Go package dir) the rules leave out: the
-	// unused-code ignore globs, or a package of the top-level ignore
-	ignored := func(p string, dir bool) bool {
-		d := p
-		if !dir {
-			d = path.Dir(p)
-		}
-		return rules.MatchAny(unusedIgnore, p) || rules.MatchAny(unusedIgnore, d) || rules.MatchAny(pkgIgnore, d)
+		return // Validate reports it
 	}
 	entries := ix.entries(extra)
 
@@ -202,56 +208,54 @@ func evalUnused(files []unusedFile, cfg rules.Config) []rules.Finding {
 		}
 	}
 
-	// 3. reachability
-	reached := ix.reach(entries)
-	var out []rules.Finding
-	// files reported as unreachable (their exports are not reported again);
-	// a disabled rule reports nothing, so it hides nothing either
-	dead := map[string]bool{}
-	if cfg.Enabled(rules.RuleUnreachableFile) {
-		out = append(out, ix.unreachableFiles(entries, reached, ignored, dead)...)
+	// 3. what was resolved, as the linked graph
+	file := func(p string) nodeID { return nodeID{"File", p} }
+	for p, why := range entries {
+		want.edge(edgeID{"ENTRY", root, file(p)}, map[string]any{"why": why})
 	}
-	if cfg.Enabled(rules.RuleUnreachablePackage) {
-		out = append(out, ix.unreachablePackages(entries, reached, ignored, dead)...)
-	}
-
-	// 4. unused exports (not in files already reported as unreachable)
+	goFiles := map[string][]string{} // dir -> Go files
 	for _, p := range ix.paths {
-		if !cfg.Enabled(rules.RuleUnusedExport) {
-			break
+		if ix.files[p].Lang == "go" {
+			goFiles[path.Dir(p)] = append(goFiles[path.Dir(p)], p)
 		}
-		f := ix.files[p]
-		if (entries[p] != "" && !f.Internal) || f.Generated || dead[p] || ignored(p, false) || ix.usedAll[p] {
-			continue
-		}
-		kinds := reportedKinds[f.Lang]
-		keep := map[string]bool{}
-		for _, k := range f.Keep {
-			keep[k] = true
-		}
-		exportedLocal := map[string]bool{}
-		for _, e := range f.Exports {
-			exportedLocal[e.Local] = true
-		}
-		for _, s := range f.Symbols {
-			if !kinds[s.Kind] || keep[s.Name] || (!s.Exported && !exportedLocal[s.Name]) {
-				continue
-			}
-			if f.Lang == "python" && strings.HasPrefix(s.Name, "__") {
-				continue
-			}
-			// A declaration only its own file uses is not reported: the
-			// export is unneeded, but that is style, and common on purpose
-			// (Go handlers registered in the same file, RTK Query slices).
-			if other, local := ix.symbolUsed(f, s.Name); !other && !local {
-				out = append(out, rules.UnusedExport(p, s.Line, s.Kind, s.Name))
+		for _, q := range ix.edges[p] {
+			want.edge(edgeID{"USES_FILE", file(p), file(q)}, nil)
+			// a Go package uses another: from its non-test files
+			if d, qd := path.Dir(p), path.Dir(q); qd != d && ix.files[p].Lang == "go" && ix.files[q].Lang == "go" && !strings.HasSuffix(p, "_test.go") {
+				want.edge(edgeID{"USES_GO_PKG", nodeID{"Package", d}, nodeID{"Package", qd}}, nil)
 			}
 		}
 	}
-	for i := range out {
-		out[i].Severity = string(cfg.Severity(out[i].Rule))
+	// a Go package is reached as a whole: its files, through the first
+	for _, fs := range goFiles {
+		for _, p := range fs[1:] {
+			want.edge(edgeID{"GO_PKG", file(fs[0]), file(p)}, nil)
+			want.edge(edgeID{"GO_PKG", file(p), file(fs[0])}, nil)
+		}
 	}
-	return out
+	for key := range ix.usedAll {
+		if dir, ok := strings.CutPrefix(key, "go:"); ok {
+			want.edge(edgeID{"USES_ALL_GO", root, nodeID{"Package", dir}}, nil)
+		} else {
+			want.edge(edgeID{"USES_ALL", root, file(key)}, nil)
+		}
+	}
+	names := map[edgeID][]string{}
+	for key, byName := range ix.used {
+		for name, froms := range byName {
+			for from := range froms {
+				id := edgeID{"USES_NAMES", file(from), file(key)}
+				if dir, ok := strings.CutPrefix(key, "go:"); ok {
+					id = edgeID{"USES_GO", file(from), nodeID{"Package", dir}}
+				}
+				names[id] = append(names[id], name)
+			}
+		}
+	}
+	for id, ns := range names {
+		sort.Strings(ns)
+		want.edge(id, map[string]any{"names": ns})
+	}
 }
 
 // entries maps every entry file to why it is one; extra are the configured
@@ -530,217 +534,6 @@ func (ix *unusedIndex) markAll(p string) {
 			ix.markName(u.Target, u.Name, p)
 		}
 	}
-}
-
-// symbolUsed reports whether another file uses name of f, and whether f
-// itself does.
-func (ix *unusedIndex) symbolUsed(f *unusedFile, name string) (other, local bool) {
-	key := f.Path
-	if f.Lang == "go" {
-		key = goKey(path.Dir(f.Path))
-	}
-	if ix.usedAll[key] {
-		return true, false
-	}
-	for from := range ix.used[key][name] {
-		if from == f.Path {
-			local = true
-		} else {
-			other = true
-		}
-	}
-	return other, local
-}
-
-// reach walks the edges from the entries. A Go package is reached as a whole.
-func (ix *unusedIndex) reach(entries map[string]string) map[string]bool {
-	reached := map[string]bool{}
-	var queue []string
-	visit := func(p string) {
-		if !reached[p] {
-			reached[p] = true
-			queue = append(queue, p)
-		}
-	}
-	for _, p := range ix.paths {
-		if entries[p] != "" {
-			visit(p)
-		}
-	}
-	for len(queue) > 0 {
-		p := queue[0]
-		queue = queue[1:]
-		for _, q := range ix.edges[p] {
-			visit(q)
-		}
-		if f := ix.files[p]; f.Lang == "go" {
-			for _, q := range ix.dirs[path.Dir(p)] {
-				if ix.files[q].Lang == "go" {
-					visit(q)
-				}
-			}
-		}
-	}
-	return reached
-}
-
-func langFamily(l string) string {
-	if l == "javascript" {
-		return "typescript"
-	}
-	return l
-}
-
-// unreachableFiles reports the TS/JS/Python/Ruby files no entry reaches, one
-// finding per file nothing imports (with the files only it leads to).
-// Scopes without any entry point are skipped: their entry points are unknown.
-func (ix *unusedIndex) unreachableFiles(entries map[string]string, reached map[string]bool, ignored func(string, bool) bool, dead map[string]bool) []rules.Finding {
-	hasEntry := map[string]bool{}
-	for p := range entries {
-		f := ix.files[p]
-		hasEntry[langFamily(f.Lang)+"|"+f.Scope] = true
-	}
-	cand := map[string]bool{}
-	for _, p := range ix.paths {
-		f := ix.files[p]
-		if f.Lang == "go" || reached[p] || f.Generated || path.Base(p) == "__init__.py" || ignored(p, false) {
-			continue
-		}
-		if !hasEntry[langFamily(f.Lang)+"|"+f.Scope] {
-			continue
-		}
-		cand[p] = true
-	}
-	var out []rules.Finding
-	for _, g := range ix.group(cand, func(p string) []string { return ix.edges[p] }, func(p string) bool {
-		for q := range ix.importers[p] {
-			if q != p {
-				return true
-			}
-		}
-		return false
-	}) {
-		dead[g.root] = true
-		for _, o := range g.only {
-			dead[o] = true
-		}
-		out = append(out, rules.UnreachableFile(g.root, g.only, g.cycle))
-	}
-	return out
-}
-
-// unreachablePackages reports the Go packages no entry reaches.
-func (ix *unusedIndex) unreachablePackages(entries map[string]string, reached map[string]bool, ignored func(string, bool) bool, dead map[string]bool) []rules.Finding {
-	pkgs := map[string][]string{} // dir -> non-test files
-	for _, p := range ix.paths {
-		if f := ix.files[p]; f.Lang == "go" && !strings.HasSuffix(p, "_test.go") {
-			pkgs[path.Dir(p)] = append(pkgs[path.Dir(p)], p)
-		}
-	}
-	cand := map[string]bool{}
-	for d, fs := range pkgs {
-		// a package that declares nothing (doc.go only) is documentation
-		ok := !ignored(d, true) && ix.declaresAnything(fs)
-		for _, p := range fs {
-			if reached[p] || entries[p] != "" || ix.files[p].Generated || ignored(p, false) {
-				ok = false
-			}
-		}
-		if ok {
-			cand[d] = true
-		}
-	}
-	pkgEdges := func(d string) []string {
-		seen := map[string]bool{}
-		var out []string
-		for _, p := range pkgs[d] {
-			for _, q := range ix.edges[p] {
-				if qd := path.Dir(q); qd != d && !seen[qd] && ix.files[q].Lang == "go" {
-					seen[qd] = true
-					out = append(out, qd)
-				}
-			}
-		}
-		sort.Strings(out)
-		return out
-	}
-	imported := func(d string) bool {
-		for _, p := range pkgs[d] {
-			for q := range ix.importers[p] {
-				if path.Dir(q) != d {
-					return true
-				}
-			}
-		}
-		return false
-	}
-	var out []rules.Finding
-	for _, g := range ix.group(cand, pkgEdges, imported) {
-		for _, d := range append([]string{g.root}, g.only...) {
-			for _, p := range pkgs[d] {
-				dead[p] = true
-			}
-		}
-		out = append(out, rules.UnreachablePackage(g.root, g.only, g.cycle))
-	}
-	return out
-}
-
-func (ix *unusedIndex) declaresAnything(files []string) bool {
-	for _, p := range files {
-		if len(ix.files[p].Symbols) > 0 {
-			return true
-		}
-	}
-	return false
-}
-
-type deadGroup struct {
-	root  string
-	only  []string
-	cycle bool
-}
-
-// group splits the unreachable nodes into groups led by a node nothing
-// imports (or, for a cycle nothing outside imports, its first node), each
-// with the nodes only reachable through it.
-func (ix *unusedIndex) group(cand map[string]bool, next func(string) []string, imported func(string) bool) []deadGroup {
-	nodes := make([]string, 0, len(cand))
-	for n := range cand {
-		nodes = append(nodes, n)
-	}
-	sort.Strings(nodes)
-	taken := map[string]bool{}
-	var out []deadGroup
-	collect := func(root string, cycle bool) {
-		taken[root] = true
-		g := deadGroup{root: root, cycle: cycle}
-		queue := []string{root}
-		for len(queue) > 0 {
-			n := queue[0]
-			queue = queue[1:]
-			for _, m := range next(n) {
-				if cand[m] && !taken[m] {
-					taken[m] = true
-					g.only = append(g.only, m)
-					queue = append(queue, m)
-				}
-			}
-		}
-		sort.Strings(g.only)
-		out = append(out, g)
-	}
-	for _, n := range nodes {
-		if !imported(n) {
-			collect(n, false)
-		}
-	}
-	for _, n := range nodes {
-		if !taken[n] {
-			collect(n, true)
-		}
-	}
-	return out
 }
 
 // indexRuby indexes the constants the Ruby files declare.

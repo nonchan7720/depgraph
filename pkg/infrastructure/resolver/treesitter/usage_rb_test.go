@@ -354,9 +354,14 @@ func TestRubyPackImports(t *testing.T) {
 			}
 		}
 	}
-	cycles := rules.ModuleCycles(edges, []string{"packs/orders", "packs/billing"}, nil)
-	if len(cycles) != 1 || strings.Join(cycles[0].Modules, " ") != "packs/billing packs/orders packs/billing" {
-		t.Errorf("edges %v: cycles = %+v", edges, cycles)
+	// the two packs import each other: a cycle of modules (module-cycle)
+	units := []string{"packs/orders", "packs/billing"}
+	hops := map[[2]string]bool{}
+	for _, e := range edges {
+		hops[[2]string{rules.ModuleOf(units, e[0]), rules.ModuleOf(units, e[1])}] = true
+	}
+	if !hops[[2]string{"packs/orders", "packs/billing"}] || !hops[[2]string{"packs/billing", "packs/orders"}] {
+		t.Errorf("edges %v: the packs do not import each other", edges)
 	}
 }
 

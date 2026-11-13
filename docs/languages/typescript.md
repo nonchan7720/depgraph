@@ -4,7 +4,7 @@ English | [日本語](ja/typescript.md) · [README](../../README.md) · other la
 
 What depgraph reads in TypeScript and JavaScript code, and what the language-specific rules mean for
 it. The rules themselves, their options and `.depgraph.yml` are described in the
-[README](../../README.md#rules).
+[Rules](../rules.md).
 
 ## Files
 
@@ -36,7 +36,7 @@ Each directory with a `package.json` is a module, one of the units of `module-cy
 A package resolved into `node_modules` is third-party; so is one that a `package.json` of the file or
 above it declares, when it is not installed. A Node built-in, as esbuild resolves it, is not (`punycode`
 is the built-in, `punycode/` the installed package). See
-[Frameworks](../../README.md#frameworks-external-packages-in-layers).
+[Frameworks](../configuration.md#frameworks-external-packages-in-layers).
 
 ## Unused code
 
@@ -80,7 +80,7 @@ published, so only the repository uses it:
 
 - `concrete-dependency` and `type-leak` read class fields, `constructor` parameters, parameters and
   results, and `new T()`. An implementation satisfies an interface when its class says it implements or
-  extends it. See [Inside the layers](../../README.md#inside-the-layers-dependency-inversion-and-leaking-types).
+  extends it. See [Inside the layers](../configuration.md#inside-the-layers-dependency-inversion-and-leaking-types).
 - `low-cohesion` splits a module by its top-level declarations.
 - `file-cycle` reads which modules a file loads: `import` and `export ... from` statements, `import x = require()`
   and `require()`. Left out, because nothing is loaded when the file is: `import type` / `export type`, a

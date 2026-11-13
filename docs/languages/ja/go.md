@@ -3,7 +3,7 @@
 [English](../go.md) | 日本語 · [README](../../../README_ja.md) · 他の言語: [TypeScript / JavaScript](typescript.md)、[Python](python.md)、[Ruby](ruby.md)
 
 depgraph が Go のコードから何を読むか、言語ごとに意味の変わるルールが Go では何を指すかをまとめます。
-ルールそのもの、オプション、`.depgraph.yml` は [README](../../../README_ja.md#rules) を見てください。
+ルールそのもの、オプション、`.depgraph.yml` は[ルール](../../ja/rules.md)と[設定](../../ja/configuration.md)を見てください。
 
 ## ファイル
 
@@ -17,7 +17,7 @@ depgraph が Go のコードから何を読むか、言語ごとに意味の変�
 
 ## サードパーティの判定（レイヤーの `ext:`）
 
-import 元モジュールの `go.mod`（または `go.work`）が require / replace しているモジュールはサードパーティです。先頭要素にドットを含まない import パスは標準ライブラリです（go コマンドの規則）。[フレームワーク](../../../README_ja.md#フレームワークレイヤーに外部パッケージ)を参照してください。
+import 元モジュールの `go.mod`（または `go.work`）が require / replace しているモジュールはサードパーティです。先頭要素にドットを含まない import パスは標準ライブラリです（go コマンドの規則）。[フレームワーク](../../ja/configuration.md#フレームワークレイヤーに外部パッケージ)を参照してください。
 
 ## 未使用コード
 
@@ -39,7 +39,7 @@ import 元モジュールの `go.mod`（または `go.work`）が require / repl
 ## その他のルール
 
 - `duplicate-symbol`: 1 つのパッケージのファイルは 1 か所と数えます（同名が両立するのは build constraint で分けたときだけのため）。
-- `concrete-dependency` と `type-leak` は、struct のフィールド、`New*` コンストラクタの引数、引数と戻り値、複合リテラル（`&infra.T{}`）を読みます。実装が interface のメソッドをすべて持っていれば、その interface を満たすとみなします。[レイヤーの内側](../../../README_ja.md#レイヤーの内側依存性逆転と型の漏洩)を参照してください。
+- `concrete-dependency` と `type-leak` は、struct のフィールド、`New*` コンストラクタの引数、引数と戻り値、複合リテラル（`&infra.T{}`）を読みます。実装が interface のメソッドをすべて持っていれば、その interface を満たすとみなします。[レイヤーの内側](../../ja/configuration.md#レイヤーの内側依存性逆転と型の漏洩)を参照してください。
 - `low-cohesion` はパッケージをファイル単位で分けて見ます。
 - `function-cycle` は、すべての関数とメソッドの呼び出しを読みます。対象は `f()`（パッケージの関数。同名の引数やローカル変数がある場合は除く）、`pkg.F()`、メソッド内の `recv.m()` です。2 つ以上のファイルを通る呼び出しの循環を報告します。ただし、循環上の関数がすべて同じ型のメソッドである場合は報告しません。レシーバのフィールドや引数に対するメソッド呼び出し（`s.repo.Find()`、`r.Find()`）は、そのメンバーの宣言された型でたどります（自パッケージが宣言する型も含みます）。struct ならそのメソッドへ、interface なら、プロジェクト内でそのメソッドをすべて持つ型がちょうど 1 つのときだけ、その実装へたどります。`wide-function` は、メンバーの型を宣言しているパッケージを数えます。
 

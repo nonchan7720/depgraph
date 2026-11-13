@@ -18,7 +18,7 @@ rules:
       - { name: web-typecheck, cmd: "cd web && mise exec -- pnpm typecheck", files: false }
       - { name: web-test, cmd: "cd web && mise exec -- pnpm test", files: false }
 
-  # depgraph on itself: debt this session added (README "Quality gate"). Passes
+  # depgraph on itself: debt this session added (docs/agents.md, "Quality gate"). Passes
   # without a running store / scanned project, or with a bin/depgraph older than
   # the gate command.
   - match: ["main.go", "pkg/**/*.go", "web/src/**/*.ts"]

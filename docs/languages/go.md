@@ -3,7 +3,7 @@
 English | [日本語](ja/go.md) · [README](../../README.md) · other languages: [TypeScript / JavaScript](typescript.md), [Python](python.md), [Ruby](ruby.md)
 
 What depgraph reads in Go code, and what the language-specific rules mean for it. The rules
-themselves, their options and `.depgraph.yml` are described in the [README](../../README.md#rules).
+themselves, their options and `.depgraph.yml` are described in [Rules](../rules.md) and [Configuration](../configuration.md).
 
 ## Files
 
@@ -21,7 +21,7 @@ Each directory with a `go.mod` is a module, one of the units of `module-cycle`.
 
 A module the importing module's `go.mod` (or its `go.work`) requires or replaces is third-party. An
 import path whose first element has no dot is the standard library (the go command's rule). See
-[Frameworks](../../README.md#frameworks-external-packages-in-layers).
+[Frameworks](../configuration.md#frameworks-external-packages-in-layers).
 
 ## Unused code
 
@@ -47,7 +47,7 @@ import path whose first element has no dot is the standard library (the go comma
   constraints).
 - `concrete-dependency` and `type-leak` read struct fields, `New*` constructor parameters, parameters
   and results, and composite literals (`&infra.T{}`). An implementation satisfies an interface when it
-  has every method of it. See [Inside the layers](../../README.md#inside-the-layers-dependency-inversion-and-leaking-types).
+  has every method of it. See [Inside the layers](../configuration.md#inside-the-layers-dependency-inversion-and-leaking-types).
 - `low-cohesion` splits a package by its files.
 - `function-cycle` reads the calls of every function and method: `f()` (a function of the package, unless a
   parameter or local variable has that name), `pkg.F()` and, in a method, `recv.m()`. It reports a cycle of calls

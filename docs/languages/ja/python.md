@@ -3,7 +3,7 @@
 [English](../python.md) | 日本語 · [README](../../../README_ja.md) · 他の言語: [Go](go.md)、[TypeScript / JavaScript](typescript.md)、[Ruby](ruby.md)
 
 depgraph が Python のコードから何を読むか、言語ごとに意味の変わるルールが Python では何を指すかをまとめます。
-ルールそのもの、オプション、`.depgraph.yml` は [README](../../../README_ja.md#rules) を見てください。
+ルールそのもの、オプション、`.depgraph.yml` は[ルール](../../ja/rules.md)と[設定](../../ja/configuration.md)を見てください。
 
 ## ファイル
 
@@ -24,7 +24,7 @@ depgraph が Python のコードから何を読むか、言語ごとに意味の
 
 ## サードパーティの判定（レイヤーの `ext:`）
 
-`languages.python` が指すバージョンの標準ライブラリに無い import はサードパーティです。標準ライブラリは、プロジェクトの型チェッカーが持つ typeshed から取ります。外部の import は標準ライブラリかインストール済みのパッケージのどちらかで、import では `ext:sqlalchemy` がサブモジュール（`sqlalchemy.orm`）にもマッチします。どの Python のバージョンを使うかはディレクトリごとに設定します。README の [Python：`languages`](../../../README_ja.md#フレームワークレイヤーに外部パッケージ) を参照してください。
+`languages.python` が指すバージョンの標準ライブラリに無い import はサードパーティです。標準ライブラリは、プロジェクトの型チェッカーが持つ typeshed から取ります。外部の import は標準ライブラリかインストール済みのパッケージのどちらかで、import では `ext:sqlalchemy` がサブモジュール（`sqlalchemy.orm`）にもマッチします。どの Python のバージョンを使うかはディレクトリごとに設定します。README の [Python：`languages`](../../ja/configuration.md#フレームワークレイヤーに外部パッケージ) を参照してください。
 
 ## 未使用コード
 
@@ -49,7 +49,7 @@ depgraph が Python のコードから何を読むか、言語ごとに意味の
 
 ## その他のルール
 
-- `concrete-dependency` と `type-leak` は、クラスの属性、`__init__` の引数、引数と戻り値（アノテーション）、`T()` を読みます。クラスが継承していれば、その interface を満たすとみなします。Protocol・ABC・dataclass・pydantic のモデル・Enum は実装とみなしません。[レイヤーの内側](../../../README_ja.md#レイヤーの内側依存性逆転と型の漏洩)を参照してください。
+- `concrete-dependency` と `type-leak` は、クラスの属性、`__init__` の引数、引数と戻り値（アノテーション）、`T()` を読みます。クラスが継承していれば、その interface を満たすとみなします。Protocol・ABC・dataclass・pydantic のモデル・Enum は実装とみなしません。[レイヤーの内側](../../ja/configuration.md#レイヤーの内側依存性逆転と型の漏洩)を参照してください。
 - `low-cohesion` はモジュールをトップレベルの宣言単位で分けて見ます。
 - `file-cycle` は、モジュールの `import` 文と `from ... import` 文を見ます。関数の中の import も数えますが、`if TYPE_CHECKING:` の下の import は数えません。関数の中の import によってだけ閉じる循環は、そのファイルが隠している循環として報告します（遅延 import は循環を隠すだけで、なくしません）。`rules: {file-cycle: {deferred: false}}` で報告しないようにできます。`from pkg import name` は、サブモジュール `pkg/name.py` があればそれを読み込むものとして扱います。なければ、その名前の出どころのモジュールです。`pkg/__init__.py` が宣言していれば `pkg/__init__.py`、`pkg/__init__.py` が別のモジュールから import しているだけならそのモジュールです（自パッケージが受け渡しているだけの名前を使うモジュールは、宣言しているモジュールに依存しているとみなします）。自パッケージをモジュールとして import しても（`import pkg`、`from .. import pkg`）辺は増えません。パッケージは、そのモジュールより先に必ず読み込まれるためです。報告するのは 1 つのディレクトリ内の循環だけで、ディレクトリをまたぐ循環は `import-cycle` が報告します。
 

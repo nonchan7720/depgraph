@@ -3,7 +3,7 @@
 English | [日本語](ja/python.md) · [README](../../README.md) · other languages: [Go](go.md), [TypeScript / JavaScript](typescript.md), [Ruby](ruby.md)
 
 What depgraph reads in Python code, and what the language-specific rules mean for it. The rules
-themselves, their options and `.depgraph.yml` are described in the [README](../../README.md#rules).
+themselves, their options and `.depgraph.yml` are described in [Rules](../rules.md) and [Configuration](../configuration.md).
 
 ## Files
 
@@ -30,7 +30,7 @@ An import is third-party when it is not in the standard library of the version t
 names. The standard library is taken from the typeshed copy of the project's type checker. An external
 import is either the standard library or an installed package, and in imports `ext:sqlalchemy` also
 matches the submodules (`sqlalchemy.orm`). Which Python version to use is set per directory; see
-[Python: `languages`](../../README.md#frameworks-external-packages-in-layers) in the README.
+[Python: `languages`](../configuration.md#frameworks-external-packages-in-layers).
 
 ## Unused code
 
@@ -60,7 +60,7 @@ matches the submodules (`sqlalchemy.orm`). Which Python version to use is set pe
 - `concrete-dependency` and `type-leak` read class attributes, `__init__` parameters, parameters and
   results (annotations) and `T()`. An implementation satisfies an interface when its class extends it.
   Protocols, ABCs, dataclasses, pydantic models and Enums are not implementations. See
-  [Inside the layers](../../README.md#inside-the-layers-dependency-inversion-and-leaking-types).
+  [Inside the layers](../configuration.md#inside-the-layers-dependency-inversion-and-leaking-types).
 - `low-cohesion` splits a module by its top-level declarations.
 - `file-cycle` reads the `import` and `from ... import` statements of a module, also those inside functions, but not
   those under `if TYPE_CHECKING:`. A cycle that only closes through an import inside a function is reported as hidden by

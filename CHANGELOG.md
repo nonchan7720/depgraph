@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.1.14](https://github.com/nonchan7720/depgraph/compare/v0.1.13...v0.1.14) (2026-11-13)
+
+
+### Features
+
+* **rules:** every rule is a Cypher query over a linked graph ([#89](https://github.com/nonchan7720/depgraph/issues/89)) ([6ce5ab4](https://github.com/nonchan7720/depgraph/commit/6ce5ab4c4b05d9dab05226bca20f73ce7058d61e))
+* **rules:** report dependencies a manifest declares that nothing uses (unused-dependency) ([#91](https://github.com/nonchan7720/depgraph/issues/91)) ([f580055](https://github.com/nonchan7720/depgraph/commit/f580055182bfd44f8c809384e4ac211ddecaa908))
+
+
+### Bug Fixes
+
+* **deps:** update patch updates ([#64](https://github.com/nonchan7720/depgraph/issues/64)) ([cfd7e90](https://github.com/nonchan7720/depgraph/commit/cfd7e903b59dcaff70ff73ec931d44b0b3ab6b0f))
+
+
+### Documentation
+
+* short README, one page per topic under docs/, and an architecture page ([#88](https://github.com/nonchan7720/depgraph/issues/88)) ([acbdc60](https://github.com/nonchan7720/depgraph/commit/acbdc600dcf3e220b883a5d2f2266044d63abf56))
+
 ## [0.1.13](https://github.com/nonchan7720/depgraph/compare/v0.1.12...v0.1.13) (2026-11-13)
 
 

@@ -28,18 +28,29 @@ const cloneCandidates = `
 	WHERE s.tokens >= $min AND none(rx IN $ignore WHERE p.key =~ rx) AND NOT f.path =~ $test
 `
 
-// cloneBuckets is how many statements compare the fingerprints: each takes
-// the fingerprints of one residue class, which bounds the rows (and the
-// memory) of a statement on a large repository.
-const cloneBuckets = 16
+// cloneBucketSize is how many fingerprints one statement compares. The
+// fingerprints are compared in as many statements as that takes, each with
+// the fingerprints of one residue class: it bounds the rows (and the
+// transaction memory) of a statement on a large repository, and a small one
+// is compared in a single pass.
+const cloneBucketSize = 500_000
 
 // linkClones writes the SIMILAR relationships of the project for opt and
 // removes those of an earlier link (gen tells them apart).
 func (r *Repository) linkClones(ctx context.Context, opt rules.CloneOptions, ignore []string, gen string) error {
 	p := map[string]any{
 		"project": r.project, "ignore": ignore, "test": rules.TestFileRegex, "gen": gen,
-		"min": max(opt.MinTokens, 1), "similarity": opt.MinSimilarity, "maxFreq": opt.MaxFingerprintFreq, "buckets": cloneBuckets,
+		"min": max(opt.MinTokens, 1), "similarity": opt.MinSimilarity, "maxFreq": opt.MaxFingerprintFreq,
 	}
+	rows, err := r.query(ctx, cloneCandidates+`RETURN sum(size(s.fingerprints)) AS fingerprints`, ignore, p)
+	if err != nil {
+		return fmt.Errorf("duplicate code: %w", err)
+	}
+	buckets := 1
+	if len(rows) == 1 {
+		buckets = max(1, (toInt(rows[0]["fingerprints"])+cloneBucketSize-1)/cloneBucketSize)
+	}
+	p["buckets"] = buckets
 	// identical after masking names and literals: each copy to the first
 	if err := r.write(ctx, cloneCandidates+`
 		  AND s.cloneHash IS NOT NULL
@@ -58,7 +69,7 @@ func (r *Repository) linkClones(ctx context.Context, opt rules.CloneOptions, ign
 	// compared over all their fingerprints. Comparing only the rare ones
 	// made two unrelated, mostly-boilerplate functions that share a single
 	// rare fingerprint look alike.
-	for bucket := range cloneBuckets {
+	for bucket := range buckets {
 		p["bucket"] = bucket
 		if err := r.write(ctx, cloneCandidates+`
 			UNWIND s.fingerprints AS fp

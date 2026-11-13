@@ -163,6 +163,9 @@ func (r *Repository) link(ctx context.Context, cfg rules.Config, ignore []string
 	if err := r.markUnreachable(ctx, cfg, ignore); err != nil {
 		return err
 	}
+	if err := r.markCyclic(ctx, ignore); err != nil {
+		return err
+	}
 	err = r.write(ctx, `MERGE (s:LinkState {project: $project}) SET s.key = $key`, map[string]any{"project": r.project, "key": key})
 	if err != nil {
 		return fmt.Errorf("link: %w", err)
@@ -172,7 +175,7 @@ func (r *Repository) link(ctx context.Context, cfg rules.Config, ignore []string
 
 // linkVersion changes when linking stores something else for the same
 // files: an older linked graph is then rebuilt.
-const linkVersion = "6"
+const linkVersion = "7"
 
 // linkKey identifies what the linked graph is made from: the stored files
 // (their number and the last update) and the settings linking reads.
@@ -332,3 +335,47 @@ func emptyProp(v any) bool {
 	}
 	return false
 }
+
+// markCyclic marks the packages an import cycle can go through
+// (Package.cyclic): the in-repo packages that are not ignored, without
+// those that import no marked package or that no marked package imports,
+// until none is left to remove. A cycle only goes through packages that
+// both import and are imported inside it, so import-cycle searches the
+// marked ones only: in a repository whose imports are mostly a tree (every
+// Go repository) that is a small part of it.
+func (r *Repository) markCyclic(ctx context.Context, ignore []string) error {
+	p := map[string]any{"project": r.project, "ignore": ignore}
+	if err := r.write(ctx, `
+		MATCH (p:Package {project: $project})
+		WITH p, (p.external = false AND none(rx IN $ignore WHERE p.key =~ rx)) AS inside
+		WHERE inside OR p.cyclic IS NOT NULL
+		SET p.cyclic = CASE WHEN inside THEN true END
+	`, p); err != nil {
+		return fmt.Errorf("link: %w", err)
+	}
+	for range maxTrims {
+		done := timing("trim packages on no cycle")
+		rows, err := r.q.Write(ctx, `
+			MATCH (p:Package {project: $project})
+			WHERE p.cyclic
+			  AND (NOT EXISTS { MATCH (p)-[:IMPORTS]->(q:Package) WHERE q.cyclic AND q <> p }
+			    OR NOT EXISTS { MATCH (q:Package)-[:IMPORTS]->(p) WHERE q.cyclic AND q <> p })
+			REMOVE p.cyclic
+			RETURN count(p) AS trimmed
+		`, p)
+		done()
+		if err != nil {
+			return fmt.Errorf("link: %w", err)
+		}
+		if len(rows) == 0 || rows[0]["trimmed"] == int64(0) {
+			return nil
+		}
+	}
+	// not trimmed to the end: the mark is still a superset of the packages
+	// on cycles, which is all import-cycle needs
+	return nil
+}
+
+// maxTrims bounds the rounds of markCyclic (a round removes at least the
+// packages at the ends of the longest import chain).
+const maxTrims = 200

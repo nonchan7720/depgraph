@@ -345,7 +345,9 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 	}
 	var out []rules.Finding
 
-	// 1. Import cycles between in-repo packages (none through an ignored one).
+	// 1. Import cycles between in-repo packages (none through an ignored
+		// one): among the packages a cycle can go through (Package.cyclic,
+		// marked when the graph is linked: link.go).
 	if cfg.Enabled(rules.RuleImportCycle) {
 		// For every import a -> b, the shortest way back from b to a closes
 		// the shortest cycle through that import: every import on a cycle of
@@ -358,10 +360,9 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 		// are rotated to start at their smallest key and deduplicated.
 		rows, err := r.query(ctx, `
 			MATCH (a:Package {project: $project})-[:IMPORTS]->(b:Package {project: $project})
-			WHERE a.external = false AND b.external = false AND a <> b
-			  AND none(rx IN $ignore WHERE a.key =~ rx OR b.key =~ rx)
+			WHERE a.cyclic AND b.cyclic AND a <> b
 			MATCH p = allShortestPaths((b)-[:IMPORTS*1..7]->(a))
-			WHERE all(x IN nodes(p) WHERE x.external = false AND none(rx IN $ignore WHERE x.key =~ rx))
+			WHERE all(x IN nodes(p) WHERE x.cyclic)
 			WITH a, b, [n IN nodes(p) | n.key] AS back ORDER BY back
 			WITH a, b, head(collect(back)) AS back
 			WITH [a.key] + back AS cyc

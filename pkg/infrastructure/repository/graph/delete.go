@@ -17,12 +17,12 @@ type Writer interface {
 }
 
 // DeleteProjectData deletes the graph data of project key (packages,
-// files, symbols, hook sessions; not the Project node), a batch per
+// files, symbols, hook sessions, the linked graph; not the Project node), a batch per
 // transaction.
 func DeleteProjectData(ctx context.Context, w Writer, key string) error {
 	for {
 		rows, err := w.Write(ctx, `
-			MATCH (n) WHERE (n:Package OR n:File OR n:Symbol OR n:HookSession) AND n.project = $project
+			MATCH (n) WHERE (n:Package OR n:File OR n:Symbol OR n:HookSession OR n:Function OR n:Module OR n:LinkState) AND n.project = $project
 			WITH n LIMIT $batch
 			DETACH DELETE n
 			RETURN count(*) AS deleted

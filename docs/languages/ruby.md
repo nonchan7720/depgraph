@@ -3,7 +3,7 @@
 English | [日本語](ja/ruby.md) · [README](../../README.md) · other languages: [Go](go.md), [TypeScript / JavaScript](typescript.md), [Python](python.md)
 
 What depgraph reads in Ruby code, and what the language-specific rules mean for it. The rules
-themselves, their options and `.depgraph.yml` are described in the [README](../../README.md#rules).
+themselves, their options and `.depgraph.yml` are described in [Rules](../rules.md) and [Configuration](../configuration.md).
 
 Rails code names other files by constant, not by `require`: Zeitwerk loads `Admin::User` from
 `admin/user.rb`. So depgraph treats constants as dependencies and uses, and it knows the conventions
@@ -53,7 +53,7 @@ by its top-level name (`ActiveRecord` of `ActiveRecord::Base`). Anything else is
 - One that is likely Ruby's own (`Hash`, `IO`) is not listed: telling them apart would take a list of
   Ruby's constants per version.
 
-See [Frameworks](../../README.md#frameworks-external-packages-in-layers).
+See [Frameworks](../configuration.md#frameworks-external-packages-in-layers).
 
 ## Unused code
 

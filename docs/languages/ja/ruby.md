@@ -3,7 +3,7 @@
 [English](../ruby.md) | 日本語 · [README](../../../README_ja.md) · 他の言語: [Go](go.md)、[TypeScript / JavaScript](typescript.md)、[Python](python.md)
 
 depgraph が Ruby のコードから何を読むか、言語ごとに意味の変わるルールが Ruby では何を指すかをまとめます。
-ルールそのもの、オプション、`.depgraph.yml` は [README](../../../README_ja.md#rules) を見てください。
+ルールそのもの、オプション、`.depgraph.yml` は[ルール](../../ja/rules.md)と[設定](../../ja/configuration.md)を見てください。
 
 Rails のコードは、他のファイルを `require` ではなく定数で参照します（Zeitwerk が `Admin::User` を `admin/user.rb` から読み込む）。そのため depgraph は定数を依存と使用として扱い、Rails やそのツールがコードを読み込む規約を知っています。
 
@@ -35,7 +35,7 @@ Rails のコードは、他のファイルを `require` ではなく定数で参
 - 名前では確かめられないが gem のものらしい定数（`actionpack` の `ActionController`、`aws-sdk-s3` の `Aws`）も一覧に出します。
 - Ruby 自身のものらしい定数（`Hash`・`IO`）は出しません。見分けるには、Ruby のバージョンごとの定数の一覧が要るためです。
 
-[フレームワーク](../../../README_ja.md#フレームワークレイヤーに外部パッケージ)を参照してください。
+[フレームワーク](../../ja/configuration.md#フレームワークレイヤーに外部パッケージ)を参照してください。
 
 ## 未使用コード
 

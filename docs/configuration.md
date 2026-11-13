@@ -48,6 +48,7 @@ rules:                      # per rule: enabled, severity (error | warn | info),
   unused-export: {ignore: ["pkg/api/**"]}            # paths not reported (a library's public API)
   unreachable-file: {entries: ["plugins/**"]}       # entry points depgraph cannot see
   # entries / ignore are shared by unused-export, unreachable-file and unreachable-package
+  unused-dependency: {ignore: [tslib, "@types/*"]}   # dependencies never reported (name patterns)
 
 ignore: ["**/testdata/**"]  # packages left out of every rule
 
@@ -61,7 +62,7 @@ store:                      # how Neo4j is provided (see Neo4j); flags and env t
   whole path segments: `**` is any number of segments, `*` and `?` stay within one segment.
   `pkg/domain/**` matches `pkg/domain` and everything below it; `**/db/**` matches `db` and
   `internal/db/sql` but not `pkg/feedback`.
-- **Name patterns** (`duplicate-symbol`'s `ignore`) match the whole symbol name: `*` is any run
+- **Name patterns** (`duplicate-symbol`'s and `unused-dependency`'s `ignore`) match the whole symbol / package name: `*` is any run
   of characters, `?` one character, everything else is literal. `New` is that name only,
   `Test*` every name starting with `Test` (a prefix), `*Handler` every name ending in `Handler`.
 - A package may be in several layers. An import is a violation only when it crosses the pair:

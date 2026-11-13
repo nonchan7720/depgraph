@@ -39,7 +39,7 @@ func Render(stats view.Stats, findings []rules.Finding) string {
 
 	byRule := map[string][]rules.Finding{}
 	order := []string{"import-cycle", rules.RuleModuleCycle, rules.RuleFileCycle, rules.RuleFunctionCycle, rules.RulePassThrough, rules.RuleWideFunction, "layer-violation", rules.RuleConcreteDependency, rules.RuleTypeLeak, "duplicate-code", "god-package", rules.RuleLowCohesion, "duplicate-symbol",
-		rules.RuleUnusedExport, rules.RuleUnreachableFile, rules.RuleUnreachablePackage, rules.RuleExternalUnclassified}
+		rules.RuleUnusedExport, rules.RuleUnreachableFile, rules.RuleUnreachablePackage, rules.RuleUnusedDependency, rules.RuleExternalUnclassified}
 	known := map[string]bool{}
 	for _, r := range order {
 		known[r] = true
@@ -68,6 +68,7 @@ func Render(stats view.Stats, findings []rules.Finding) string {
 		rules.RuleUnusedExport:         "Unused exports (nothing in the project uses them: delete them, do not build on them)",
 		rules.RuleUnreachableFile:      "Unreachable files (no entry point imports them: delete or wire them up)",
 		rules.RuleUnreachablePackage:   "Unreachable Go packages (no main package or test imports them)",
+		rules.RuleUnusedDependency:     "Unused dependencies (declared in a manifest, imported by nothing: remove them, or use them before declaring more)",
 		rules.RuleExternalUnclassified: "External imports ext: layers could not classify (not checked for frameworks; do not take this as a pass)",
 		rules.RuleConcreteDependency:   "Concrete dependencies (hold the interface named, not the implementation; build the implementation in the composition root)",
 		rules.RuleTypeLeak:             "Types leaking through an API (return / take a type of the layer itself or an interface, not the outer layer's)",
@@ -98,7 +99,7 @@ func Render(stats view.Stats, findings []rules.Finding) string {
 // listLimit caps the rules that can list one item per declaration or file:
 // the section is read with every prompt.
 var listLimit = map[string]int{
-	rules.RuleUnusedExport: 20, rules.RuleUnreachableFile: 20, rules.RuleUnreachablePackage: 20,
+	rules.RuleUnusedExport: 20, rules.RuleUnreachableFile: 20, rules.RuleUnreachablePackage: 20, rules.RuleUnusedDependency: 20,
 }
 
 // Update writes body into the managed section of path, creating the file if needed.

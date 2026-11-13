@@ -14,7 +14,7 @@ depgraph は、**AI が書いたコードを本番に出せる状態にする**�
 
 | 負債 | ルール |
 |---|---|
-| **誰も使っていないコード**：どのエントリポイントからも届かない export・ファイル・パッケージ | `unused-export`、`unreachable-file`、`unreachable-package` |
+| **誰も使っていないコード**：どのエントリポイントからも届かない export・ファイル・パッケージ、誰も import しない依存パッケージ | `unused-export`、`unreachable-file`、`unreachable-package`、`unused-dependency` |
 | **重複コード**：同じロジックの再実装（名前が違っていても） | `duplicate-code`、`duplicate-symbol` |
 | **循環**：パッケージ・モジュール・ファイル・関数の間の循環 | `import-cycle`、`module-cycle`、`file-cycle`、`function-cycle` |
 | **壊れたレイヤー**：禁止された import、インターフェースではなく実装を保持、API から漏れる型 | `layer-violation`、`concrete-dependency`、`type-leak` |

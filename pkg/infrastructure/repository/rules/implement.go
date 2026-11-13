@@ -618,6 +618,15 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 		out = append(out, fs...)
 	}
 
+	// 7. Dependencies the manifests declare and nothing uses (dependencies.go).
+	if cfg.Enabled(rules.RuleUnusedDependency) {
+		fs, err := r.unusedDependencies(ctx, cfg, ignore)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, fs...)
+	}
+
 	sort.Slice(out, func(i, j int) bool { return out[i].Key() < out[j].Key() })
 	return out, nil
 }

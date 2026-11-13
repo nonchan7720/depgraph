@@ -47,6 +47,7 @@ rules:                      # ルールごと: enabled、severity（error | warn
   unused-export: {ignore: ["pkg/api/**"]}            # 報告しないパス（ライブラリの公開 API など）
   unreachable-file: {entries: ["plugins/**"]}       # depgraph から見えないエントリポイント
   # entries / ignore は unused-export・unreachable-file・unreachable-package で共通
+  unused-dependency: {ignore: [tslib, "@types/*"]}   # 報告しない依存パッケージ（名前のパターン）
 
 ignore: ["**/testdata/**"]  # すべてのルールから除外するパッケージ
 
@@ -60,7 +61,7 @@ store:                      # Neo4j の用意の仕方（Neo4j 参照）。フ�
   マッチします。`**` は任意個のセグメント、`*` と `?` は 1 セグメント内だけ。
   `pkg/domain/**` は `pkg/domain` とその配下すべて、`**/db/**` は `db` や `internal/db/sql` にマッチし、
   `pkg/feedback` にはマッチしません。
-- **名前のパターン**（`duplicate-symbol` の `ignore`）はシンボル名全体に一致します。`*` は任意の文字列、
+- **名前のパターン**（`duplicate-symbol` と `unused-dependency` の `ignore`）はシンボル名・パッケージ名の全体に一致します。`*` は任意の文字列、
   `?` は 1 文字で、それ以外はそのままの文字です。`New` はその名前だけ、`Test*` は `Test` で始まる名前（前方一致）、
   `*Handler` は `Handler` で終わる名前に一致します。
 - 1 つのパッケージが複数のレイヤーに属してもかまいません。違反になるのはペアをまたぐ import だけで、

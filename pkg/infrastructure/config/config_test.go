@@ -353,3 +353,26 @@ func TestWideFunctionOption(t *testing.T) {
 		t.Error("maxPackages 0 accepted")
 	}
 }
+
+func TestUnusedDependencyOption(t *testing.T) {
+	f, err := Parse([]byte("rules:\n  unused-dependency: {severity: warn, ignore: [tslib, \"@types/*\"]}\n  duplicate-symbol: {ignore: [main]}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := f.Rules.IgnoreDependencies; !reflect.DeepEqual(got, []string{"tslib", "@types/*"}) {
+		t.Errorf("ignore = %q", got)
+	}
+	// the two rules' ignore lists are not each other's
+	if got := f.Rules.IgnoreDuplicateNames; !reflect.DeepEqual(got, []string{"main"}) {
+		t.Errorf("duplicate-symbol ignore = %q", got)
+	}
+	if f.Rules.Severity(rules.RuleUnusedDependency) != rules.SeverityWarn {
+		t.Errorf("severity = %q", f.Rules.Severity(rules.RuleUnusedDependency))
+	}
+	if _, err := Parse([]byte("rules:\n  unused-dependency: {ignore: [\"\"]}\n")); err == nil {
+		t.Error("an empty name pattern accepted")
+	}
+	if _, err := Parse([]byte("rules:\n  unused-dependency: {entries: [x]}\n")); err == nil {
+		t.Error("entries accepted for unused-dependency")
+	}
+}

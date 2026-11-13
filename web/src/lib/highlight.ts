@@ -65,6 +65,9 @@ export function findingPackageKeys(f: Finding): string[] {
       return strs(d.functions).map((fn) => dirOf(fn.slice(0, fn.lastIndexOf('#'))));
     case 'wide-function':
       return [...strs([d.file]).map(dirOf), ...strs(d.packages)];
+    case 'unused-dependency':
+      // the directory of the manifest
+      return strs([d.manifest]).map(dirOf);
     case 'file-cycle':
     case 'duplicate-symbol':
       return strs(d.files).map(dirOf);

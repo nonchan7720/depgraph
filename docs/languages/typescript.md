@@ -59,6 +59,10 @@ is the built-in, `punycode/` the installed package). See
 - **What is reported**:
   - `unused-export`: `export`ed declarations.
   - `unreachable-file`: a file that no entry point reaches.
+  - `unused-dependency`: a package of `dependencies`, `devDependencies` or `optionalDependencies` that no
+    file imports and no script, configuration or other file names; `error` when certain, `warn` when a
+    use that is not an import cannot be ruled out (an add-on, type declarations, a package that is
+    not installed). See [Unused dependencies](../rules.md#unused-dependencies).
 - **Never reported**:
   - A package that uses Vue, Svelte, Astro, Qwik, Marko, Ember or auto-imports: its component files
     are not parsed, so their imports are not seen.

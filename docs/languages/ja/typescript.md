@@ -47,6 +47,10 @@ esbuild の resolver で解決します:
 - **報告するもの**:
   - `unused-export`: `export` された宣言。
   - `unreachable-file`: どのエントリポイントからも辿れないファイル。
+  - `unused-dependency`: `dependencies`・`devDependencies`・`optionalDependencies` のパッケージのうち、どのファイルも import せず、
+    scripts・設定ファイルなどほかのファイルも名前を挙げていないもの。確実なら `error`、import 以外の使われ方を否定できない
+    とき（アドオン、型定義、インストールされていないパッケージ）は `warn` です。
+    [未使用の依存パッケージ](../../ja/rules.md#未使用の依存パッケージ)を参照してください。
 - **報告しないもの**:
   - Vue・Svelte・Astro・Qwik・Marko・Ember・auto-import を使うパッケージ（コンポーネントファイルを解析しないので、その import が見えないため）。
   - shadcn/ui がコピーするコンポーネント群（vendored コード）。

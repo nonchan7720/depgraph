@@ -112,6 +112,10 @@ import の解決が依存するファイル（`go.mod`・`tsconfig.json`・`pack
 リンクはファイルか設定が変わったときにだけやり直し、保存済みのものとの差分だけを書き込みます。あとから
 作られたファイルも、既にそれを import していたファイルを解析し直すことなく見つかります。
 
+ソースファイルには書かれていない事実もあります。マニフェストが宣言する依存パッケージと、設定ファイル・scripts・
+インストール済みパッケージがそれを使っているかどうかです。これらはグラフをリンクするときにプロジェクトの
+ファイルから読み、`Dependency` ノードとして保存します。そのためルール自体はクエリのままです（`unused-dependency`）。
+
 1 つのデータベースに複数のリポジトリが入ります。すべてのノードがプロジェクト key を持ち、すべてのクエリが
 それで絞られます（[Projects](neo4j.md#projects) 参照）。
 
@@ -139,6 +143,7 @@ import の解決が依存するファイル（`go.mod`・`tsconfig.json`・`pack
 | `low-cohesion` | 単位の中で `(Part)-[:LINKS]-(Part)` がつなぐグループ。それぞれが外から使われ、2 つのグループを使う側が無いもの |
 | `unreachable-file`・`unreachable-package` | エントリポイントからの 1 回の探索で届くものに印を付け、届かないものを「誰も import していないファイル / パッケージ」の下にまとめる |
 | `unused-export` | `USES_NAMES` / `USES_GO` で名前を挙げられていない export。エントリポイントと到達不能ファイルは除く |
+| `unused-dependency` | 使用の記録がなく、どのファイルからも import されていない `Dependency` ノード。scopes のいずれかに属するファイルを通る `(Dependency)-[:PROVIDES {scopes}]->(Package)<-[:IMPORTS]-(File)` がないもの |
 
 レイヤーと `ignore` は `.depgraph.yml` の glob です。これを一度だけ正規表現に変換します。変換結果は Go（RE2）
 でも Cypher（`=~`、Java の正規表現）でも同じ意味になるので、Go のユニットテストとクエリとで、同じパターンが
@@ -201,6 +206,8 @@ import の解決が依存するファイル（`go.mod`・`tsconfig.json`・`pack
 (Symbol {cloneGroup})-[:SIMILAR {score}]->(Symbol)                 # 複製
 (Part {unit, what, id, data, used})-[:LINKS]->(Part)               # パッケージ / モジュールの部分
 (ExtImport {pkg, file, ext, lang, python, class, basis})           # Python / Ruby ファイルの外部 import
+(Dependency {manifest, dir, eco, name, section, line, languages,   # マニフェストが宣言する依存パッケージ
+             checked, use, doubt})-[:PROVIDES {scopes}]->(Package) # と、それが（scopes のファイルに）提供する外部パッケージ
 (Root {key: 'unused'})-[:ENTRY {why}]->(File)                      # エントリポイント
 (File)-[:USES_FILE]->(File), (File)-[:GO_PKG]->(File)              # ファイルから届く先
 (File)-[:USES_NAMES {names}]->(File), (File)-[:USES_GO {names}]->(Package)
@@ -416,6 +423,7 @@ pkg/infrastructure/
   resolver/                              リポジトリ走査 + 除外パターン
     treesitter/                          ファイル単位の構造解析（gotreesitter）
     imports/                             エコシステムごとの import 解決（esbuild、go.mod / go.work、Python、Ruby）
+    deps/                                マニフェスト（go.mod、package.json）が宣言する依存パッケージと、import 以外の使われ方
     lsp/                                 言語サーバー（callHierarchy / references）による精密化
   repository/graph/                      Neo4j: 書き込み、スキーマ、UI のビュー
   repository/rules/                      Neo4j: リンクとルール（Cypher）

@@ -552,6 +552,34 @@
           },
           "type": "object"
         },
+        "unused-dependency": {
+          "additionalProperties": false,
+          "description": "a dependency a manifest declares that nothing imports or names (error when certain, a level lower when a use that is not an import cannot be ruled out)",
+          "properties": {
+            "enabled": {
+              "default": true,
+              "description": "false turns the rule off.",
+              "type": "boolean"
+            },
+            "ignore": {
+              "description": "Dependency names never reported (used in a way nothing in the repository shows): an exact name, or a glob where * is any run of characters and ? one character, e.g. \"@types/*\".",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "severity": {
+              "default": "error",
+              "description": "Severity of the rule's findings.",
+              "enum": [
+                "error",
+                "warn",
+                "info"
+              ]
+            }
+          },
+          "type": "object"
+        },
         "unused-export": {
           "additionalProperties": false,
           "description": "an exported declaration nothing in the project uses",

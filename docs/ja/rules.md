@@ -21,6 +21,7 @@ depgraph が報告する内容です。どのルールも [`.depgraph.yml`](conf
 | [`unused-export`](#unused-export) | warn | プロジェクト内の誰も使っていない export |
 | [`unreachable-file`](#unreachable-file) | warn | どのエントリポイントからも import で辿れないファイル |
 | [`unreachable-package`](#unreachable-package) | warn | どのエントリポイントからも import されない Go パッケージ |
+| [`unused-dependency`](#unused-dependency) | error / warn | マニフェストで宣言されているのに、誰も import せず名前も挙げていない依存パッケージ |
 | [`god-package`](#god-package) | warn | ハブ：多くのパッケージから import され、自分も多くを import している |
 | [`low-cohesion`](#low-cohesion) | info | 無関係な部分の寄せ集めで、部分ごとに使う側が別のパッケージ / モジュール |
 | [`wide-function`](#wide-function) | info | 多すぎるパッケージの関数を呼んでいる関数 |
@@ -118,6 +119,12 @@ Import してはいけないレイヤーを import している（`handler → r
 
 `main` パッケージ・テスト・ライブラリモジュールの公開パッケージのどれからも import されない Go パッケージ
 
+### `unused-dependency`
+
+デフォルトの severity: 確実な指摘は `error`、確実でない指摘は `warn`
+
+`go.mod`（直接の `require`）または `package.json`（`dependencies`・`devDependencies`・`optionalDependencies`）で宣言されているのに、そのモジュールのコードがどこからも import せず、ほかのファイルも名前を挙げていない依存パッケージ。何を使用とみなすか、どんなときに確実とするかは[未使用の依存パッケージ](#未使用の依存パッケージ)を見てください。
+
 ## 劣化していく構造
 
 ### `god-package`
@@ -160,6 +167,33 @@ Go のパッケージ（ファイル単位）や TypeScript / Python のモジ�
 depgraph から見えない方法で読み込まれるファイル（名前で読み込むプラグイン、外部ツールが実行するファイル）には `depgraph:entry` コメント（`// depgraph:entry`・`# depgraph:entry`）を書いてください。自リポジトリでは使わないライブラリの公開 API は `.depgraph.yml` の `ignore` で除外でき、エントリポイントは `entries` で追加できます（ファイルと Go パッケージディレクトリに対するパスの glob。3 つのルールで共通。[設定](configuration.md)参照）。自ファイル内でだけ使われている export は報告しません（export は不要ですが、同じファイルで登録する Go のハンドラなど、スタイルの範囲のため）。
 
 レイヤー・禁止 import・severity・閾値は `.depgraph.yml` で設定します（[設定](configuration.md)）。
+
+## 未使用の依存パッケージ
+
+`unused-dependency` は、コードを消したり書き直したりしたのにマニフェストだけが残った依存を報告します。使われないままインストールされ、監査され、更新され続けるパッケージです。コンパイラが見るのは 1 ファイルの import で、マニフェストは見ません。
+
+対象は `go.mod` と `package.json` です。この 2 つでは import がパッケージを正確に指します（Go の import パスはモジュールのパスで始まり、JavaScript の import はパッケージ名で始まります）。Python のディストリビューションと Ruby の gem は、マニフェストに書かれていない名前で import されるため、対象にしていません。
+
+次のいずれかに当てはまる依存は**使用中**で、報告しません。
+
+- ファイルが import している。import は、そのパッケージを挙げている最も近いマニフェストの宣言を使います。Go ならファイル自身の `go.mod`、JavaScript ならファイルの位置かそれより上にある最も近い `package.json` です（ワークスペースパッケージは、自分で宣言していなければ上の `package.json` がインストールしたものを使います）。import したファイルのどのマニフェストもそのパッケージを挙げていない場合は、別の何かが提供しているので（ホイストするワークスペース、`go.work`）、それを宣言しているすべてのマニフェストを使用中とみなします。Go の import は、パスが最も長く一致する require 済みモジュールのものです。
+- **Go**: `go.mod` の `tool` がそのモジュールを指している。または、depgraph がスキャンしていない（除外ディレクトリの）Go ファイルが import している。`go mod tidy` と同じ判断基準です。
+- **JavaScript / TypeScript**: リポジトリ内の、ドキュメントとロックファイル以外のファイルが名前を挙げている。`package.json` の scripts がバイナリを実行している（`typescript` の `tsc`）、設定ファイルが列挙している（アドオンの省略名でも可: `babel-plugin-x` に対する `"plugins": ["x"]`）、depgraph がパースしないファイルが import している（`.vue`・`.svelte`・`.scss`）、コードが文字列で指定している（`client: 'pg'`、`node_modules` 内へのパス）、CI ワークフローやフックが実行している、など。名前を挙げたファイルがどのマニフェストの依存を使ったことになるかは、import の場合と同じ規則で決まります。ほかの宣言済みパッケージが peer として必要としている場合と、`x` が使われているときの `@types/x` も使用中です。
+
+そもそも依存として数えないもの: indirect な require、`peerDependencies`、リポジトリ自身が提供するもの（リポジトリ内のモジュール・ワークスペースパッケージ、ローカルへの `replace`、`workspace:` / `file:` / `link:`）。
+
+**severity。** 残ったものを報告し、どれだけ確かかを severity で示します。
+
+| | 条件 | severity |
+|---|---|---|
+| 確実 | 誰も import せず、誰も名前を挙げず、何かが勝手に読み込む可能性もない | ルールの severity（`error`） |
+| 確実でない | import 以外の使われ方を否定できない。理由を指摘に書きます | 1 段階下（`warn`） |
+
+確実でないのは次の場合です。名前や peer からアドオンと分かるパッケージ（`eslint-plugin-x`・`@vitest/coverage-v8`・`sass-loader`: ホストが名前で読み込むことがある）、型定義（`x` が見当たらない `@types/x`）、コンパイラが出力に import を挿入するヘルパー（`tslib`・`core-js`）、そしてインストールされておらず、`node_modules` からバイナリやほかのパッケージの peer を読めなかった場合。`go.mod` の指摘はすべて確実です。`severity: warn` を設定すると、確実な指摘が `warn`、それ以外が `info` になります。
+
+リポジトリからは見えない形で使っている依存は、`.depgraph.yml` で名前を指定して対象外にします: `unused-dependency: {ignore: [tslib, "@types/*"]}`（[設定](configuration.md)）。
+
+コード以外のファイル（設定ファイル、`node_modules`）の内容は、グラフをリンクするとき、つまりソースファイル・マニフェスト・インストール内容のいずれかが変わったあとに読みます。
 
 ## 関数を対象外にする (`depgraph:ignore`)
 

@@ -431,6 +431,10 @@ func applyRule(c *rules.Config, name string, n yaml.Node) error {
 		if ry.Entries != nil {
 			c.UnusedEntries = append(c.UnusedEntries, *ry.Entries...)
 		}
+	case name == rules.RuleUnusedDependency:
+		if ry.Ignore != nil {
+			c.IgnoreDependencies = *ry.Ignore
+		}
 	case ry.Ignore != nil:
 		c.IgnoreDuplicateNames = *ry.Ignore
 	}

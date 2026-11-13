@@ -80,6 +80,9 @@ func optionSchema(rule, option string) jsonObj {
 		if rules.IsUnusedRule(rule) {
 			return stringList(unusedOptionDesc[option])
 		}
+		if rule == rules.RuleUnusedDependency {
+			return stringList("Dependency names never reported (used in a way nothing in the repository shows): an exact name, or a glob where * is any run of characters and ? one character, e.g. \"@types/*\".")
+		}
 		return stringList("Symbol names never reported (replaces the defaults): an exact name, a prefix such as Test*, or a glob where * is any run of characters and ? one character.")
 	case "entries":
 		return stringList(unusedOptionDesc[option])

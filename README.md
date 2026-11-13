@@ -14,7 +14,7 @@ every time a file is rewritten, and puts the result where the agent reads it: th
 
 | debt | rules |
 |---|---|
-| **Code nothing uses**: exports, files and packages no entry point reaches | `unused-export`, `unreachable-file`, `unreachable-package` |
+| **Code nothing uses**: exports, files and packages no entry point reaches, dependencies nothing imports | `unused-export`, `unreachable-file`, `unreachable-package`, `unused-dependency` |
 | **Duplicated code**: the same logic re-implemented, also under other names | `duplicate-code`, `duplicate-symbol` |
 | **Cycles** between packages, modules, files and functions | `import-cycle`, `module-cycle`, `file-cycle`, `function-cycle` |
 | **Broken layers**: a forbidden import, an implementation held instead of its interface, a type leaking through an API | `layer-violation`, `concrete-dependency`, `type-leak` |

@@ -36,6 +36,9 @@ import path whose first element has no dot is the standard library (the go comma
   - `unused-export`: exported functions and types of non-main packages.
   - `unreachable-package`: a package that no `main` package, test or public package of a library module imports.
   - Go files are never reported by `unreachable-file`: a package is reached as a whole.
+  - `unused-dependency`: a direct `require` of `go.mod` whose packages no Go file of the module imports
+    (the files depgraph does not scan are read too) and that no `tool` directive names; always certain
+    (`error`). See [Unused dependencies](../rules.md#unused-dependencies).
 - **Never reported**:
   - Exported methods (an interface may need them; interface satisfaction is invisible to a syntactic analysis).
   - A package that only holds documentation (`doc.go`).

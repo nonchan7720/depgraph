@@ -156,6 +156,11 @@ type Config struct {
 	// Languages: the version settings of the languages whose imports are
 	// classified from a version (see LanguageSetting).
 	Languages []LanguageSetting
+	// IgnoreDependencies: the dependencies unused-dependency never
+	// reports (what is used in a way nothing in the repository shows): a
+	// name pattern, alone or after a language or a manifest and a colon
+	// (see DependencyIgnores).
+	IgnoreDependencies []string
 	// Modules: the directories below the root of the repository's modules
 	// (go.mod, package.json, pyproject.toml, ...), the units of module-cycle
 	// together with the Components.
@@ -310,6 +315,9 @@ func (c Config) Validate() error {
 		return err
 	}
 	if _, err := c.DuplicateNameRegexes(); err != nil {
+		return err
+	}
+	if _, err := c.DependencyIgnores(); err != nil {
 		return err
 	}
 	if c.GodPackageFanOut < 0 {

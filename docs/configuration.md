@@ -48,6 +48,7 @@ rules:                      # per rule: enabled, severity (error | warn | info),
   unused-export: {ignore: ["pkg/api/**"]}            # paths not reported (a library's public API)
   unreachable-file: {entries: ["plugins/**"]}       # entry points depgraph cannot see
   # entries / ignore are shared by unused-export, unreachable-file and unreachable-package
+  unused-dependency: {ignore: [tslib, "ruby:pg", "web/package.json:lodash"]}  # dependencies never reported: a name, for a language, for a manifest
 
 ignore: ["**/testdata/**"]  # packages left out of every rule
 
@@ -61,7 +62,7 @@ store:                      # how Neo4j is provided (see Neo4j); flags and env t
   whole path segments: `**` is any number of segments, `*` and `?` stay within one segment.
   `pkg/domain/**` matches `pkg/domain` and everything below it; `**/db/**` matches `db` and
   `internal/db/sql` but not `pkg/feedback`.
-- **Name patterns** (`duplicate-symbol`'s `ignore`) match the whole symbol name: `*` is any run
+- **Name patterns** (`duplicate-symbol`'s and `unused-dependency`'s `ignore`) match the whole symbol / package name: `*` is any run
   of characters, `?` one character, everything else is literal. `New` is that name only,
   `Test*` every name starting with `Test` (a prefix), `*Handler` every name ending in `Handler`.
 - A package may be in several layers. An import is a violation only when it crosses the pair:
@@ -243,7 +244,8 @@ rules:
   architecture and apply everywhere, across components too (`apps` must not import each other).
 - A `.depgraph.yml` below the root is read with the root's (`scan`, `check`, `watch`, `hook`, `gate`;
   `watch` reloads it when it changes). Its `layers`, `forbidden`, `components`, `ignore` and the
-  `ignore` / `entries` of the unused-code rules are relative to its directory. A directory's own file
+  `ignore` / `entries` of the unused-code rules are relative to its directory, and the `ignore` of
+  `unused-dependency` applies to the manifests in and below it. A directory's own file
   takes precedence over a pattern of `components:` that matches it; declaring a directory both in
   `components:` and in its own file is an error. `project` and `store` apply only where it is the
   root, and so do rule switches, severities and thresholds: those are printed as a warning, not applied.

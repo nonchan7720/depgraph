@@ -49,6 +49,10 @@ matches the submodules (`sqlalchemy.orm`). Which Python version to use is set pe
 - **What is reported**:
   - `unused-export`: public (not `_`-prefixed) module-level functions and classes.
   - `unreachable-file`: a file that no entry point reaches.
+  - `unused-dependency`: a distribution of `pyproject.toml` or a requirements file that no file imports,
+    no other installed distribution imports and nothing names. Only with a virtual environment
+    (`.venv`, `venv`) in the repository, which says what a distribution is imported as; one that is
+    not installed there is skipped. See [Unused dependencies](../rules.md#unused-dependencies).
 - **Never reported**:
   - `__init__.py` (never unreachable).
   - Names in `__all__`, and decorated definitions (routes, fixtures, tasks that a framework registers).

@@ -55,11 +55,16 @@ func (p NamePattern) String() string { return p.pattern }
 // DuplicateNameRegexes compiles IgnoreDuplicateNames into the regular
 // expressions the store filters symbol names with.
 func (c Config) DuplicateNameRegexes() ([]string, error) {
-	out := make([]string, 0, len(c.IgnoreDuplicateNames))
-	for _, n := range c.IgnoreDuplicateNames {
+	return nameRegexes(RuleDuplicateSymbol, c.IgnoreDuplicateNames)
+}
+
+// nameRegexes compiles the name patterns of rule's ignore option.
+func nameRegexes(rule string, patterns []string) ([]string, error) {
+	out := make([]string, 0, len(patterns))
+	for _, n := range patterns {
 		p, err := CompileNamePattern(n)
 		if err != nil {
-			return nil, fmt.Errorf("rule %s: ignore: %w", RuleDuplicateSymbol, err)
+			return nil, fmt.Errorf("rule %s: ignore: %w", rule, err)
 		}
 		out = append(out, p.regex)
 	}

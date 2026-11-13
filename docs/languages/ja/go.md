@@ -31,6 +31,9 @@ import 元モジュールの `go.mod`（または `go.work`）が require / repl
   - `unused-export`: main 以外のパッケージの exported な関数と型。
   - `unreachable-package`: `main` パッケージ・テスト・ライブラリモジュールの公開パッケージのどれからも import されないパッケージ。
   - Go のファイルは `unreachable-file` では報告しません（パッケージはまるごと到達するため）。
+  - `unused-dependency`: `go.mod` の直接の `require` のうち、モジュールのどの Go ファイルもそのパッケージを import しておらず
+    （depgraph がスキャンしないファイルも読みます）、`tool` ディレクティブも指していないもの。常に確実（`error`）です。
+    [未使用の依存パッケージ](../../ja/rules.md#未使用の依存パッケージ)を参照してください。
 - **報告しないもの**:
   - exported なメソッド（interface が必要とする可能性があり、interface を満たすかどうかは構文解析では見えないため）。
   - ドキュメントだけのパッケージ（`doc.go`）。

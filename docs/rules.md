@@ -21,6 +21,7 @@ What depgraph reports. Every rule can be switched off or given another severity 
 | [`unused-export`](#unused-export) | warn | an exported declaration nothing in the project uses |
 | [`unreachable-file`](#unreachable-file) | warn | a file no entry point reaches through imports |
 | [`unreachable-package`](#unreachable-package) | warn | a Go package no entry point imports |
+| [`unused-dependency`](#unused-dependency) | error / warn | a dependency a manifest declares that nothing imports or names |
 | [`god-package`](#god-package) | warn | a hub: imported by many packages and importing many |
 | [`low-cohesion`](#low-cohesion) | info | a package or module made of unrelated parts used by different code |
 | [`wide-function`](#wide-function) | info | a function that calls into too many packages |
@@ -118,6 +119,12 @@ Default severity: `warn`
 
 A Go package no `main` package, test or public package of a library module imports.
 
+### `unused-dependency`
+
+Default severity: `error` when the finding is certain, `warn` when it is not
+
+A dependency that `go.mod` (a direct `require`), `package.json` (`dependencies`, `devDependencies`, `optionalDependencies`), `pyproject.toml` / a requirements file or a `Gemfile` declares, that no code imports and that nothing else names. What counts as a use, and when a finding is certain, is in [Unused dependencies](#unused-dependencies).
+
 ## Structure that rots
 
 ### `god-package`
@@ -176,6 +183,97 @@ by the three rules; see [Configuration](configuration.md)). An export only its o
 export is unneeded, but that is style: Go handlers registered in the same file, for example).
 
 Layers, forbidden imports, severities and thresholds are set in `.depgraph.yml` ([Configuration](configuration.md)).
+
+## Unused dependencies
+
+`unused-dependency` reports what is left in a manifest when code is removed or rewritten and the
+manifest is not: packages that are installed, audited and updated for nothing. A compiler sees the
+imports of one file, never the manifest.
+
+In `go.mod` and `package.json` an import names its package exactly (a Go import path starts with
+the module's path, a JavaScript import with the package's name). Python distributions and Ruby gems
+are imported under names their manifests do not give (`PyYAML` is `yaml`, `rack-cors` is
+`Rack::Cors`), so those names are read from where the project installs them:
+the `dist-info` of a virtual environment in the repository (`.venv`, `venv`) for `pyproject.toml`
+(`[project]`, `[dependency-groups]`, Poetry) and `requirements*.txt` / `requirements/*.txt`, and
+the files of the installed gems for a `Gemfile`. Gems are looked for where Bundler and RubyGems
+keep them, in the version `Gemfile.lock` locks: the bundle's path (`BUNDLE_PATH`, `.bundle/config`,
+else `vendor/bundle`), `GEM_HOME` and `GEM_PATH`, and the Ruby installations of rbenv, asdf, mise and
+rvm below the home directory (nothing is executed; for a Ruby installed elsewhere set `GEM_PATH`).
+A dependency whose names are not known is skipped, never reported: one that is not installed
+there, or a distribution that shares its only module with another (`google.*`). Where nothing is
+installed, nothing of that manifest is reported.
+
+A dependency is **used**, and never reported, when:
+
+- a file imports it. An import uses the declaration of the nearest manifest that names the package:
+  the file's own `go.mod`, or the nearest `package.json` at or above it (a workspace package uses
+  what a `package.json` above it installs, unless it declares the package itself). When no manifest
+  of the importing file names the package, something else provides it (a workspace that hoists, a
+  `go.work`), and every manifest that declares it counts as used. A Go import belongs to the
+  required module with the longest matching path;
+- **Go**: `go.mod` names a `tool` of it, or a Go file of the module that depgraph does not scan
+  (an excluded directory) imports it. This is what `go mod tidy` decides from;
+- **JavaScript / TypeScript**: a file of the repository other than documentation and lockfiles names
+  it: a script of `package.json` runs its binary (`tsc` of `typescript`), a configuration lists it
+  (also by the short name add-ons go by: `"plugins": ["x"]` for `babel-plugin-x`), a file depgraph
+  does not parse imports it (`.vue`, `.svelte`, `.scss`), code gives it as a string (`client: 'pg'`,
+  a path into `node_modules`), a CI workflow or a hook runs it. A file names a package for the same
+  manifest its imports would use. It is also used when another declared package needs it as a peer,
+  and `@types/x` when `x` is used;
+- **Python**: a file imports one of its modules (anywhere in the repository: the files share one
+  environment), another installed distribution imports it (Django imports the database driver the
+  settings choose; a pinned transitive dependency), or a file names it: a module in a string
+  (`INSTALLED_APPS = ['storages']`, a dotted path), its name or one of its commands in a file that
+  is run (`gunicorn` in a `Procfile`);
+- **Ruby**: a file requires it, refers to one of the constants its files declare (Rails code uses
+  a gem through its constants), or names it or one of its commands (a `Procfile`, a script, a CI
+  workflow); or the gem has a railtie or an engine (Rails loads it).
+
+Not dependencies at all: indirect requirements, `peerDependencies`, and what the repository provides
+itself (a module or workspace package of it, a local `replace`, `workspace:` / `file:` / `link:`).
+
+**Severity.** What is left is reported, and the severity says how sure depgraph is:
+
+| | when | severity |
+|---|---|---|
+| certain | nothing imports it, nothing names it, and nothing can load it on its own | the rule's severity (`error`) |
+| not certain | a use that is not an import cannot be ruled out; the finding says why | one level lower (`warn`) |
+
+A finding is not certain when the package is an add-on by its name or its peer (`eslint-plugin-x`,
+`@vitest/coverage-v8`, `sass-loader`: its host may load it by name), holds type declarations
+(`@types/x` without a visible `x`), is a helper compilers import from what they build (`tslib`,
+`core-js`), or is not installed, so that its binaries and the peers of the other packages could not
+be read from `node_modules`. A Python distribution is not certain when it registers entry points
+another package loads (`pytest-cov`) or holds type stubs (`types-*`). A gem is certain only with
+`require: false`: any other gem is required by Bundler when the application boots and may act
+without being referenced (it extends other classes). Every `go.mod`
+finding is certain. With `severity: warn` the certain
+findings are `warn` and the others `info`.
+
+A dependency used in a way nothing in the repository shows is left out with the rule's `ignore` in
+`.depgraph.yml` ([Configuration](configuration.md)): by name, for one language, or for one manifest.
+
+```yaml
+rules:
+  unused-dependency:
+    ignore:
+      - tslib                            # a name, in every manifest
+      - "@types/*"                       # * is any run of characters, ? one character
+      - "ruby:pg"                        # only gems; also go:, javascript:, python:
+      - "python:*"                       # every Python distribution
+      - "web/package.json:lodash"        # only in that manifest (a path glob before the colon)
+      - "services/**/requirements.txt:*" # everything those manifests declare
+      - "ruby:engines/**/Gemfile:pg"     # a language and a manifest together
+```
+
+In a monorepo, a package says what it leaves out in its own `.depgraph.yml`: the entries of a
+directory below the root apply only to the manifests in and below that directory, and manifest
+paths are relative to it (`lodash` in `packages/a/.depgraph.yml` leaves `lodash` out of
+`packages/a/package.json`, not of the other packages). They add to what the root leaves out.
+
+What files outside the code say (a configuration, `node_modules`) is read when the graph is linked:
+after a change of a source file, of a manifest or of what is installed.
 
 ## Exempting a function (`depgraph:ignore`)
 

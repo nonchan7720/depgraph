@@ -256,3 +256,28 @@ components:
 		}
 	}
 }
+
+// The ignore of unused-dependency in a directory's own .depgraph.yml leaves
+// out dependencies of the manifests in and below that directory, next to
+// what the root leaves out everywhere.
+func TestNestedUnusedDependencyIgnore(t *testing.T) {
+	root := t.TempDir()
+	writeFiles(t, root, map[string]string{
+		".depgraph.yml":            "rules:\n  unused-dependency: {ignore: [tslib]}\n",
+		"packages/a/.depgraph.yml": "rules:\n  unused-dependency: {ignore: [lodash, \"ruby:pg\", \"tools/package.json:eslint\"], severity: warn}\n",
+		"svc/.depgraph.yml":        "rules:\n  unused-dependency: {ignore: [\"python:*\"]}\n",
+	})
+	f, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"tslib", "packages/a/**:lodash", "ruby:packages/a/**:pg", "packages/a/tools/package.json:eslint", "python:svc/**:*"}
+	if got := f.Rules.IgnoreDependencies; !reflect.DeepEqual(got, want) {
+		t.Errorf("ignore = %q, want %q", got, want)
+	}
+	// the severity is still the root's to decide
+	wantWarn := []string{"packages/a/.depgraph.yml: rules.unused-dependency.severity applies only where packages/a is the root (--root packages/a); the root's setting is used"}
+	if !reflect.DeepEqual(f.Warnings, wantWarn) {
+		t.Errorf("warnings = %q", f.Warnings)
+	}
+}

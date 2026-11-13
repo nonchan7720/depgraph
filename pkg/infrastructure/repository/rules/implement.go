@@ -118,6 +118,7 @@ func (r *Repository) moduleCycles(ctx context.Context, cfg rules.Config, found [
 	}
 	rows, err := r.query(ctx, `
 		MATCH (a:Module {project: $project})-[e:MODULE_IMPORTS]->(b:Module {project: $project})
+		WHERE a <> b
 		MATCH p = allShortestPaths((b)-[:MODULE_IMPORTS*1..7]->(a))
 		WITH a, b, e, p, [n IN nodes(p) | n.key] AS back ORDER BY back
 		WITH a, b, e, head(collect(p)) AS p
@@ -612,6 +613,15 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 	}
 	if cfg.Enabled(rules.RuleUnusedExport) {
 		fs, err := r.unusedExports(ctx, cfg, ignore)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, fs...)
+	}
+
+	// 7. Dependencies the manifests declare and nothing uses (dependencies.go).
+	if cfg.Enabled(rules.RuleUnusedDependency) {
+		fs, err := r.unusedDependencies(ctx, cfg, ignore)
 		if err != nil {
 			return nil, err
 		}

@@ -300,14 +300,6 @@ RETURN DISTINCT a.key AS from, b.key AS to, pr.from AS fromLayer, pr.to AS toLay
 4. **ファイル単位の置き換えを素直に書けるから。** `MERGE`・`DETACH DELETE`・`UNWIND` で、外部キーの管理を
    せずに、ファイルのサブグラフを 1 トランザクションで置き換えられます。
 
-**コードがまだこの原則に従っていないところ。** 現在、最初から最後まで Cypher で書かれているルールは 4 つだけ
-です（`import-cycle`・`layer-violation`・`god-package`・`duplicate-symbol`）。あとから追加したルールは、関数レベルの
-もの（`function-cycle`・`pass-through`・`wide-function`）も含めて、単純なクエリ 1 本で全ファイルの事実を読み、
-グラフとしての処理（コールグラフの組み立て、循環や連なりの探索）は Go でやっています
-（[上記](#ルールの評価方法)）。原因は事実の保存の仕方にあります。`File` ノードのリストプロパティとして保存して
-いるので、ファイル単位の更新は正しく保てますが、Cypher クエリがマッチできる関数ノードや呼び出しエッジが
-グラフに無いのです。
-
 ## なぜ SQLite ではないのか
 
 SQLite を採らなかった理由は 1 つです。**ルールを Cypher で書くため**です。ルールとはグラフに対する問い

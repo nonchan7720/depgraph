@@ -310,15 +310,6 @@ rule is a Cypher query**. The reasons, in the order they matter:
 4. **Per-file replacement is cheap to express.** `MERGE`, `DETACH DELETE` and `UNWIND` replace a
    file's subgraph in one transaction without bookkeeping of foreign keys.
 
-**Where the code does not follow the principle yet.** Only four rules are Cypher from end to
-end today (`import-cycle`, `layer-violation`, `god-package`, `duplicate-symbol`). The rules
-added later, the function-level ones included (`function-cycle`, `pass-through`,
-`wide-function`), read the facts of every file with one simple query and do the graph work
-(building the call graph, searching cycles and chains) in Go
-([above](#how-the-rules-are-evaluated)). The reason is how those facts are stored: as list
-properties of the `File` node, which keeps a per-file update correct, but leaves no function
-nodes and call edges in the graph for a Cypher query to match.
-
 ## Why not SQLite
 
 SQLite was ruled out for one reason: **the rules are meant to be written in Cypher.** A rule is

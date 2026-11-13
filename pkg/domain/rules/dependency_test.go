@@ -3,6 +3,7 @@ package rules
 import (
 	"reflect"
 	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -81,7 +82,43 @@ func TestDependencyIgnores(t *testing.T) {
 			t.Errorf("%q against %q = %v, want %v", c.manifest, rx, ok, c.match)
 		}
 	}
-	for _, bad := range []string{" ", "ruby:", ":pg", "web/package.json:"} {
+	// a language and a manifest together; and the entries of a directory's
+	// own configuration, which apply to the manifests in and below it
+	cfg.IgnoreDependencies = []string{"ruby:engines/**/Gemfile:pg",
+		NestedDependencyIgnore("packages/a", "lodash"), NestedDependencyIgnore("packages/a", "javascript:left-*"),
+		NestedDependencyIgnore("packages/a", "tools/package.json:eslint"), NestedDependencyIgnore("svc", "python:requirements/*.txt:*"),
+		NestedDependencyIgnore(".", "ruby:pg")}
+	got, err = cfg.DependencyIgnores()
+	if err != nil {
+		t.Fatal(err)
+	}
+	type row struct{ eco, name, manifest, miss string }
+	for i, w := range []row{
+		{"gem", `^pg$`, "engines/x/y/Gemfile", "Gemfile"},
+		{"", `^lodash$`, "packages/a/package.json", "packages/ab/package.json"},
+		{"npm", `^left-.*$`, "packages/a/sub/package.json", "package.json"},
+		{"", `^eslint$`, "packages/a/tools/package.json", "packages/a/package.json"},
+		{"pypi", `^.*$`, "svc/requirements/dev.txt", "requirements/dev.txt"},
+		{"gem", `^pg$`, "", ""},
+	} {
+		g := got[i]
+		if g.Name != w.name || strings.Join(g.Ecosystems, ",") != w.eco {
+			t.Errorf("entry %d = %+v, want %+v", i, g, w)
+		}
+		if w.manifest == "" {
+			if g.Manifest != "" {
+				t.Errorf("entry %d: manifest %q, want none", i, g.Manifest)
+			}
+			continue
+		}
+		if ok, _ := regexp.MatchString(g.Manifest, w.manifest); !ok {
+			t.Errorf("entry %d: %q does not match %s", i, g.Manifest, w.manifest)
+		}
+		if ok, _ := regexp.MatchString(g.Manifest, w.miss); ok {
+			t.Errorf("entry %d: %q matches %s", i, g.Manifest, w.miss)
+		}
+	}
+	for _, bad := range []string{" ", "ruby:", ":pg", "web/package.json:", "ruby:Gemfile:"} {
 		cfg.IgnoreDependencies = []string{bad}
 		if err := cfg.Validate(); err == nil {
 			t.Errorf("%q must be refused", bad)

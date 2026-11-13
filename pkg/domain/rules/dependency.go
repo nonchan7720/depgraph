@@ -73,10 +73,44 @@ var dependencyLanguages = map[string]string{
 	"python": "pypi", "pypi": "pypi", "ruby": "gem", "gem": "gem",
 }
 
+// splitDependencyIgnore splits an ignore entry "[language:][manifest:]name";
+// scoped: it names a manifest (even an empty one, which is an error).
+func splitDependencyIgnore(entry string) (lang, manifest, name string, scoped bool) {
+	name = entry
+	if head, rest, ok := strings.Cut(name, ":"); ok {
+		if _, isLang := dependencyLanguages[head]; isLang {
+			lang, name = head, rest
+		}
+	}
+	if head, rest, ok := strings.Cut(name, ":"); ok {
+		manifest, name, scoped = head, rest, true
+	}
+	return lang, manifest, name, scoped
+}
+
+// NestedDependencyIgnore makes entry, an ignore entry of the configuration
+// of directory dir, an entry of the root's: it applies to the manifests in
+// and below dir, and its manifest glob is relative to dir.
+func NestedDependencyIgnore(dir, entry string) string {
+	if dir == "." || dir == "" {
+		return entry
+	}
+	lang, manifest, name, scoped := splitDependencyIgnore(entry)
+	if !scoped {
+		manifest = "**"
+	}
+	out := PrefixGlob(dir, manifest) + ":" + name
+	if lang != "" {
+		out = lang + ":" + out
+	}
+	return out
+}
+
 // DependencyIgnores compiles IgnoreDependencies. An entry is a name pattern
 // (see NamePattern: "tslib", "@types/*"), alone or after what it applies to
-// and a colon: a language ("ruby:pg", "python:*") or a manifest, as a path
-// glob (see Glob: "web/package.json:lodash", "services/**/requirements.txt:*").
+// and a colon: a language ("ruby:pg", "python:*"), a manifest as a path
+// glob (see Glob: "web/package.json:lodash", "services/**/requirements.txt:*"),
+// or both ("ruby:engines/**/Gemfile:pg").
 func (c Config) DependencyIgnores() ([]DependencyIgnore, error) {
 	out := make([]DependencyIgnore, 0, len(c.IgnoreDependencies))
 	for _, entry := range c.IgnoreDependencies {
@@ -84,18 +118,16 @@ func (c Config) DependencyIgnores() ([]DependencyIgnore, error) {
 			return nil, fmt.Errorf("rule %s: ignore %q: %w", RuleUnusedDependency, entry, err)
 		}
 		var ig DependencyIgnore
-		name := entry
-		if scope, rest, ok := strings.Cut(entry, ":"); ok {
-			name = rest
-			if eco, ok := dependencyLanguages[scope]; ok {
-				ig.Ecosystems = []string{eco}
-			} else {
-				g, err := CompileGlob(scope)
-				if err != nil {
-					return fail(err)
-				}
-				ig.Manifest = g.Regex()
+		lang, manifest, name, scoped := splitDependencyIgnore(entry)
+		if lang != "" {
+			ig.Ecosystems = []string{dependencyLanguages[lang]}
+		}
+		if scoped {
+			g, err := CompileGlob(manifest)
+			if err != nil {
+				return fail(err)
 			}
+			ig.Manifest = g.Regex()
 		}
 		p, err := CompileNamePattern(name)
 		if err != nil {

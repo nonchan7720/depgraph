@@ -227,7 +227,8 @@ rules:
   コンポーネントをまたいで全体に適用します（`apps` 同士は import しない、など）。
 - root より下にある `.depgraph.yml` は root のものと一緒に読みます（`scan`・`check`・`watch`・`hook`・`gate`。
   `watch` は変更されると読み直します）。その `layers`・`forbidden`・`components`・`ignore` と、未使用コード系ルールの
-  `ignore` / `entries` は、そのディレクトリからの相対パスです。`components:` のパターンにマッチするディレクトリに
+  `ignore` / `entries` は、そのディレクトリからの相対パスです。`unused-dependency` の `ignore` は、そのディレクトリとその配下の
+  マニフェストに適用されます。`components:` のパターンにマッチするディレクトリに
   専用のファイルがあれば、そちらを優先します。同じディレクトリを `components:` と専用ファイルの両方で宣言するとエラーです。
   `project` と `store` は、そのディレクトリを root にしたときだけ効きます。ルールの有効 / 無効・severity・閾値も同じで、
   これらは適用せずに警告を表示します。スキャン対象外のディレクトリ（`node_modules`・`.git`・`.depgraphignore` など）の

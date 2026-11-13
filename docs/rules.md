@@ -264,7 +264,13 @@ rules:
       - "python:*"                       # every Python distribution
       - "web/package.json:lodash"        # only in that manifest (a path glob before the colon)
       - "services/**/requirements.txt:*" # everything those manifests declare
+      - "ruby:engines/**/Gemfile:pg"     # a language and a manifest together
 ```
+
+In a monorepo, a package says what it leaves out in its own `.depgraph.yml`: the entries of a
+directory below the root apply only to the manifests in and below that directory, and manifest
+paths are relative to it (`lodash` in `packages/a/.depgraph.yml` leaves `lodash` out of
+`packages/a/package.json`, not of the other packages). They add to what the root leaves out.
 
 What files outside the code say (a configuration, `node_modules`) is read when the graph is linked:
 after a change of a source file, of a manifest or of what is installed.

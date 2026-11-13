@@ -369,12 +369,19 @@ func applyNested(c *rules.Config, dir string, b []byte) ([]string, error) {
 			if rules.IsUnusedRule(name) && (key == "ignore" || key == "entries") {
 				continue
 			}
+			if name == rules.RuleUnusedDependency && key == "ignore" {
+				continue
+			}
 			warnings = append(warnings, fmt.Sprintf("%s/%s: rules.%s.%s applies only where %s is the root (--root %s); the root's setting is used",
 				dir, FileName, name, key, dir, dir))
 		}
 	}
 	for _, g := range own.Rules.UnusedIgnore {
 		c.UnusedIgnore = append(c.UnusedIgnore, rules.PrefixGlob(dir, g))
+	}
+	// the dependencies a directory leaves out are those of its own manifests
+	for _, e := range own.Rules.IgnoreDependencies {
+		c.IgnoreDependencies = append(c.IgnoreDependencies, rules.NestedDependencyIgnore(dir, e))
 	}
 	for _, g := range own.Rules.UnusedEntries {
 		c.UnusedEntries = append(c.UnusedEntries, rules.PrefixGlob(dir, g))

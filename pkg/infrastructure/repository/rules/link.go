@@ -29,6 +29,9 @@ import (
 //	(Module {key})-[:IMPORTS {from, to}]->(Module)
 //	(Symbol)-[:SIMILAR {score}]->(Symbol)                  (clones.go)
 //	(Type), (Type)-[:IMPLEMENTS]->(Type), (Use)-[:OF]->(Type)  (members.go)
+//	(Part)-[:LINKS]->(Part)                                (cohesion.go)
+//	(Root)-[:ENTRY]->(File), (File)-[:USES_FILE]->(File), ...  (unused.go)
+//	(ExtImport {class, basis})                             (python.go)
 //
 // Linking resolves names; it decides nothing a rule reports. It is redone
 // when the files or the configuration changed (LinkState.key) and writes
@@ -50,12 +53,12 @@ type edgeID struct {
 }
 
 // keyProp is the property that identifies a node of a label in a project.
-var keyProp = map[string]string{"Function": "key", "Package": "key", "File": "path", "Module": "key", "Type": "key", "Use": "key"}
+var keyProp = map[string]string{"Function": "key", "Package": "key", "File": "path", "Module": "key", "Type": "key", "Use": "key", "Part": "key", "Root": "key", "ExtImport": "key"}
 
 // ownedLabels are the labels whose nodes exist only in the linked graph:
 // linking creates and removes them. Nodes of the other labels are only
 // connected.
-var ownedLabels = []string{"Function", "Module", "Type", "Use"}
+var ownedLabels = []string{"Function", "Module", "Type", "Use", "Part", "Root", "ExtImport"}
 
 // edgeKinds are the relationships of the linked graph: type, label of the
 // start node, label of the end node. Linking owns every relationship of
@@ -68,6 +71,15 @@ var edgeKinds = [][3]string{
 	{"IMPORTS", "Module", "Module"},
 	{"IMPLEMENTS", "Type", "Type"},
 	{"OF", "Use", "Type"},
+	{"LINKS", "Part", "Part"},
+	{"ENTRY", "Root", "File"},
+	{"USES_FILE", "File", "File"},
+	{"GO_PKG", "File", "File"},
+	{"USES_NAMES", "File", "File"},
+	{"USES_GO", "File", "Package"},
+	{"USES_ALL", "Root", "File"},
+	{"USES_ALL_GO", "Root", "Package"},
+	{"USES_GO_PKG", "Package", "Package"},
 }
 
 // linked is the linked graph of a project, as it should be stored.
@@ -101,7 +113,12 @@ func (r *Repository) link(ctx context.Context, cfg rules.Config, ignore []string
 		return fmt.Errorf("link: %w", err)
 	}
 	clones := cfg.Clones.WithDefaults()
-	settings := append([]string{fmt.Sprint(cfg.Enabled(rules.RuleDuplicateCode), clones)}, units...)
+	ext, err := r.extImports(ctx, cfg, ignore)
+	if err != nil {
+		return fmt.Errorf("link: %w", err)
+	}
+	settings := append([]string{ext.signature(), fmt.Sprint(cfg.Enabled(rules.RuleDuplicateCode), clones,
+		cfg.Enabled(rules.RuleUnreachableFile), cfg.Enabled(rules.RuleUnreachablePackage), cfg.UnusedEntries, cfg.UnusedIgnore)}, units...)
 	key, err := r.linkKey(ctx, ignore, settings)
 	if err != nil {
 		return fmt.Errorf("link: %w", err)
@@ -126,6 +143,15 @@ func (r *Repository) link(ctx context.Context, cfg rules.Config, ignore []string
 	if err := r.linkMembers(ctx, ignore, want); err != nil {
 		return err
 	}
+	if err := r.linkCohesion(ctx, ignore, want); err != nil {
+		return err
+	}
+	ext.link(want)
+	files, err := r.unusedFiles(ctx)
+	if err != nil {
+		return err
+	}
+	linkUnused(files, cfg, want)
 	if err := r.storeLinked(ctx, want); err != nil {
 		return fmt.Errorf("link: %w", err)
 	}
@@ -133,6 +159,9 @@ func (r *Repository) link(ctx context.Context, cfg rules.Config, ignore []string
 		if err := r.linkClones(ctx, clones, ignore, key); err != nil {
 			return err
 		}
+	}
+	if err := r.markUnreachable(ctx, cfg, ignore); err != nil {
+		return err
 	}
 	err = r.write(ctx, `MERGE (s:LinkState {project: $project}) SET s.key = $key`, map[string]any{"project": r.project, "key": key})
 	if err != nil {
@@ -143,7 +172,7 @@ func (r *Repository) link(ctx context.Context, cfg rules.Config, ignore []string
 
 // linkVersion changes when linking stores something else for the same
 // files: an older linked graph is then rebuilt.
-const linkVersion = "3"
+const linkVersion = "6"
 
 // linkKey identifies what the linked graph is made from: the stored files
 // (their number and the last update) and the settings linking reads.

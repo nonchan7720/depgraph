@@ -22,7 +22,7 @@ type Writer interface {
 func DeleteProjectData(ctx context.Context, w Writer, key string) error {
 	for {
 		rows, err := w.Write(ctx, `
-			MATCH (n) WHERE (n:Package OR n:File OR n:Symbol OR n:HookSession OR n:Function OR n:Module OR n:Type OR n:Use OR n:LinkState) AND n.project = $project
+			MATCH (n) WHERE (n:Package OR n:File OR n:Symbol OR n:HookSession OR n:Function OR n:Module OR n:Type OR n:Use OR n:Part OR n:Root OR n:ExtImport OR n:LinkState) AND n.project = $project
 			WITH n LIMIT $batch
 			DETACH DELETE n
 			RETURN count(*) AS deleted

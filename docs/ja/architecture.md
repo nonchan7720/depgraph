@@ -27,7 +27,7 @@ Neo4j なのかを書いています。
 ```
  ソースファイル       resolver             グラフストア        ルール             検出結果（Findings）
  Go, TS / JS,   ──►  tree-sitter     ──►  Neo4j         ──►  Cypher        ──►  CLAUDE.md の管理区間
- Python, Ruby        + import の解決       （プロジェクト      + Go               hook / gate   （エージェントへ）
+ Python, Ruby        + import の解決       （プロジェクト                         hook / gate   （エージェントへ）
                                            ごとに 1 グラフ）                      ブラウザ UI / MCP App
                                                                                 終了コード    （CI）
         ▲                                      ▲
@@ -100,45 +100,53 @@ depgraph はコードに書かれていることだけを読み、推測しま�
 import の解決が依存するファイル（`go.mod`・`tsconfig.json`・`package.json` など）が変わったときと、起動時の
 最初のスキャン（depgraph が止まっている間に消されたファイルもここで取り除きます）です。
 
-**多くの事実をエッジではなく `File` ノードのプロパティにしている理由。** あるファイルが他のファイルの何を
-使っているか（`uses`・`calls`・`loads`・`typeUses` など）は、そのファイルに書かれているとおりに、自分のノードの
-リストプロパティとして保存し、ルールの評価時にプロジェクト全体で突き合わせます。もしこれを「このファイルから
-他ファイルのシンボルへのエッジ」にすると、**相手側の**ファイルが書き換わるたびにエッジが消え、戻すには
-import しているファイルすべてを解析し直す必要があります。ファイル単位のプロパティなら、他のファイルに触れずに
-1 ファイルを置き換えられ、あとから作られたファイルも、既にそれを import していたファイルを解析し直すこと
-なく次の評価で見つかります。
+**ファイル単位の事実と、そこから作るリンクグラフ。** あるファイルが他のファイルの何を使っているか
+（`uses`・`calls`・`loads`・`typeUses` など）は、まずそのファイルに書かれているとおりに、自分のノードの
+リストプロパティとして保存します。もしこれを最初から「このファイルから他ファイルのシンボルへのエッジ」に
+すると、**相手側の**ファイルが書き換わるたびにエッジが消え、戻すには import しているファイルすべてを
+解析し直す必要があります。ファイル単位のプロパティなら、他のファイルに触れずに 1 ファイルを置き換えられます。
+
+ルールを評価する前に、これらの名前をプロジェクト全体で解決し、ノードとリレーションとして保存します。
+これが**リンクグラフ**です（[スキーマ](#グラフスキーマ)）。リンクは名前を解決するだけです（呼び出しがどの関数に
+届くか、import がどのファイルを読み込むか、フィールドの型は何か）。ルールが報告する内容は何も決めません。
+リンクはファイルか設定が変わったときにだけやり直し、保存済みのものとの差分だけを書き込みます。あとから
+作られたファイルも、既にそれを import していたファイルを解析し直すことなく見つかります。
 
 1 つのデータベースに複数のリポジトリが入ります。すべてのノードがプロジェクト key を持ち、すべてのクエリが
 それで絞られます（[Projects](neo4j.md#projects) 参照）。
 
 ## ルールの評価方法
 
-`rules.Repository.Evaluate`（`pkg/infrastructure/repository/rules`）が、有効なルールをすべて保存済みのグラフに
-対して実行し、検出結果を整列して返します。ルールには 2 種類あります。
+`rules.Repository.Evaluate`（`pkg/infrastructure/repository/rules`）は、リンクグラフを最新にしてから、有効な
+ルールをすべて実行します。**どのルールも、グラフに対する Cypher クエリです。** Go がやるのは、リンク時の名前
+解決と、クエリの結果行を検出結果の文面にすることだけです。
 
-- **パッケージグラフについてのルールは Neo4j の中で実行します。** ルール 1 つが Cypher クエリ 1 本です。
-  問いがグラフ上の経路やパターンそのものだからです。
-- **ファイルの中身についてのルールは Go で突き合わせます。** Cypher クエリ 1 本で全ファイルの事実を読み、
-  ロジック（`pkg/domain/rules`）は素の Go で書かれていて、データベース無しでユニットテストできます。
-
-| ルール | Neo4j（Cypher）でやること | Go でやること |
-|---|---|---|
-| `import-cycle` | すべて。import ごとに `shortestPath` で戻り道を探し、循環を正規化して重複を除く | なし |
-| `layer-violation` | 禁止ペアすべてを 1 クエリで。パッケージ間のエッジをレイヤーの正規表現と照合 | Python と Ruby のファイルの外部 import を、プロジェクトのファイルから分類 |
-| `god-package` | 集約で fan-in と fan-out を数える | なし |
-| `duplicate-symbol` | `collect(DISTINCT ...)` で名前ごとにまとめる | メッセージの組み立て |
-| `external-unclassified` | 対象レイヤーの未分類 import エッジを取り出す | 言語ごとにまとめる |
-| `module-cycle` | パッケージ間のエッジを読む | パッケージをモジュールにまとめ、循環を探す |
-| `file-cycle` | 各ファイルが読み込むものを読む | 読み込み先をファイルに解決し、最短の循環を探す |
-| `function-cycle`・`pass-through`・`wide-function` | 各ファイルの呼び出しと宣言された型を読む | コールグラフを組み立て（フィールドや引数は宣言された型で辿る）、循環・連なり・広すぎる関数を探す |
-| `duplicate-code` | `minTokens` 以上の本体の「形」を読む | 指紋を比較（Jaccard）し、複製をまとめる |
-| `concrete-dependency`・`type-leak` | メンバーと型を読む | 実装をインターフェースとレイヤーに照合する |
-| `low-cohesion` | 宣言と使用を読む | 単位をつながった部分に分け、それぞれを使う側を比べる |
-| `unused-export`・`unreachable-file`・`unreachable-package` | 全ファイルを 1 クエリで読む | re-export を辿って名前を解決し、エントリポイントから辿る |
+| ルール | クエリの内容 |
+|---|---|
+| `import-cycle` | パッケージ間の import ごとに、最短の戻り道を探す（`allShortestPaths`、8 パッケージまで） |
+| `module-cycle` | 同じことを `(Module)-[:IMPORTS]->(Module)` に対して行う。`import-cycle` が報告済みの循環は除く |
+| `file-cycle` | 同じことを `(File)-[:LOADS]->(File)` に対して行う。まずロード時の読み込みだけで、次に関数内の import でしか閉じない循環を探す |
+| `function-cycle` | 同じことを `(Function)-[:CALLS]->(Function)` に対して、Go パッケージ内の別ファイル間の呼び出しについて行う。1 つの型のメソッドだけで閉じる循環は除く |
+| `pass-through` | 誰からも転送されない関数から始まり、何か別のことをする最初の関数で終わる、2 本以上の `FORWARDS` の経路 |
+| `wide-function` | 関数が `CALLS` で呼ぶ関数（コンストラクタを除く）のパッケージと、メンバー経由で呼ぶ型のパッケージ（`CALLS_INTO`）を、重複なく数える |
+| `layer-violation` | 禁止ペアすべてを一度に。パッケージ間の import をレイヤーの正規表現と照合する。外部 import は分類（class）で判定 |
+| `external-unclassified` | サードパーティだと分かればワイルドカードのレイヤーに一致するのに、分類の付いていない外部 import |
+| `concrete-dependency` | abstract ペアをまたいで実装を使っている箇所（`(Use)-[:OF]->(Type)`）と、その型が実装していて呼び出しをすべて覆う最小のインターフェース |
+| `type-leak` | abstract ペアをまたいで struct / class を公開している箇所 |
+| `duplicate-code` | `(Symbol)-[:SIMILAR]->(Symbol)` がつなぐグループ。SIMILAR 自体も Cypher が書く（伏せ字化したハッシュが同じ、または珍しい指紋を共有し、全指紋の Jaccard 類似度が閾値以上） |
+| `duplicate-symbol` | 複数ファイルで宣言された exported な名前（集約） |
+| `god-package` | fan-in と fan-out（集約） |
+| `low-cohesion` | 単位の中で `(Part)-[:LINKS]-(Part)` がつなぐグループ。それぞれが外から使われ、2 つのグループを使う側が無いもの |
+| `unreachable-file`・`unreachable-package` | エントリポイントからの 1 回の探索で届くものに印を付け、届かないものを「誰も import していないファイル / パッケージ」の下にまとめる |
+| `unused-export` | `USES_NAMES` / `USES_GO` で名前を挙げられていない export。エントリポイントと到達不能ファイルは除く |
 
 レイヤーと `ignore` は `.depgraph.yml` の glob です。これを一度だけ正規表現に変換します。変換結果は Go（RE2）
 でも Cypher（`=~`、Java の正規表現）でも同じ意味になるので、Go のユニットテストとクエリとで、同じパターンが
 同じパッケージに一致します。
+
+循環は常に同じ形で報告します。ある import を通る最短の循環が複数あるときは、key の並びが最小のものを
+選びます。`shortestPath` だけではそのうちのどれかが返るため、同じグラフでも実行のたびに違う循環が報告
+されていました。
 
 ## 検出結果を届ける
 
@@ -148,7 +156,7 @@ import しているファイルすべてを解析し直す必要があります�
 | 届け先 | 方法 |
 |---|---|
 | `CLAUDE.md` | `scan`・`watch`・`check` が `<!-- depgraph:start -->` 〜 `<!-- depgraph:end -->` の区間を書き換えます。手書きの部分は残します |
-| hook（`depgraph hook`） | 読み取り専用で、時間制限付き（3 秒）。保存済みのグラフに対してルールを評価し、セッション開始時は要約を、以後はそのセッションの前回プロンプトからの差分だけを出力します。セッションごとの前回の検出結果は Neo4j（`HookSession`）に置き、リポジトリには書きません |
+| hook（`depgraph hook`） | スキャンはせず、時間制限付き（3 秒）。保存済みのグラフに対してルールを評価し、セッション開始時は要約を、以後はそのセッションの前回プロンプトからの差分だけを出力します。セッションごとの前回の検出結果は Neo4j（`HookSession`）に置き、リポジトリには書きません |
 | gate（`depgraph gate`） | 変更されたファイルを自分でグラフに反映し（`watch` のデバウンスと競合しないため）、評価して、セッションが基準（baseline）から増やした検出結果があれば失敗します。git worktree は別プロジェクトとして扱い、worktree の基点コミットからリース付きでグラフを作ります |
 | ブラウザ UI（`watch`・`serve`） | UI をバイナリに埋め込んだ HTTP サーバー。`watch` は評価のたびに SSE で送ります |
 | MCP App（`depgraph mcp`） | 同じ UI を 1 ファイルの HTML にしたもの。MCP のツール経由でグラフを読みます |
@@ -158,18 +166,17 @@ import しているファイルすべてを解析し直す必要があります�
 
 ## グラフスキーマ
 
+スキャンがファイル単位で書き込むもの:
+
 ```
 (Project     {key, name, root, origin, base, worktree, lastScanAt, commit, dirty, baseCommit, syncUntil})
 (Package     {project, key, name, external})
 (File        {project, path, language, lines, updatedAt,
-              scope, entry, internal, generated, uses, exports, keep, mentions,  # 未使用コード系ルール
-              loads,                                                             # file-cycle
-              calls, ownMembers,                                                 # コールグラフ
-              typeUses, constructs,                                              # concrete-dependency, type-leak
-              decls, idents, declRefs,                                           # low-cohesion
-              extConstants})                                                     # gem の Ruby 定数
+              scope, entry, internal, generated, uses, exports, keep, mentions,  # そのファイルが使うもの・export するもの
+              loads, calls, ownMembers, typeUses, constructs,
+              decls, idents, declRefs, extConstants})
 (Symbol      {project, file, name, kind, exported, line, endLine, language,
-              tokens, cloneHash, fingerprints,                                   # duplicate-code
+              tokens, cloneHash, fingerprints,                                   # 本体の「形」
               receiver, methods, abstract, data, implements, embeds})            # 型とそのメンバー
 (HookSession {project, id, findings, baseline, updatedAt})
 
@@ -179,8 +186,31 @@ import しているファイルすべてを解析し直す必要があります�
 (Symbol)-[:CALLS|REFERENCES]->(Symbol)   # watch 中に LSP が変更ファイルについて追加
 ```
 
+ルールの評価前に、これらの事実から解決して作るリンクグラフ:
+
+```
+(Function {key, file, name, dir, lang, line, recv, ignore})        # 呼ぶ、または呼ばれる関数
+(Function)-[:CALLS {via, construct}]->(Function)                   # via: メンバーの宣言された型を経由
+(Function)-[:FORWARDS]->(Function)                                 # 引数をそのまま渡すだけ
+(Function)-[:CALLS_INTO]->(Package)                                # メンバーの型のパッケージ
+(File)-[:LOADS {eager}]->(File)                                    # 同一ディレクトリ内。eager: ロード時
+(Module {key})-[:IMPORTS {from, to}]->(Module)                     # モノレポのモジュール
+(Type {key, pkg, name, kind, abstract, data, embeds, methods})
+(Type)-[:IMPLEMENTS {exact}]->(Type)
+(Use {file, pkg, owner, member, role, line, exported, collection, construct, calls})-[:OF]->(Type)
+(Symbol {cloneGroup})-[:SIMILAR {score}]->(Symbol)                 # 複製
+(Part {unit, what, id, data, used})-[:LINKS]->(Part)               # パッケージ / モジュールの部分
+(ExtImport {pkg, file, ext, lang, python, class, basis})           # Python / Ruby ファイルの外部 import
+(Root {key: 'unused'})-[:ENTRY {why}]->(File)                      # エントリポイント
+(File)-[:USES_FILE]->(File), (File)-[:GO_PKG]->(File)              # ファイルから届く先
+(File)-[:USES_NAMES {names}]->(File), (File)-[:USES_GO {names}]->(Package)
+(Root)-[:USES_ALL]->(File), (Root)-[:USES_ALL_GO]->(Package), (Package)-[:USES_GO_PKG]->(Package)
+File.reached, File.dead, File.deadRoot, Package.dead, Package.deadRoot   # 未使用コード系ルールの印
+(LinkState {project, key})                                         # リンクグラフの元になった状態
+```
+
 - `project` はプロジェクト key です。`Package` は `(project, key)`、`File` は `(project, path)`、
-  `HookSession` は `(project, id)`、`Project` は `key` で一意です。
+  `HookSession` は `(project, id)`、`Project` は `key`、リンクグラフのノードは `(project, key)` で一意です。
 - `Package.key` はリポジトリルートからのディレクトリパスです（ルートは `.`）。リポジトリ外への import は
   `ext:<パッケージ>` という key の `external=true` な `Package` になります（これもプロジェクトごと。
   `elkjs/lib/elk-api` はパッケージ `ext:elkjs`）。どこにも解決できない import は `Package` もエッジも作りません。
@@ -225,11 +255,13 @@ depgraph は Bolt ドライバー（`neo4j-go-driver`）越しに素の Cypher �
 | `UNWIND $list` | ファイルのシンボル / import をまとめて書く。レイヤーの禁止ペアをまとめて評価する |
 | `DETACH DELETE` | ファイルを、シンボルとすべてのエッジごと一度に消す |
 | リトライ付きのマネージドトランザクション（`ExecuteWrite`） | ファイルの置き換えがアトミックになり、読む側が書きかけを見ない |
-| 可変長パターンと `shortestPath((b)-[:IMPORTS*1..7]->(a))` | `import-cycle` |
+| 経路上のノードとリレーションに条件を付けた `allShortestPaths((b)-[:IMPORTS*1..7]->(a))` | 循環の 4 ルール |
+| 終点を `DISTINCT` で受ける可変長パターン（プランナーが各ノードを 1 回だけ辿る） | エントリポイントから届く範囲、複製のグループ、単位の部分 |
+| `CALL { ... UNION ... }`・`COLLECT { ... ORDER BY ... }`・`COUNT { ... }` のサブクエリ、`EXISTS { ... }` | `wide-function`、行の中での整列済みリスト、`unused-export` |
 | パス関数・リスト関数（`nodes(p)`、リスト内包、スライス、`reduce`、`range`） | 循環を「最小の key から始まる形」に回転し、同じ循環を 1 回だけ報告する |
 | リストに対する述語（`any` / `none` / `all`）と正規表現（`=~`） | レイヤー・`ignore`・名前パターンをクエリの中で照合する |
 | 集約（`count(DISTINCT ...)`・`collect`）と `OPTIONAL MATCH` | fan-in / fan-out、同名の宣言、ファイルとそのシンボルの読み出し |
-| `COUNT { ... }` サブクエリとパターン内包 | 統計と UI の全体図を 1 往復で取る |
+| パターン内包 | 統計と UI の全体図を 1 往復で取る |
 | `UNION` | リポジトリ内と外部パッケージのレイヤー違反を 1 クエリで |
 | 時刻型（`datetime()`） | `updatedAt`、古いセッションの削除、リース `syncUntil` |
 | 条件付き書き込み（`MERGE ... WITH p WHERE p.syncUntil < $now SET ...`） | 1 プロセスしか取れないリース |
@@ -244,10 +276,13 @@ MATCH (a:Package {project: $project})-[:IMPORTS]->(b:Package {project: $project}
 WHERE a.external = false AND b.external = false AND a <> b
   AND none(rx IN $ignore WHERE a.key =~ rx OR b.key =~ rx)
 // b から a への最短の戻り道が、その import を通る最短の循環を閉じる
-MATCH p = shortestPath((b)-[:IMPORTS*1..7]->(a))
+MATCH p = allShortestPaths((b)-[:IMPORTS*1..7]->(a))
 WHERE all(x IN nodes(p) WHERE x.external = false AND none(rx IN $ignore WHERE x.key =~ rx))
+// 最短の戻り道が複数あるときは、常に同じもの（最小のもの）を選ぶ
+WITH a, b, [n IN nodes(p) | n.key] AS back ORDER BY back
+WITH a, b, head(collect(back)) AS back
 // 循環を key のリストにし、最小の key から始まるよう回転して、重複を除く
-WITH [a.key] + [n IN nodes(p) | n.key] AS cyc
+WITH [a.key] + back AS cyc
 WITH cyc[0..size(cyc)-1] AS ring
 WITH ring, reduce(m = 0, i IN range(0, size(ring) - 1) | CASE WHEN ring[i] < ring[m] THEN i ELSE m END) AS s
 WITH ring[s..] + ring[..s] AS r
@@ -258,8 +293,8 @@ RETURN cyc ORDER BY size(cyc), cyc LIMIT 50
 最初の実装はすべての循環を列挙していました（`(a)-[:IMPORTS*2..8]->(a)`）。これは指数時間で、700 ファイルの
 リポジトリで 17 秒かかり、hook の持ち時間 3 秒を大きく超えていました。import ごとに最短経路を 1 本だけ
 求める方法は多項式時間で（40 パッケージ・280 import の密なグラフで 0.17 秒）、8 パッケージ以下の循環に乗る
-import はすべて報告できます。GQL の `SHORTEST 1` ではなく `shortestPath` を使っているのは、Neo4j 5.26 の
-プランナーがこのクエリでは `SHORTEST 1` を約 500 倍遅く実行したためです。
+import はすべて報告できます。GQL の `SHORTEST` ではなく `allShortestPaths` を使っているのは、Neo4j 5.26 の
+プランナーがこのクエリでは `SHORTEST` を約 500 倍遅く実行したためです。
 
 ### 例: `layer-violation`
 
@@ -278,6 +313,19 @@ RETURN DISTINCT a.key AS from, b.key AS to, pr.from AS fromLayer, pr.to AS toLay
 ```
 
 （抜粋です。実際のクエリは除外パターン、コンポーネント、外部パッケージを含むレイヤーも扱います。）
+
+### 例: `pass-through`
+
+引数をそのまま次へ渡すだけの関数の連なりは、`FORWARDS` の経路です。
+
+```cypher
+MATCH (head:Function {project: $project})-[:FORWARDS]->(:Function)
+WHERE NOT (:Function)-[:FORWARDS]->(head)          // 先頭には誰も転送していない
+MATCH p = (head)-[:FORWARDS*2..]->(last:Function)  // 転送するだけの関数が 2 つ以上
+WHERE NOT (last)-[:FORWARDS]->(:Function)          // 最後の関数は別のことをする
+RETURN [n IN nodes(p) | [n.file, n.name]] AS chain
+ORDER BY head.file, head.name LIMIT 50
+```
 
 ## なぜ Neo4j なのか
 
@@ -323,12 +371,11 @@ SQLite を採らなかった理由は 1 つです。**ルールを Cypher で書
 | ユーザーに必要なもの | コンテナランタイム、約 1 GB のイメージ、起動に 10〜20 秒、メモリ 330〜480 MiB | なし |
 
 つまりトレードオフはこうです。SQLite にすれば、コンテナランタイムと起動時間が不要になります。これは depgraph の
-最大のコストです（[次節](#neo4j-のコスト)）。その代わり、いま Cypher クエリ 1 本で済んでいるルール
-（`import-cycle`・`layer-violation`・`god-package`・`duplicate-symbol`）は再帰 SQL か、追加の Go コードになり、
-グラフは人やエージェントがグラフ用のクエリ言語で調べられるものではなくなります。一方、既に Go で
-突き合わせているルールはほとんど変わりません。必要なのは「全ファイルの事実」だけだからです。
+最大のコストです（[次節](#neo4j-のコスト)）。その代わり、いまは Cypher クエリ 1 本であるすべてのルールが、
+再帰 SQL かアプリケーションコードになり、グラフは人やエージェントがグラフ用のクエリ言語で調べられるものでは
+なくなります。
 
-この最後の点が、この判断を「固定」ではなく「変更可能」にしています。ストアはインターフェース
+この判断はコードによって固定されてはいません。ストアはインターフェース
 （`graph.Repository`・`rules.Repository`・`view.Reader`・`project.Repository`、hook の `SessionStore`）の
 向こう側にあり、ドメインのロジックはドライバーを import しません（このリポジトリの `.depgraph.yml` が禁止して
 います）。別のストアは、これらのインターフェースのもう 1 つの実装であり、現在の実装の出力をゴールデンとして
@@ -342,7 +389,8 @@ SQLite を採らなかった理由は 1 つです。**ルールを Cypher で書
 |---|---|
 | 最初のスキャンの前に、Neo4j をインストールするか docker compose で起動する必要があった | depgraph 自身が Neo4j をコンテナ（docker・podman・nerdctl）で起動する。既定ではエフェメラルで、depgraph がどう終了しても watchdog プロセスがコンテナを消す（[Neo4j ストア](neo4j.md)） |
 | それでもコンテナランタイムは必要。イメージは約 1 GB、起動に 10〜20 秒 | メモリに上限を設定（ヒープ 512 MiB、ページキャッシュ 64 MiB）。インストール済みの Neo4j を子プロセスで動かす `local` プロバイダーが[ロードマップ](development.md#roadmap)にある |
-| 循環の列挙が指数時間だった | import ごとに `shortestPath` を 1 回（[上記](#例-import-cycle)） |
+| 循環の列挙が指数時間だった | import 1 本ずつ最短経路を求める（[上記](#例-import-cycle)） |
+| `shortestPath` は複数ある最短経路のどれかを返すので、実行のたびに循環が変わった | `allShortestPaths` のうち最小のものを選ぶ |
 | 大きなプロジェクトを 1 トランザクションで削除すると、トランザクションのメモリ上限を超えた（14,000 ファイルのリポジトリ） | 10,000 ノードずつのバッチで削除する |
 | `IF NOT EXISTS` は、同じ制約を同時に作る 2 つのセッションを守らない | `EnsureSchema` が「既に存在する」を成功として扱う |
 | `collect()` は順序を保証しないので、実行のたびにメッセージが変わった | 検出結果を作る前に Go でリストを整列する |
@@ -358,7 +406,7 @@ main.go                                  エントリポイント（cmd.Execute(
 
 pkg/domain/                              I/O なし、サードパーティの import なし
   graph/                                 言語非依存のグラフモデル、Repository / Resolver interface
-  rules/                                 ルールのロジック、Config（レイヤー・glob）、Finding と差分、Repository interface
+  rules/                                 ルールの登録、Config（レイヤー・glob）、Finding と差分、Repository interface
   project/                               Project、key の決定、移動 / 衝突の判定、Repository interface
   view/                                  UI が読むもの（全体図、パッケージ詳細、統計）
 
@@ -370,7 +418,7 @@ pkg/infrastructure/
     imports/                             エコシステムごとの import 解決（esbuild、go.mod / go.work、Python、Ruby）
     lsp/                                 言語サーバー（callHierarchy / references）による精密化
   repository/graph/                      Neo4j: 書き込み、スキーマ、UI のビュー
-  repository/rules/                      Neo4j: ルール評価（Cypher、その先は pkg/domain/rules）
+  repository/rules/                      Neo4j: リンクとルール（Cypher）
   repository/project/                    Neo4j: Project ノード、リース
   repository/hooksession/                Neo4j: hook のセッション状態
   neo4jprovider/                         Neo4j の用意の仕方: Provider の契約、選択、external

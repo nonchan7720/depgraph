@@ -72,15 +72,16 @@ Keep `depgraph watch` running, then:
 ```
  source files        resolver             graph store        rules              findings
  Go, TS / JS,   ──►  tree-sitter     ──►  Neo4j         ──►  Cypher        ──►  CLAUDE.md section
- Python, Ruby        + import             (one graph         + Go               hooks / gate  (the agent)
+ Python, Ruby        + import             (one graph                            hooks / gate  (the agent)
                      resolution           per project)                          browser UI / MCP App
                                                                                 exit code     (CI)
 ```
 
 Each file is parsed with tree-sitter and its imports are resolved the way its ecosystem resolves
 them. The result is stored per file in Neo4j, so a change replaces one file's part of the graph.
-Rules about the package graph are Cypher queries; rules about what is inside files are joined in
-Go from what each file says. [Architecture](docs/architecture.md) explains each step, what Neo4j
+Before the rules run, the names the files use are resolved across the project into a linked
+graph (calls between functions, loads between files, types and their uses), and every rule is a
+Cypher query over it. [Architecture](docs/architecture.md) explains each step, what Neo4j
 is used for, and why the store is Neo4j.
 
 ## Supported languages

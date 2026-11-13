@@ -26,7 +26,7 @@ Every command is a part of one pipeline:
 ```
  source files        resolver             graph store        rules              findings
  Go, TS / JS,   ──►  tree-sitter     ──►  Neo4j         ──►  Cypher        ──►  CLAUDE.md section
- Python, Ruby        + import             (one graph         + Go               hooks / gate  (the agent)
+ Python, Ruby        + import             (one graph                            hooks / gate  (the agent)
                      resolution           per project)                          browser UI / MCP App
                                                                                 exit code     (CI)
         ▲                                      ▲
@@ -103,45 +103,54 @@ full scan: a file import resolution depends on changed (`go.mod`, `tsconfig.json
 `package.json`, ...), and the first scan of a run, which also removes files that were deleted
 while depgraph was not running.
 
-**Why most facts are properties of the `File` node, not edges.** What a file uses from other
-files (`uses`, `calls`, `loads`, `typeUses`, ...) is stored as list properties on its own node,
-as written in the file, and is joined across the project when the rules run. An edge from this
-file to a symbol of another file would be deleted whenever the *other* file is re-written, and
-restoring it would mean re-parsing every importer. With per-file properties a file is replaced
-without touching any other, and a file created later is seen by the next evaluation without
-re-parsing the files that already imported it.
+**Per-file facts, then a linked graph.** What a file uses from other files (`uses`, `calls`,
+`loads`, `typeUses`, ...) is first stored as list properties on its own node, as written in the
+file. An edge from this file to a symbol of another file would be deleted whenever the *other*
+file is re-written, and restoring it would mean re-parsing every importer. With per-file
+properties a file is replaced without touching any other.
+
+Before the rules run, those names are resolved across the project and stored as nodes and
+relationships: the **linked graph** ([schema](#graph-schema)). Linking only resolves names (which
+function a call reaches, which file an import loads, which type a field has); it decides nothing
+a rule reports. It is redone when the files or the settings changed, and writes only the
+difference to what is stored, so a file created later is seen without re-parsing the files that
+already imported it.
 
 One database holds many repositories: every node carries the project key, and every query is
 scoped by it (see [Projects](neo4j.md#projects)).
 
 ## How the rules are evaluated
 
-`rules.Repository.Evaluate` (`pkg/infrastructure/repository/rules`) runs every enabled rule
-against the stored graph and returns the findings, sorted. There are two kinds of rule:
+`rules.Repository.Evaluate` (`pkg/infrastructure/repository/rules`) brings the linked graph up
+to date and then runs every enabled rule. **Every rule is a Cypher query over the graph**; Go
+only resolves names when linking and turns the rows of a query into the text of a finding.
 
-- **Rules about the package graph run in Neo4j**, as one Cypher query each: the question is a
-  path or a pattern in the graph.
-- **Rules about what is inside files are joined in Go.** One Cypher query reads the facts of
-  every file; the logic (`pkg/domain/rules`) is plain Go, unit-tested without a database.
-
-| rule | in Neo4j (Cypher) | in Go |
-|---|---|---|
-| `import-cycle` | everything: `shortestPath` back along every import, the cycle normalised and deduplicated | nothing |
-| `layer-violation` | every forbidden pair in one query: package edges matched against the layers' regular expressions | external imports of Python and Ruby files are classified from the project's files |
-| `god-package` | fan-in and fan-out by aggregation | nothing |
-| `duplicate-symbol` | grouped by name with `collect(DISTINCT ...)` | the message |
-| `external-unclassified` | the unclassified import edges of the layers concerned | grouped per language |
-| `module-cycle` | reads the package edges | groups packages into modules, finds the cycles |
-| `file-cycle` | reads what every file loads | resolves the loads to files, finds the shortest cycles |
-| `function-cycle`, `pass-through`, `wide-function` | reads the calls and declared types of every file | builds the call graph (through fields and parameters by their declared type), finds cycles / chains / wide functions |
-| `duplicate-code` | reads the shapes of bodies above `minTokens` | compares fingerprints (Jaccard), groups the copies |
-| `concrete-dependency`, `type-leak` | reads the members and types | matches implementations against interfaces and layers |
-| `low-cohesion` | reads declarations and uses | splits a unit into connected parts, compares their users |
-| `unused-export`, `unreachable-file`, `unreachable-package` | one query for every file | resolves names through re-exports, walks from the entry points |
+| rule | the query |
+|---|---|
+| `import-cycle` | for every import between packages, the shortest way back (`allShortestPaths`, at most 8 packages) |
+| `module-cycle` | the same over `(Module)-[:IMPORTS]->(Module)`, without the cycles `import-cycle` reports |
+| `file-cycle` | the same over `(File)-[:LOADS]->(File)`: first over the eager loads, then the cycles that only close through an import inside a function |
+| `function-cycle` | the same over `(Function)-[:CALLS]->(Function)` for calls between two files of a Go package, without the cycles among the methods of one type |
+| `pass-through` | paths of two or more `FORWARDS` from a function nothing forwards to, to the first that does something else |
+| `wide-function` | the distinct packages of the functions a function `CALLS` (constructors apart) and of the types it calls through (`CALLS_INTO`) |
+| `layer-violation` | every forbidden pair at once: package imports matched against the layers' regular expressions; external imports by their class |
+| `external-unclassified` | the external imports a wildcard layer would match if they were third-party, without a class |
+| `concrete-dependency` | the uses (`(Use)-[:OF]->(Type)`) of an implementation across an abstract pair, and the smallest interface the type implements that covers the calls |
+| `type-leak` | the exported uses of a struct / class across an abstract pair |
+| `duplicate-code` | the groups `(Symbol)-[:SIMILAR]->(Symbol)` connects; SIMILAR itself is written by Cypher (same masked hash, or a shared rare fingerprint and a Jaccard similarity of all fingerprints) |
+| `duplicate-symbol` | exported names declared in several files, by aggregation |
+| `god-package` | fan-in and fan-out, by aggregation |
+| `low-cohesion` | the connected groups of `(Part)-[:LINKS]-(Part)` of a unit, each used from outside, with no user in two groups |
+| `unreachable-file`, `unreachable-package` | one walk from the entry points marks what is reached; what is not is grouped under the file / package nothing imports |
+| `unused-export` | exported declarations without a `USES_NAMES` / `USES_GO` naming them, outside entry points and dead files |
 
 Layers and `ignore` are globs in `.depgraph.yml`. They are translated once into regular
 expressions that mean the same in Go (RE2) and in Cypher (`=~`, Java), so a pattern matches the
 same packages in a Go unit test and in the query.
+
+A cycle is always reported the same way: of several shortest cycles through an import, the
+smallest by its keys is taken. `shortestPath` alone returns any of them, which made the same
+graph report different cycles in two runs.
 
 ## Delivering the findings
 
@@ -151,7 +160,7 @@ compared: what was added, what was resolved.
 | where | how |
 |---|---|
 | `CLAUDE.md` | `scan`, `watch` and `check` rewrite the section between `<!-- depgraph:start -->` and `<!-- depgraph:end -->`; hand-written content is kept |
-| hooks (`depgraph hook`) | read-only and bounded (3 s): evaluates the rules on the stored graph and prints a summary at session start, then only the difference since the last prompt of that session. The last findings of each session are kept in Neo4j (`HookSession`), never in the repository |
+| hooks (`depgraph hook`) | bounded (3 s) and never scanning: evaluates the rules on the stored graph and prints a summary at session start, then only the difference since the last prompt of that session. The last findings of each session are kept in Neo4j (`HookSession`), never in the repository |
 | gate (`depgraph gate`) | applies the changed files to the graph itself (so it does not race `watch`), evaluates, and fails on the findings the session added since its baseline. A git worktree is its own project, built from the worktree's base commit under a lease |
 | browser UI (`watch`, `serve`) | an HTTP server with the UI embedded in the binary; `watch` pushes every evaluation over SSE |
 | MCP App (`depgraph mcp`) | the same UI as one self-contained HTML, read through MCP tools |
@@ -161,18 +170,17 @@ Details: [Coding agents](agents.md), [Browser UI and MCP App](ui.md), [Commands]
 
 ## Graph schema
 
+What a scan writes, file by file:
+
 ```
 (Project     {key, name, root, origin, base, worktree, lastScanAt, commit, dirty, baseCommit, syncUntil})
 (Package     {project, key, name, external})
 (File        {project, path, language, lines, updatedAt,
-              scope, entry, internal, generated, uses, exports, keep, mentions,  # unused-code rules
-              loads,                                                             # file-cycle
-              calls, ownMembers,                                                 # the call graph
-              typeUses, constructs,                                              # concrete-dependency, type-leak
-              decls, idents, declRefs,                                           # low-cohesion
-              extConstants})                                                     # Ruby constants of gems
+              scope, entry, internal, generated, uses, exports, keep, mentions,  # what the file uses and exports
+              loads, calls, ownMembers, typeUses, constructs,
+              decls, idents, declRefs, extConstants})
 (Symbol      {project, file, name, kind, exported, line, endLine, language,
-              tokens, cloneHash, fingerprints,                                   # duplicate-code
+              tokens, cloneHash, fingerprints,                                   # the shape of its body
               receiver, methods, abstract, data, implements, embeds})            # types and their members
 (HookSession {project, id, findings, baseline, updatedAt})
 
@@ -182,8 +190,32 @@ Details: [Coding agents](agents.md), [Browser UI and MCP App](ui.md), [Commands]
 (Symbol)-[:CALLS|REFERENCES]->(Symbol)   # added by LSP for changed files during watch
 ```
 
+The linked graph, resolved from those facts before the rules run:
+
+```
+(Function {key, file, name, dir, lang, line, recv, ignore})        # a function that calls or is called
+(Function)-[:CALLS {via, construct}]->(Function)                   # via: through a member's declared type
+(Function)-[:FORWARDS]->(Function)                                 # only passes its parameters on
+(Function)-[:CALLS_INTO]->(Package)                                # the package of a member's type
+(File)-[:LOADS {eager}]->(File)                                    # in one directory; eager: at load time
+(Module {key})-[:IMPORTS {from, to}]->(Module)                     # modules of a monorepo
+(Type {key, pkg, name, kind, abstract, data, embeds, methods})
+(Type)-[:IMPLEMENTS {exact}]->(Type)
+(Use {file, pkg, owner, member, role, line, exported, collection, construct, calls})-[:OF]->(Type)
+(Symbol {cloneGroup})-[:SIMILAR {score}]->(Symbol)                 # copies
+(Part {unit, what, id, data, used})-[:LINKS]->(Part)               # the parts of a package / module
+(ExtImport {pkg, file, ext, lang, python, class, basis})           # external imports of Python / Ruby files
+(Root {key: 'unused'})-[:ENTRY {why}]->(File)                      # entry points
+(File)-[:USES_FILE]->(File), (File)-[:GO_PKG]->(File)              # what a file reaches
+(File)-[:USES_NAMES {names}]->(File), (File)-[:USES_GO {names}]->(Package)
+(Root)-[:USES_ALL]->(File), (Root)-[:USES_ALL_GO]->(Package), (Package)-[:USES_GO_PKG]->(Package)
+File.reached, File.dead, File.deadRoot, Package.dead, Package.deadRoot   # marks of the unused-code rules
+(LinkState {project, key})                                         # what the linked graph was made from
+```
+
 - `project` is the project key. `Package` is unique by `(project, key)`, `File` by
-  `(project, path)`, `HookSession` by `(project, id)`, `Project` by `key`.
+  `(project, path)`, `HookSession` by `(project, id)`, `Project` by `key`; the nodes of the
+  linked graph by `(project, key)`.
 - `Package.key` is the directory path from the repository root (the root is `.`). An import
   outside the repository becomes a `Package` with the key `ext:<package>` and `external=true`
   (per project too; `elkjs/lib/elk-api` is the package `ext:elkjs`). An import that resolves to
@@ -232,11 +264,13 @@ server, or Aura.
 | `UNWIND $list` | writing all symbols / imports of a file, and evaluating all layer pairs, in one statement |
 | `DETACH DELETE` | removing a file with its symbols and every edge at once |
 | Managed transactions with retry (`ExecuteWrite`) | a file is replaced atomically; a reader never sees it half-written |
-| Variable-length patterns and `shortestPath((b)-[:IMPORTS*1..7]->(a))` | `import-cycle` |
+| `allShortestPaths((b)-[:IMPORTS*1..7]->(a))` with predicates on the nodes and relationships of the path | the four cycle rules |
+| Variable-length patterns with `DISTINCT` end nodes (the planner walks each node once) | what the entry points reach, the groups of copies, the parts of a unit |
+| `CALL { ... UNION ... }`, `COLLECT { ... ORDER BY ... }` and `COUNT { ... }` subqueries, `EXISTS { ... }` | `wide-function`, sorted lists inside a row, `unused-export` |
 | Path and list functions (`nodes(p)`, list comprehension, slicing, `reduce`, `range`) | rotating a cycle to start at its smallest key, so the same cycle is found once |
 | Predicates over lists (`any` / `none` / `all`) with regular expressions (`=~`) | layers, `ignore` and name patterns, matched inside the query |
 | Aggregation (`count(DISTINCT ...)`, `collect`) and `OPTIONAL MATCH` | fan-in / fan-out, same-named declarations, reading a file with its symbols |
-| `COUNT { ... }` subqueries and pattern comprehension | statistics and the UI's overview in one round trip |
+| Pattern comprehension | statistics and the UI's overview in one round trip |
 | `UNION` | in-repo and external layer violations in one query |
 | Temporal values (`datetime()`) | `updatedAt`, pruning old sessions, the lease `syncUntil` |
 | Conditional write (`MERGE ... WITH p WHERE p.syncUntil < $now SET ...`) | a lease that only one process can take |
@@ -251,10 +285,13 @@ MATCH (a:Package {project: $project})-[:IMPORTS]->(b:Package {project: $project}
 WHERE a.external = false AND b.external = false AND a <> b
   AND none(rx IN $ignore WHERE a.key =~ rx OR b.key =~ rx)
 // the shortest way back from b to a closes the shortest cycle through that import
-MATCH p = shortestPath((b)-[:IMPORTS*1..7]->(a))
+MATCH p = allShortestPaths((b)-[:IMPORTS*1..7]->(a))
 WHERE all(x IN nodes(p) WHERE x.external = false AND none(rx IN $ignore WHERE x.key =~ rx))
+// of several shortest ways back, always the same one: the smallest
+WITH a, b, [n IN nodes(p) | n.key] AS back ORDER BY back
+WITH a, b, head(collect(back)) AS back
 // the cycle as a list of keys, rotated to start at its smallest key, deduplicated
-WITH [a.key] + [n IN nodes(p) | n.key] AS cyc
+WITH [a.key] + back AS cyc
 WITH cyc[0..size(cyc)-1] AS ring
 WITH ring, reduce(m = 0, i IN range(0, size(ring) - 1) | CASE WHEN ring[i] < ring[m] THEN i ELSE m END) AS s
 WITH ring[s..] + ring[..s] AS r
@@ -265,8 +302,8 @@ RETURN cyc ORDER BY size(cyc), cyc LIMIT 50
 The first version enumerated every cycle (`(a)-[:IMPORTS*2..8]->(a)`). That is exponential: 17 s
 on a 700-file repository, far beyond the 3 s the hook has. Asking for one shortest path per
 import is polynomial (0.17 s on a dense graph of 40 packages and 280 imports) and still reports
-every import that lies on a cycle of at most 8 packages. `shortestPath` is used rather than GQL's
-`SHORTEST 1`, which the Neo4j 5.26 planner ran about 500 times slower on this query.
+every import that lies on a cycle of at most 8 packages. `allShortestPaths` is used rather than
+GQL's `SHORTEST`, which the Neo4j 5.26 planner ran about 500 times slower on this query.
 
 ### Example: `layer-violation`
 
@@ -287,6 +324,19 @@ RETURN DISTINCT a.key AS from, b.key AS to, pr.from AS fromLayer, pr.to AS toLay
 
 (Shortened: the real query also handles exclusion patterns, components and layers that name
 external packages.)
+
+### Example: `pass-through`
+
+A chain of functions that only pass their parameters on is a path of `FORWARDS`:
+
+```cypher
+MATCH (head:Function {project: $project})-[:FORWARDS]->(:Function)
+WHERE NOT (:Function)-[:FORWARDS]->(head)          // nothing forwards to the first
+MATCH p = (head)-[:FORWARDS*2..]->(last:Function)  // two or more forwarders
+WHERE NOT (last)-[:FORWARDS]->(:Function)          // the last one does something else
+RETURN [n IN nodes(p) | [n.file, n.name]] AS chain
+ORDER BY head.file, head.name LIMIT 50
+```
 
 ## Why Neo4j
 
@@ -334,13 +384,11 @@ implementation to benchmark against, so it is a comparison of designs).
 | What the user needs | a container runtime, a 1 GB image, 10-20 s to start, 330-480 MiB of memory | nothing |
 
 So the trade is: SQLite would remove the container runtime and the start-up time, which is the
-largest cost depgraph has ([next section](#what-neo4j-costs)). In exchange, the rules that are
-one Cypher query today (`import-cycle`, `layer-violation`, `god-package`, `duplicate-symbol`)
-would become recursive SQL or more Go, and the graph would no longer be something a person or an
-agent can explore with a graph query language. The rules that are already joined in Go would
-hardly change: they only need "the facts of every file".
+largest cost depgraph has ([next section](#what-neo4j-costs)). In exchange every rule, which is
+one Cypher query today, would become recursive SQL or application code, and the graph would no
+longer be something a person or an agent can explore with a graph query language.
 
-That last point is also what keeps the decision open rather than locked in: the store is behind
+The decision is not locked in by the code: the store is behind
 interfaces (`graph.Repository`, `rules.Repository`, `view.Reader`, `project.Repository`, the
 hook's `SessionStore`), and the domain logic does not import the driver (`.depgraph.yml` of this
 repository forbids it). Another store would be another implementation of those interfaces,
@@ -354,7 +402,8 @@ The choice has a price, and several pull requests were about paying it:
 |---|---|
 | A Neo4j had to be installed or started with docker compose before the first scan | depgraph starts Neo4j itself in a container (docker, podman, nerdctl), ephemeral by default, and a watchdog process removes it however depgraph ends ([Neo4j store](neo4j.md)) |
 | A container runtime is still required; the image is about 1 GB and starts in 10-20 s | memory is capped (heap 512 MiB, page cache 64 MiB); a `local` provider that runs an installed Neo4j as a child process is on the [roadmap](development.md#roadmap) |
-| Enumerating cycles was exponential | one `shortestPath` per import ([above](#example-import-cycle)) |
+| Enumerating cycles was exponential | the shortest paths of one import at a time ([above](#example-import-cycle)) |
+| `shortestPath` returns any of several shortest paths, so a cycle changed between runs | the smallest of `allShortestPaths` |
 | Deleting a large project in one transaction exceeded the transaction memory (a 14,000-file repository) | deletes run in batches of 10,000 nodes |
 | `IF NOT EXISTS` does not protect two sessions that create the same constraint at once | `EnsureSchema` treats "already exists" as success |
 | `collect()` has no order, so a message changed between runs | lists are sorted in Go before a finding is built |
@@ -370,7 +419,7 @@ main.go                                  entry point (just calls cmd.Execute())
 
 pkg/domain/                              no I/O, no third-party imports
   graph/                                 language-agnostic graph model, Repository / Resolver interfaces
-  rules/                                 the rules' logic, Config (layers, globs), Finding and diff, Repository interface
+  rules/                                 the rules' registry, Config (layers, globs), Finding and diff, Repository interface
   project/                               Project, key rules, move-or-conflict decision, Repository interface
   view/                                  what the UI reads (overview, package detail, stats)
 
@@ -382,7 +431,7 @@ pkg/infrastructure/
     imports/                             import resolution per ecosystem (esbuild, go.mod / go.work, Python, Ruby)
     lsp/                                 refinement with language servers (callHierarchy / references)
   repository/graph/                      Neo4j: writes, schema, UI views
-  repository/rules/                      Neo4j: rule evaluation (Cypher, then pkg/domain/rules)
+  repository/rules/                      Neo4j: linking and the rules (Cypher)
   repository/project/                    Neo4j: Project nodes, leases
   repository/hooksession/                Neo4j: the hooks' session state
   neo4jprovider/                         how Neo4j is provided: Provider contract, selection, external

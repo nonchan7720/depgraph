@@ -127,18 +127,23 @@ func (r *Repository) duplicateCode(ctx context.Context, cfg rules.Config) ([]rul
 	}
 	out := make([]rules.Finding, 0, len(rows))
 	for _, row := range rows {
-		list, _ := row["members"].([]any)
-		members := make([]rules.CloneMember, 0, len(list))
-		for _, x := range list {
-			m, _ := x.(map[string]any)
-			members = append(members, rules.CloneMember{File: str(m["file"]), Name: str(m["name"]), Kind: str(m["kind"]),
-				Line: toInt(m["line"]), EndLine: toInt(m["endLine"])})
-		}
 		identical, _ := row["identical"].(bool)
 		low, _ := row["low"].(float64)
-		f := rules.DuplicateCode(members, identical, low)
+		f := rules.DuplicateCode(cloneMembers(row["members"]), identical, low)
 		f.Severity = string(cfg.Severity(rules.RuleDuplicateCode))
 		out = append(out, f)
 	}
 	return out, nil
+}
+
+// cloneMembers are the copies of a row of the query above.
+func cloneMembers(v any) []rules.CloneMember {
+	list, _ := v.([]any)
+	members := make([]rules.CloneMember, 0, len(list))
+	for _, x := range list {
+		m, _ := x.(map[string]any)
+		members = append(members, rules.CloneMember{File: str(m["file"]), Name: str(m["name"]), Kind: str(m["kind"]),
+			Line: toInt(m["line"]), EndLine: toInt(m["endLine"])})
+	}
+	return members
 }

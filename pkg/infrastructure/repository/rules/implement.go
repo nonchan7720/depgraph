@@ -214,13 +214,24 @@ func inExtLayer(n, s, py, tp string) string {
 		(%[4]s AND any(rx IN %[2]s.libRx WHERE %[1]s.key =~ rx))))`, n, s, py, tp)
 }
 
+// reportsExt is the Cypher condition "the pair pr applies to an import of
+// the external package b (a map with its key) by the in-repo package a (a
+// map with its key)": rules.LayerPair.Reports. py: the import is of a
+// Python file (dotted submodules); tp: it is known to be third-party.
+func reportsExt(py, tp string) string {
+	return `(NOT any(rx IN pr.exceptRx WHERE a.key =~ rx)
+		AND ` + inRepoLayer("a", "pr.fromSet") + ` AND NOT ` + inRepoLayer("a", "pr.toSet") + `
+		AND ` + inExtLayer("b", "pr.toSet", py, tp) + ` AND NOT ` + inExtLayer("b", "pr.fromSet", py, tp) + `)`
+}
+
 // externalUnclassified lists, per language, the external imports of the
 // from layer of a forbidden pair whose to layer has a wildcard that would
 // match them if they were known to be third-party, and is not decided by an
-// exact pattern or an exclusion.
-func (r *Repository) externalUnclassified(ctx context.Context, cfg rules.Config, ignore []string,
-	pythonFor func([]rules.LayerPair) (*pythonImports, error)) ([]rules.Finding, error) {
-	pairs, lp, err := r.layerPairs(ctx, cfg)
+// exact pattern or an exclusion: the imports of files whose language
+// classifies at parse time (the class of IMPORTS) and those classified from
+// the project's files (ExtImport: Python, Ruby).
+func (r *Repository) externalUnclassified(ctx context.Context, cfg rules.Config, ignore []string) ([]rules.Finding, error) {
+	pairs, _, err := r.layerPairs(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -239,13 +250,17 @@ func (r *Repository) externalUnclassified(ctx context.Context, cfg rules.Config,
 		UNWIND $pairs AS pr
 		MATCH (a:Package {project: $project})-[:CONTAINS]->(f:File)-[e:IMPORTS]->(b:Package)
 		WHERE a.external = false AND b.external = true AND e.class IS NULL AND NOT f.language IN ['python', 'ruby']
-		  AND NOT any(rx IN pr.exceptRx WHERE a.key =~ rx)
 		  AND NOT any(rx IN $ignore WHERE a.key =~ rx OR b.key =~ rx)
-		  AND `+inRepoLayer("a", "pr.fromSet")+` AND NOT `+inRepoLayer("a", "pr.toSet")+`
 		WITH a, b, f, e, pr, false AS py
-		WHERE `+inExtLayer("b", "pr.toSet", "py", "true")+` AND NOT `+inExtLayer("b", "pr.toSet", "py", "false")+`
-		  AND NOT `+inExtLayer("b", "pr.fromSet", "py", "true")+`
+		WHERE `+reportsExt("py", "true")+` AND NOT `+reportsExt("py", "false")+`
 		RETURN DISTINCT f.language AS lang, b.key AS key, e.basis AS basis
+		UNION
+		UNWIND $pairs AS pr
+		MATCH (i:ExtImport {project: $project})
+		WHERE i.class IS NULL AND NOT i.unlisted
+		WITH i, pr, {key: i.pkg} AS a, {key: i.ext} AS b, i.python AS py
+		WHERE `+reportsExt("py", "true")+` AND NOT `+reportsExt("py", "false")+`
+		RETURN DISTINCT i.lang AS lang, i.ext AS key, i.basis AS basis
 	`, ignore, map[string]any{"pairs": wild})
 	if err != nil {
 		return nil, fmt.Errorf("external unclassified: %w", err)
@@ -258,13 +273,6 @@ func (r *Repository) externalUnclassified(ctx context.Context, cfg rules.Config,
 			item += " (" + basis + ")"
 		}
 		byLang[lang] = append(byLang[lang], item)
-	}
-	py, err := pythonFor(lp)
-	if err != nil {
-		return nil, err
-	}
-	for lang, items := range py.unclassified(lp) {
-		byLang[string(lang)] = append(byLang[string(lang)], items...)
 	}
 	langs := slices.Sorted(maps.Keys(byLang))
 	out := make([]rules.Finding, 0, len(langs))
@@ -420,25 +428,10 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 	// (a is not also in to, b is not also in from). The pairs of the root
 	// and of every component (components: packages/* expanded over the
 	// stored packages) run in one query.
-	// Python imports are classified now, from the project's files
-	// (python.go), and their pairs evaluated with rules.LayerPair.Reports.
-	var py *pythonImports
-	pythonFor := func(lp []rules.LayerPair) (*pythonImports, error) {
-		if py == nil && slices.ContainsFunc(lp, func(p rules.LayerPair) bool { return p.ToSet.HasExternal() }) {
-			var err error
-			if py, err = r.pythonImports(ctx, cfg, ignore); err != nil {
-				return nil, err
-			}
-			rb, err := r.rubyImports(ctx, ignore)
-			if err != nil {
-				return nil, err
-			}
-			py.add(rb)
-		}
-		return py, nil
-	}
+	// The external imports of Python and Ruby files are classified from
+	// the project's files when the graph is linked (ExtImport, python.go).
 	if cfg.Enabled(rules.RuleLayerViolation) {
-		pairs, lp, err := r.layerPairs(ctx, cfg)
+		pairs, _, err := r.layerPairs(ctx, cfg)
 		if err != nil {
 			return nil, err
 		}
@@ -472,15 +465,17 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 				WITH pr, a, b, false AS py, coalesce(e.class = '`+graph.ClassThirdParty+`', false) AS tp
 				WHERE `+inExtLayer("b", "pr.toSet", "py", "tp")+` AND NOT `+inExtLayer("b", "pr.fromSet", "py", "tp")+`
 				RETURN DISTINCT a.key AS from, b.key AS to, pr.from AS fromLayer, pr.to AS toLayer, pr.component AS component
+				UNION
+				UNWIND $pairs AS pr
+				WITH pr WHERE pr.toExternal
+				MATCH (i:ExtImport {project: $project})
+				WITH pr, {key: i.pkg} AS a, {key: i.ext} AS b, i.python AS py, coalesce(i.class = '`+graph.ClassThirdParty+`', false) AS tp
+				WHERE `+reportsExt("py", "tp")+`
+				RETURN DISTINCT a.key AS from, b.key AS to, pr.from AS fromLayer, pr.to AS toLayer, pr.component AS component
 			`, ignore, params)
 			if err != nil {
 				return nil, fmt.Errorf("layers: %w", err)
 			}
-			py, err := pythonFor(lp)
-			if err != nil {
-				return nil, err
-			}
-			rows = append(rows, py.violations(lp)...)
 			for _, row := range rows {
 				msg := fmt.Sprintf("%s -> %s (%s must not import %s)", row["from"], row["to"], row["fromLayer"], row["toLayer"])
 				if c, _ := row["component"].(string); c != "" {
@@ -498,7 +493,7 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 
 	// 2b. Imports a wildcard external layer could not classify.
 	if cfg.Enabled(rules.RuleExternalUnclassified) {
-		fs, err := r.externalUnclassified(ctx, cfg, ignore, pythonFor)
+		fs, err := r.externalUnclassified(ctx, cfg, ignore)
 		if err != nil {
 			return nil, err
 		}
@@ -592,19 +587,35 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 
 	// 5c. Packages / modules holding unrelated parts (cohesion.go).
 	if cfg.Enabled(rules.RuleLowCohesion) {
-		lc, err := r.lowCohesion(ctx, cfg, ignore)
+		lc, err := r.lowCohesion(ctx, cfg)
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, lc...)
 	}
 
-	// 6. Unused code at project level (unused.go).
-	unused, err := r.evaluateUnused(ctx, cfg)
-	if err != nil {
-		return nil, err
+	// 6. Unused code at project level (unused.go, unreachable.go).
+	if cfg.Enabled(rules.RuleUnreachableFile) {
+		fs, err := r.unreachable(ctx, cfg, rules.RuleUnreachableFile, "File", "path")
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, fs...)
 	}
-	out = append(out, unused...)
+	if cfg.Enabled(rules.RuleUnreachablePackage) {
+		fs, err := r.unreachable(ctx, cfg, rules.RuleUnreachablePackage, "Package", "key")
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, fs...)
+	}
+	if cfg.Enabled(rules.RuleUnusedExport) {
+		fs, err := r.unusedExports(ctx, cfg, ignore)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, fs...)
+	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].Key() < out[j].Key() })
 	return out, nil

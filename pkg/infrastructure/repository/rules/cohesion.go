@@ -10,14 +10,99 @@ import (
 	"github.com/nonchan7720/depgraph/pkg/domain/rules"
 )
 
-// lowCohesion builds the units of low-cohesion from the stored usage: Go
+// low-cohesion: a package (Go) or module (TypeScript / Python file) made of
+// parts that nothing inside connects and that different code uses. Linking
+// stores the parts of every unit, the references between them and who
+// outside the unit uses their names:
+//
+//	(Part {key, unit, what, id, data, used})-[:LINKS]->(Part)
+//
+// used: for every name of the part that code outside the unit uses, the
+// name and its users (partUsed).
+
+// Separators of an entry of Part.used: the name, then its users.
+const (
+	partNameSep = "\x1f"
+	partUserSep = "\x1e"
+)
+
+// linkUnits adds the parts of units and the links between them.
+func linkUnits(units []rules.CohesionUnit, want *linked) {
+	for _, u := range units {
+		ids := make([]nodeID, len(u.Parts))
+		for i, p := range u.Parts {
+			used := []string{}
+			for _, n := range p.Names {
+				if users := u.Users[n]; len(users) > 0 {
+					used = append(used, n+partNameSep+strings.Join(users, partUserSep))
+				}
+			}
+			ids[i] = nodeID{"Part", fmt.Sprintf("%s|%d|%s", u.Key, i, p.ID)}
+			want.node(ids[i], map[string]any{"unit": u.Key, "what": u.What, "id": p.ID, "data": p.Data, "used": used})
+		}
+		for _, l := range u.Links {
+			if l[0] != l[1] && l[0] >= 0 && l[1] >= 0 && l[0] < len(ids) && l[1] < len(ids) {
+				want.edge(edgeID{"LINKS", ids[l[0]], ids[l[1]]}, nil)
+			}
+		}
+	}
+}
+
+// lowCohesion reports the units whose parts fall into two or more groups
+// that nothing inside connects (LINKS), each with names used from outside,
+// where no user uses two of the groups: more than one responsibility in one
+// place. A unit with fewer than 3 names used from outside is too small to
+// split, and one whose groups are all data (entities, DTOs used one per
+// consumer) is normal architecture.
+func (r *Repository) lowCohesion(ctx context.Context, cfg rules.Config) ([]rules.Finding, error) {
+	rows, err := r.query(ctx, `
+		MATCH (p:Part {project: $project})
+		MATCH (p)-[:LINKS*0..]-(q:Part)
+		WITH DISTINCT p, q
+		WITH p, min(q.key) AS grp
+		WITH p.unit AS unit, p.what AS what, grp, collect(p) AS parts
+		WITH unit, what, all(x IN parts WHERE x.data) AS data,
+		     COLLECT { UNWIND parts AS x RETURN x.id ORDER BY x.id } AS ids,
+		     reduce(all = [], x IN parts | all + coalesce(x.used, [])) AS used
+		WHERE size(used) > 0
+		WITH unit, what, data, ids,
+		     COLLECT { UNWIND used AS x WITH split(x, $nameSep)[0] AS name RETURN name ORDER BY name } AS names,
+		     COLLECT { UNWIND used AS x UNWIND split(split(x, $nameSep)[1], $userSep) AS user
+		               WITH DISTINCT user RETURN user ORDER BY user } AS users
+		ORDER BY ids[0]
+		WITH unit, what, collect({parts: ids, names: names, users: users, data: data}) AS groups
+		WHERE size(groups) >= 2 AND any(g IN groups WHERE NOT g.data)
+		  AND reduce(n = 0, g IN groups | n + size(g.names)) >= $minNames
+		  AND reduce(n = 0, g IN groups | n + size(g.users)) =
+		      COUNT { UNWIND groups AS g UNWIND g.users AS user RETURN DISTINCT user }
+		RETURN unit, what, groups ORDER BY unit
+	`, nil, map[string]any{"nameSep": partNameSep, "userSep": partUserSep, "minNames": rules.MinCohesionNames})
+	if err != nil {
+		return nil, fmt.Errorf("low cohesion: %w", err)
+	}
+	out := make([]rules.Finding, 0, len(rows))
+	for _, row := range rows {
+		list, _ := row["groups"].([]any)
+		groups := make([]rules.CohesionGroup, 0, len(list))
+		for _, x := range list {
+			g, _ := x.(map[string]any)
+			groups = append(groups, rules.CohesionGroup{Parts: toStrings(g["parts"]), Names: toStrings(g["names"]), Users: toStrings(g["users"])})
+		}
+		f := rules.LowCohesion(str(row["unit"]), str(row["what"]), groups)
+		f.Severity = string(cfg.Severity(rules.RuleLowCohesion))
+		out = append(out, f)
+	}
+	return out, nil
+}
+
+// linkCohesion builds the units of low-cohesion from the stored usage: Go
 // packages (files linked when one uses a name another declares) and
 // TypeScript / Python modules (declarations linked by their references),
 // with the code outside each unit that uses its names. Test and generated
 // files are neither parts nor users. A unit used whole (a Go dot import, a
 // namespace used as a value, export *) or that is an entry point (it may
 // have users outside the repository) is left out.
-func (r *Repository) lowCohesion(ctx context.Context, cfg rules.Config, ignore []string) ([]rules.Finding, error) {
+func (r *Repository) linkCohesion(ctx context.Context, ignore []string, want *linked) error {
 	rows, err := r.query(ctx, `
 		MATCH (p:Package {project: $project})-[:CONTAINS]->(f:File)
 		WHERE p.external = false AND none(rx IN $ignore WHERE p.key =~ rx) AND coalesce(f.generated, false) = false
@@ -28,7 +113,7 @@ func (r *Repository) lowCohesion(ctx context.Context, cfg rules.Config, ignore [
 		       f.declRefs AS declRefs, f.uses AS uses, f.exports AS exports, syms
 	`, ignore, nil)
 	if err != nil {
-		return nil, fmt.Errorf("low cohesion: %w", err)
+		return fmt.Errorf("low cohesion: %w", err)
 	}
 	type file struct {
 		pkg, path, lang string
@@ -164,9 +249,6 @@ func (r *Repository) lowCohesion(ctx context.Context, cfg rules.Config, ignore [
 		}
 		units = append(units, u)
 	}
-	out := rules.LowCohesion(units)
-	for i := range out {
-		out[i].Severity = string(cfg.Severity(rules.RuleLowCohesion))
-	}
-	return out, nil
+	linkUnits(units, want)
+	return nil
 }

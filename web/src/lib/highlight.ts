@@ -40,6 +40,9 @@ export function highlightPackage(view: View, id: string): States {
   return s;
 }
 
+// dirOf is the package (directory) of a file path.
+const dirOf = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '.');
+
 export function findingPackageKeys(f: Finding): string[] {
   const d = f.data ?? {};
   const strs = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
@@ -56,9 +59,12 @@ export function findingPackageKeys(f: Finding): string[] {
     case 'god-package':
     case 'low-cohesion':
       return typeof d.pkg === 'string' ? [d.pkg] : [];
+    case 'function-cycle':
+      // "file#function" per step
+      return strs(d.functions).map((fn) => dirOf(fn.slice(0, fn.lastIndexOf('#'))));
     case 'file-cycle':
     case 'duplicate-symbol':
-      return strs(d.files).map((p) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '.'));
+      return strs(d.files).map(dirOf);
   }
   return [];
 }

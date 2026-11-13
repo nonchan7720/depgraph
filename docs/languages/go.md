@@ -49,6 +49,10 @@ import path whose first element has no dot is the standard library (the go comma
   and results, and composite literals (`&infra.T{}`). An implementation satisfies an interface when it
   has every method of it. See [Inside the layers](../../README.md#inside-the-layers-dependency-inversion-and-leaking-types).
 - `low-cohesion` splits a package by its files.
+- `function-cycle` reads the calls of every function and method: `f()` (a function of the package, unless a
+  parameter or local variable has that name), `pkg.F()` and, in a method, `recv.m()`. It reports a cycle of calls
+  that passes through more than one file, unless every function on it is a method of the same type. A call through
+  a field, a parameter or an interface is not followed.
 
 ## Language server
 

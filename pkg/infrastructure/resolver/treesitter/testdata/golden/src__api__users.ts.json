@@ -319,6 +319,17 @@
         "target": "src/db/util.ts"
       }
     ],
+    "calls": [
+      {
+        "name": "UserController",
+        "calls": [
+          {
+            "target": "src/db/index.ts",
+            "name": "query"
+          }
+        ]
+      }
+    ],
     "exports": [
       {
         "name": "default",

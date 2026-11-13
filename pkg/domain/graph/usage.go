@@ -35,6 +35,10 @@ type Usage struct {
 	// (import()) and a path in a string. As is LoadDeferred for an import
 	// inside a function (Python): it runs when the function does.
 	Loads []Use `json:"loads,omitempty"`
+	// Calls are the functions each function / method / class of the file
+	// calls (Go, TypeScript / JavaScript, Python): the function-level
+	// dependency graph. Only callers that call something are listed.
+	Calls []FuncCalls `json:"calls,omitempty"`
 	// Exports maps the names this file exports under another name to the
 	// declaration they stand for ("default" -> "foo", "b" -> "a").
 	Exports []ExportName `json:"exports,omitempty"`

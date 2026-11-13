@@ -302,6 +302,27 @@
           },
           "type": "object"
         },
+        "function-cycle": {
+          "additionalProperties": false,
+          "description": "functions in different files of a Go package that call each other in a cycle",
+          "properties": {
+            "enabled": {
+              "default": true,
+              "description": "false turns the rule off.",
+              "type": "boolean"
+            },
+            "severity": {
+              "default": "info",
+              "description": "Severity of the rule's findings.",
+              "enum": [
+                "error",
+                "warn",
+                "info"
+              ]
+            }
+          },
+          "type": "object"
+        },
         "god-package": {
           "additionalProperties": false,
           "description": "a hub: imported by many packages and importing many",

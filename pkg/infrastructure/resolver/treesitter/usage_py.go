@@ -230,11 +230,19 @@ func (x *extractor) pyDotted(n *gts.Node) (string, bool) {
 // pyBindingUse records the use of rest (dotted, "*" for the bound object
 // itself) through binding b named head.
 func (u *usageCollector) pyBindingUse(b *pyBinding, head, rest string) {
+	if spec, name := pyBindingRef(b, head, rest); spec != "" {
+		u.use(spec, name)
+	}
+}
+
+// pyBindingRef is the module spec and the name in it that rest (dotted)
+// names through binding b called head ("" when it names nothing imported).
+func pyBindingRef(b *pyBinding, head, rest string) (spec, name string) {
 	switch {
 	case b.fromSpec != "":
-		u.use(b.fromSpec, b.fromName+"."+rest)
+		return b.fromSpec, b.fromName + "." + rest
 	case b.alias != "":
-		u.use(b.alias, rest)
+		return b.alias, rest
 	default:
 		// import a.b.c binds a: a.b.c.f uses f of a.b.c (the longest import)
 		chain := head + "." + rest
@@ -245,9 +253,10 @@ func (u *usageCollector) pyBindingUse(b *pyBinding, head, rest string) {
 			}
 		}
 		if best != "" {
-			u.use(best, strings.TrimPrefix(chain, best+"."))
+			return best, strings.TrimPrefix(chain, best+".")
 		}
 	}
+	return "", ""
 }
 
 var (

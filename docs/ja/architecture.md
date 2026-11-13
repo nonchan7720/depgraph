@@ -124,7 +124,7 @@ import の解決が依存するファイル（`go.mod`・`tsconfig.json`・`pack
 | ルール | クエリの内容 |
 |---|---|
 | `import-cycle` | パッケージ間の import ごとに、最短の戻り道を探す（`allShortestPaths`、8 パッケージまで） |
-| `module-cycle` | 同じことを `(Module)-[:IMPORTS]->(Module)` に対して行う。`import-cycle` が報告済みの循環は除く |
+| `module-cycle` | 同じことを `(Module)-[:MODULE_IMPORTS]->(Module)` に対して行う。`import-cycle` が報告済みの循環は除く |
 | `file-cycle` | 同じことを `(File)-[:LOADS]->(File)` に対して行う。まずロード時の読み込みだけで、次に関数内の import でしか閉じない循環を探す |
 | `function-cycle` | 同じことを `(Function)-[:CALLS]->(Function)` に対して、Go パッケージ内の別ファイル間の呼び出しについて行う。1 つの型のメソッドだけで閉じる循環は除く |
 | `pass-through` | 誰からも転送されない関数から始まり、何か別のことをする最初の関数で終わる、2 本以上の `FORWARDS` の経路 |
@@ -194,7 +194,7 @@ import の解決が依存するファイル（`go.mod`・`tsconfig.json`・`pack
 (Function)-[:FORWARDS]->(Function)                                 # 引数をそのまま渡すだけ
 (Function)-[:CALLS_INTO]->(Package)                                # メンバーの型のパッケージ
 (File)-[:LOADS {eager}]->(File)                                    # 同一ディレクトリ内。eager: ロード時
-(Module {key})-[:IMPORTS {from, to}]->(Module)                     # モノレポのモジュール
+(Module {key})-[:MODULE_IMPORTS {from, to}]->(Module)                   # モノレポのモジュール
 (Type {key, pkg, name, kind, abstract, data, embeds, methods})
 (Type)-[:IMPLEMENTS {exact}]->(Type)
 (Use {file, pkg, owner, member, role, line, exported, collection, construct, calls})-[:OF]->(Type)

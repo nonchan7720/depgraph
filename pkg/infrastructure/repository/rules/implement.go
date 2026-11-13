@@ -67,7 +67,7 @@ func (r *Repository) moduleUnits(ctx context.Context, cfg rules.Config) ([]strin
 }
 
 // linkModules adds the modules of the project (units; "." for what is in
-// none) and the imports between them: (Module)-[:IMPORTS {from, to}]->
+// none) and the imports between them: (Module)-[:MODULE_IMPORTS {from, to}]->
 // (Module), from -> to being one package import that makes it (the
 // smallest).
 func (r *Repository) linkModules(ctx context.Context, units, ignore []string, want *linked) error {
@@ -91,7 +91,7 @@ func (r *Repository) linkModules(ctx context.Context, units, ignore []string, wa
 		}
 		want.node(a, nil)
 		want.node(b, nil)
-		id := edgeID{"IMPORTS", a, b}
+		id := edgeID{"MODULE_IMPORTS", a, b}
 		if old, ok := want.edges[id]; ok && (str(old["from"]) < from || (str(old["from"]) == from && str(old["to"]) <= to)) {
 			continue
 		}
@@ -117,8 +117,8 @@ func (r *Repository) moduleCycles(ctx context.Context, cfg rules.Config, found [
 		}
 	}
 	rows, err := r.query(ctx, `
-		MATCH (a:Module {project: $project})-[e:IMPORTS]->(b:Module {project: $project})
-		MATCH p = allShortestPaths((b)-[:IMPORTS*1..7]->(a))
+		MATCH (a:Module {project: $project})-[e:MODULE_IMPORTS]->(b:Module {project: $project})
+		MATCH p = allShortestPaths((b)-[:MODULE_IMPORTS*1..7]->(a))
 		WITH a, b, e, p, [n IN nodes(p) | n.key] AS back ORDER BY back
 		WITH a, b, e, head(collect(p)) AS p
 		WITH [a.key] + [n IN nodes(p) | n.key][0..-1] AS ring, [e] + relationships(p) AS hops

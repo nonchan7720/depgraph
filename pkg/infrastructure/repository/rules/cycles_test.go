@@ -111,6 +111,14 @@ func TestCyclesOnADenseGraphAreFast(t *testing.T) {
 		pkgs[from] = append(pkgs[from], fmt.Sprintf("p%02d", (i+n-1)%n))
 	}
 	seed(ctx, t, st, key, pkgs)
+	// What is measured is the search on this graph, not the planning of
+	// every query of Evaluate by a store that has not seen them yet (a
+	// fresh Neo4j plans each query once): evaluate a small project first.
+	warm := key + "_warm"
+	seed(ctx, t, st, warm, map[string][]string{"a": {"b"}, "b": {"a"}})
+	if _, err := New(st, warm).Evaluate(ctx, rules.DefaultConfig()); err != nil {
+		t.Fatal(err)
+	}
 	start := time.Now()
 	fs, err := New(st, key).Evaluate(ctx, rules.DefaultConfig())
 	if err != nil {

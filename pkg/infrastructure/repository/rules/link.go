@@ -26,7 +26,7 @@ import (
 //	(Function)-[:FORWARDS]->(Function)
 //	(Function)-[:CALLS_INTO]->(Package)
 //	(File)-[:LOADS {eager}]->(File)
-//	(Module {key})-[:IMPORTS {from, to}]->(Module)
+//	(Module {key})-[:MODULE_IMPORTS {from, to}]->(Module)
 //	(Symbol)-[:SIMILAR {score}]->(Symbol)                  (clones.go)
 //	(Type), (Type)-[:IMPLEMENTS]->(Type), (Use)-[:OF]->(Type)  (members.go)
 //	(Part)-[:LINKS]->(Part)                                (cohesion.go)
@@ -62,13 +62,13 @@ var ownedLabels = []string{"Function", "Module", "Type", "Use", "Part", "Root", 
 
 // edgeKinds are the relationships of the linked graph: type, label of the
 // start node, label of the end node. Linking owns every relationship of
-// these types between such nodes.
+// these types between such nodes; a type is of one kind.
 var edgeKinds = [][3]string{
 	{"CALLS", "Function", "Function"},
 	{"FORWARDS", "Function", "Function"},
 	{"CALLS_INTO", "Function", "Package"},
 	{"LOADS", "File", "File"},
-	{"IMPORTS", "Module", "Module"},
+	{"MODULE_IMPORTS", "Module", "Module"},
 	{"IMPLEMENTS", "Type", "Type"},
 	{"OF", "Use", "Type"},
 	{"LINKS", "Part", "Part"},
@@ -131,7 +131,11 @@ func (r *Repository) link(ctx context.Context, cfg rules.Config, ignore []string
 		return nil
 	}
 	want := newLinked()
-	if err := r.linkCalls(ctx, ignore, want); err != nil {
+	types, err := r.typeIndex(ctx, ignore)
+	if err != nil {
+		return err
+	}
+	if err := r.linkCalls(ctx, ignore, types, want); err != nil {
 		return err
 	}
 	if err := r.linkLoads(ctx, ignore, want); err != nil {
@@ -140,7 +144,7 @@ func (r *Repository) link(ctx context.Context, cfg rules.Config, ignore []string
 	if err := r.linkModules(ctx, units, ignore, want); err != nil {
 		return err
 	}
-	if err := r.linkMembers(ctx, ignore, want); err != nil {
+	if err := r.linkMembers(ctx, ignore, types, want); err != nil {
 		return err
 	}
 	if err := r.linkCohesion(ctx, ignore, want); err != nil {
@@ -175,7 +179,7 @@ func (r *Repository) link(ctx context.Context, cfg rules.Config, ignore []string
 
 // linkVersion changes when linking stores something else for the same
 // files: an older linked graph is then rebuilt.
-const linkVersion = "7"
+const linkVersion = "8"
 
 // linkKey identifies what the linked graph is made from: the stored files
 // (their number and the last update) and the settings linking reads.
@@ -198,19 +202,57 @@ func (r *Repository) linkKey(ctx context.Context, ignore, settings []string) (st
 // and changed ones written.
 func (r *Repository) storeLinked(ctx context.Context, want *linked) error {
 	p := map[string]any{"project": r.project}
+	// what is stored: one query for the nodes, one for the relationships
+	done := timing("read the linked nodes")
+	rows, err := r.q.Query(ctx, `MATCH (n:`+strings.Join(ownedLabels, "|")+` {project: $project})
+		RETURN labels(n)[0] AS label, n.key AS key, properties(n) AS props`, p)
+	done()
+	if err != nil {
+		return err
+	}
+	haveNodes := map[string]map[string]string{} // label -> key -> signature
+	for _, row := range rows {
+		label := str(row["label"])
+		props, _ := row["props"].(map[string]any)
+		delete(props, "project")
+		delete(props, keyProp[label])
+		if haveNodes[label] == nil {
+			haveNodes[label] = map[string]string{}
+		}
+		haveNodes[label][str(row["key"])] = signature(props)
+	}
+	var types, starts []string
+	kindOf := map[string][3]string{}
+	for _, k := range edgeKinds {
+		types = append(types, k[0])
+		kindOf[k[0]] = k
+		if !slices.Contains(starts, k[1]) {
+			starts = append(starts, k[1])
+		}
+	}
+	done = timing("read the linked relationships")
+	rows, err = r.q.Query(ctx, `MATCH (a:`+strings.Join(starts, "|")+` {project: $project})-[e:`+strings.Join(types, "|")+`]->(b)
+		RETURN type(e) AS type, labels(a)[0] AS fromLabel, labels(b)[0] AS toLabel,
+		       coalesce(a.path, a.key) AS from, coalesce(b.path, b.key) AS to, properties(e) AS props`, p)
+	done()
+	if err != nil {
+		return err
+	}
+	haveEdges := map[string]map[[2]string]string{} // type -> (from, to) -> signature
+	for _, row := range rows {
+		typ := str(row["type"])
+		if k := kindOf[typ]; k[1] != str(row["fromLabel"]) || k[2] != str(row["toLabel"]) {
+			continue // not of the linked graph (CALLS between symbols is the language servers')
+		}
+		props, _ := row["props"].(map[string]any)
+		if haveEdges[typ] == nil {
+			haveEdges[typ] = map[[2]string]string{}
+		}
+		haveEdges[typ][[2]string{str(row["from"]), str(row["to"])}] = signature(props)
+	}
 	// nodes
 	for _, label := range ownedLabels {
-		rows, err := r.q.Query(ctx, `MATCH (n:`+label+` {project: $project}) RETURN n.`+keyProp[label]+` AS key, properties(n) AS props`, p)
-		if err != nil {
-			return err
-		}
-		have := map[string]string{}
-		for _, row := range rows {
-			props, _ := row["props"].(map[string]any)
-			delete(props, "project")
-			delete(props, keyProp[label])
-			have[fmt.Sprint(row["key"])] = signature(props)
-		}
+		have := haveNodes[label]
 		var write []map[string]any
 		for id, props := range want.nodes {
 			if id.label != label {
@@ -243,16 +285,7 @@ func (r *Repository) storeLinked(ctx context.Context, want *linked) error {
 	// relationships
 	for _, k := range edgeKinds {
 		typ, from, to := k[0], k[1], k[2]
-		match := `MATCH (a:` + from + ` {project: $project})-[e:` + typ + `]->(b:` + to + ` {project: $project})`
-		rows, err := r.q.Query(ctx, match+` RETURN a.`+keyProp[from]+` AS from, b.`+keyProp[to]+` AS to, properties(e) AS props`, p)
-		if err != nil {
-			return err
-		}
-		have := map[[2]string]string{}
-		for _, row := range rows {
-			props, _ := row["props"].(map[string]any)
-			have[[2]string{fmt.Sprint(row["from"]), fmt.Sprint(row["to"])}] = signature(props)
-		}
+		have := haveEdges[typ]
 		var write, gone []map[string]any
 		for id, props := range want.edges {
 			if id.typ != typ {

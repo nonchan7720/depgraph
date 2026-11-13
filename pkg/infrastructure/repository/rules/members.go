@@ -23,12 +23,8 @@ import (
 // test's method does not make a type implement anything.
 
 // linkMembers adds the types and their uses to the linked graph.
-func (r *Repository) linkMembers(ctx context.Context, ignore []string, want *linked) error {
+func (r *Repository) linkMembers(ctx context.Context, ignore []string, types *typeIndex, want *linked) error {
 	uses, err := r.memberUses(ctx, ignore)
-	if err != nil {
-		return err
-	}
-	types, err := r.typeIndex(ctx, ignore)
 	if err != nil {
 		return err
 	}
@@ -128,6 +124,10 @@ func (r *Repository) evaluateMembers(ctx context.Context, cfg rules.Config) ([]r
 	}
 	lp, err := cfg.AbstractPairs()
 	if err != nil || len(lp) == 0 {
+		return nil, err
+	}
+	// nothing names a type of another package: nothing to match the pairs with
+	if rows, err := r.query(ctx, `MATCH (u:Use {project: $project}) RETURN u.key AS key LIMIT 1`, nil, nil); err != nil || len(rows) == 0 {
 		return nil, err
 	}
 	pairs := make([]map[string]any, len(lp))

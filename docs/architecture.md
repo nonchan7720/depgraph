@@ -128,7 +128,7 @@ only resolves names when linking and turns the rows of a query into the text of 
 | rule | the query |
 |---|---|
 | `import-cycle` | for every import between packages, the shortest way back (`allShortestPaths`, at most 8 packages) |
-| `module-cycle` | the same over `(Module)-[:IMPORTS]->(Module)`, without the cycles `import-cycle` reports |
+| `module-cycle` | the same over `(Module)-[:MODULE_IMPORTS]->(Module)`, without the cycles `import-cycle` reports |
 | `file-cycle` | the same over `(File)-[:LOADS]->(File)`: first over the eager loads, then the cycles that only close through an import inside a function |
 | `function-cycle` | the same over `(Function)-[:CALLS]->(Function)` for calls between two files of a Go package, without the cycles among the methods of one type |
 | `pass-through` | paths of two or more `FORWARDS` from a function nothing forwards to, to the first that does something else |
@@ -198,7 +198,7 @@ The linked graph, resolved from those facts before the rules run:
 (Function)-[:FORWARDS]->(Function)                                 # only passes its parameters on
 (Function)-[:CALLS_INTO]->(Package)                                # the package of a member's type
 (File)-[:LOADS {eager}]->(File)                                    # in one directory; eager: at load time
-(Module {key})-[:IMPORTS {from, to}]->(Module)                     # modules of a monorepo
+(Module {key})-[:MODULE_IMPORTS {from, to}]->(Module)                   # modules of a monorepo
 (Type {key, pkg, name, kind, abstract, data, embeds, methods})
 (Type)-[:IMPLEMENTS {exact}]->(Type)
 (Use {file, pkg, owner, member, role, line, exported, collection, construct, calls})-[:OF]->(Type)

@@ -35,6 +35,9 @@ type pendingCall struct {
 type pendingCalls struct {
 	name  string
 	calls []pendingCall
+	// forwards: the caller's body is one call with exactly its parameters
+	// (forward.go)
+	forwards bool
 }
 
 // funcCalls resolves the recorded calls.
@@ -66,7 +69,7 @@ func (u *usageCollector) funcCalls(bySpec map[string]imports.Result, goBinds map
 			}
 			return calls[i].Name < calls[j].Name
 		})
-		out = append(out, graph.FuncCalls{Name: fc.name, Calls: calls})
+		out = append(out, graph.FuncCalls{Name: fc.name, Calls: calls, Forwards: fc.forwards && len(calls) == 1})
 	}
 	return out
 }
@@ -102,7 +105,7 @@ func (u *usageCollector) goFuncCalls(root *gts.Node) {
 			continue
 		}
 		local := x.goLocalNames(n)
-		fc := pendingCalls{name: caller}
+		fc := pendingCalls{name: caller, forwards: recvType == "" && x.forwards(n)}
 		x.walk(n, func(c *gts.Node) bool { // every call, also inside a closure or another call
 			if x.typ(c) == "call_expression" {
 				if pc, ok := x.goCallee(x.field(c, "function"), local, recvType, recvVar); ok {
@@ -231,7 +234,7 @@ func (u *usageCollector) declCalls(root *gts.Node) {
 				}
 			}
 			if len(own) > 0 {
-				u.calls = append(u.calls, pendingCalls{name: nm, calls: own})
+				u.calls = append(u.calls, pendingCalls{name: nm, calls: own, forwards: len(d.names) == 1 && x.forwards(d.node)})
 			}
 		}
 	}

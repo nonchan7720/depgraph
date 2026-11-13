@@ -60,6 +60,7 @@ export function findingPackageKeys(f: Finding): string[] {
     case 'low-cohesion':
       return typeof d.pkg === 'string' ? [d.pkg] : [];
     case 'function-cycle':
+    case 'pass-through':
       // "file#function" per step
       return strs(d.functions).map((fn) => dirOf(fn.slice(0, fn.lastIndexOf('#'))));
     case 'file-cycle':

@@ -491,7 +491,7 @@ API: `GET /api/graph`（パッケージ・辺・findings・stats）、`GET /api/
 (File    {project, path, language, lines, updatedAt,
           scope, entry, internal, generated, uses, exports, keep,   # 未使用コード系ルール用の usage
           loads,                                                     # import が読み込むファイル（file-cycle 用）
-          calls})                                                    # 関数が呼ぶ関数（function-cycle 用）
+          calls})                                                    # 関数が呼ぶ関数（function-cycle・pass-through 用）
 (Symbol  {project, name, kind, exported, line, endLine, language, file})
 
 (Package)-[:CONTAINS]->(File)-[:DECLARES]->(Symbol)
@@ -529,6 +529,7 @@ import は各エコシステム自身の解決方法で、プロジェクトの�
 | `module-cycle` | error | モノレポのモジュール間の import 循環（Go モジュール・npm のワークスペースパッケージ・Python プロジェクト・Ruby のアプリケーション / gem / engine / packwerk の pack。`go.mod`・`package.json`・`pyproject.toml`・`setup.py`・`setup.cfg`・`Gemfile`・`*.gemspec`・`package.yml` のあるディレクトリと[コンポーネント](#モノレポcomponents)）。ディレクトリ同士では循環にならないもの（`packages/web/src/a -> packages/kit/src -> packages/web/src/b`）も検出します。1 ホップごとに import を 1 つ示し、`import-cycle` が報告済みの循環は重ねて報告しません |
 | `file-cycle` | warn | 1 つのディレクトリ内のファイル同士の循環 import（TypeScript / JavaScript と Python のモジュール）。`import-cycle` はディレクトリ同士を比べるので、これは見えません。8 ファイル以下の循環に乗る import ごとに、それを通る最短の循環（最大 50 件）を報告します。数えるのはモジュールを読み込む import だけで、型のためだけの import（`import type`、型としてしか使われない名前、`if TYPE_CHECKING:`）と `import()` は数えません。Python で、関数の中の import によってだけ閉じる循環は、そのファイルが隠している循環として報告します（遅延 import は循環を隠すだけで、なくしません）。`deferred: false` でこれを報告しないようにできます。Go にはこの循環がなく、Ruby の定数は互いに参照し合うのが普通なので、どちらも対象外です |
 | `function-cycle` | info | Go のパッケージ内で、別々のファイルに宣言された関数同士が循環して呼び合っている（`parse.go Parse -> expr.go expr -> parse.go Parse`）。1 つのロジックが複数のファイルに散らばっている状態です。1 ファイル内の再帰や、1 つの型のメソッドだけで閉じる循環（複数ファイルに分けて宣言された型は 1 つの単位）は報告しません。呼び出しは構文から読みます。対象は `f()`、`pkg.F()`、メソッド内の `recv.m()` で、フィールド・引数・interface を通した呼び出しは追いません。TypeScript / JavaScript と Python では、この循環には import が必要なので、`file-cycle` か `import-cycle` として既に報告されます |
+| `pass-through` | warn | 受け取った引数をそのまま次の関数へ渡すだけの関数が 2 つ以上連なっている（`api.Get -> service.Get -> load`）。本体が、自分の引数を同じ順番でそのまま渡す 1 つの呼び出しだけで、その結果を返している関数です。名前を足すだけで何もしない層です。ラッパーが 1 つだけなら API の設計判断なので報告しません。メソッド（interface を満たすために存在することがあるため）とデコレータ付きの Python 関数は数えません。呼び出しは `function-cycle` と同じ方法で Go・TypeScript / JavaScript・Python について追います。テストコードは対象外です |
 | `layer-violation` | error | import してはいけないレイヤーを import している（`handler → repository` など、または独自レイヤー）。レイヤーには外部パッケージも書けるので、フレームワークを import するドメインも違反になる（[フレームワーク](#フレームワークレイヤーに外部パッケージ)参照） |
 | `concrete-dependency` | warn | インターフェース経由でしか使ってはいけないレイヤー（`abstract:`）の実装を、struct / class が保持（フィールド・コンストラクタ引数）または生成している。しかもその実装は、保持側のパッケージ・実装自身のパッケージ・内側のレイヤーで宣言されたインターフェースを満たしている（[レイヤーの内側](#レイヤーの内側依存性逆転と型の漏洩)参照） |
 | `type-leak` | warn | レイヤーの API（公開関数・メソッドの引数と戻り値、公開フィールド）が、インターフェース経由でしか使ってはいけないレイヤー（`abstract:`）の struct / class を露出している |

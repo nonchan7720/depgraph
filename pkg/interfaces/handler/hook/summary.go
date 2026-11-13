@@ -32,6 +32,7 @@ var ruleOrder = map[string]int{
 	rules.RuleLowCohesion:   4,
 	rules.RuleFileCycle:     1,
 	rules.RuleFunctionCycle: 4,
+	rules.RulePassThrough:   3,
 }
 
 var ruleHints = map[string]string{
@@ -39,6 +40,7 @@ var ruleHints = map[string]string{
 	rules.RuleModuleCycle:   "must fix; modules / workspace packages must depend one way",
 	rules.RuleFileCycle:     "files of one directory must depend one way; do not hide the cycle behind a deferred import",
 	rules.RuleFunctionCycle: "keep a recursion in one file, or pass the step back in as a parameter",
+	rules.RulePassThrough:   "call the function that does the work; do not add another wrapper in front",
 	"layer-violation":       "must fix; respect layer boundaries",
 	"duplicate-code":        "extract and reuse the shared logic; do not add another copy",
 	"god-package":           "avoid adding more dependents",

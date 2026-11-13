@@ -308,13 +308,19 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 		out = append(out, fc...)
 	}
 
-	// 1d. Cycles of calls between functions of different files (funccycle.go).
-	if cfg.Enabled(rules.RuleFunctionCycle) {
-		fc, err := r.functionCycles(ctx, cfg, ignore)
+	// 1d. The function-level call graph (callgraph.go): cycles of calls
+	// across files and chains of functions that only forward (callrules.go).
+	if cfg.Enabled(rules.RuleFunctionCycle) || cfg.Enabled(rules.RulePassThrough) {
+		g, err := r.callGraph(ctx, ignore)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, fc...)
+		if cfg.Enabled(rules.RuleFunctionCycle) {
+			out = append(out, functionCycles(g, cfg)...)
+		}
+		if cfg.Enabled(rules.RulePassThrough) {
+			out = append(out, passThrough(g, cfg)...)
+		}
 	}
 
 	// 2. Layer violations: a in from, b in to, and the edge crosses the pair

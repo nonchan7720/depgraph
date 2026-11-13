@@ -346,8 +346,8 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 	var out []rules.Finding
 
 	// 1. Import cycles between in-repo packages (none through an ignored
-		// one): among the packages a cycle can go through (Package.cyclic,
-		// marked when the graph is linked: link.go).
+	// one): among the packages a cycle can go through (Package.cyclic,
+	// marked when the graph is linked: link.go).
 	if cfg.Enabled(rules.RuleImportCycle) {
 		// For every import a -> b, the shortest way back from b to a closes
 		// the shortest cycle through that import: every import on a cycle of

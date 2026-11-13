@@ -355,11 +355,11 @@ func TestWideFunctionOption(t *testing.T) {
 }
 
 func TestUnusedDependencyOption(t *testing.T) {
-	f, err := Parse([]byte("rules:\n  unused-dependency: {severity: warn, ignore: [tslib, \"@types/*\"]}\n  duplicate-symbol: {ignore: [main]}\n"))
+	f, err := Parse([]byte("rules:\n  unused-dependency: {severity: warn, ignore: [tslib, \"@types/*\", \"ruby:pg\", \"web/package.json:lodash\"]}\n  duplicate-symbol: {ignore: [main]}\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := f.Rules.IgnoreDependencies; !reflect.DeepEqual(got, []string{"tslib", "@types/*"}) {
+	if got := f.Rules.IgnoreDependencies; !reflect.DeepEqual(got, []string{"tslib", "@types/*", "ruby:pg", "web/package.json:lodash"}) {
 		t.Errorf("ignore = %q", got)
 	}
 	// the two rules' ignore lists are not each other's
@@ -371,6 +371,9 @@ func TestUnusedDependencyOption(t *testing.T) {
 	}
 	if _, err := Parse([]byte("rules:\n  unused-dependency: {ignore: [\"\"]}\n")); err == nil {
 		t.Error("an empty name pattern accepted")
+	}
+	if _, err := Parse([]byte("rules:\n  unused-dependency: {ignore: [\"ruby:\"]}\n")); err == nil {
+		t.Error("a language without a name pattern accepted")
 	}
 	if _, err := Parse([]byte("rules:\n  unused-dependency: {entries: [x]}\n")); err == nil {
 		t.Error("entries accepted for unused-dependency")

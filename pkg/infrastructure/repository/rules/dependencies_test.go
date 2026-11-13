@@ -213,6 +213,17 @@ func TestUnusedDependencySettings(t *testing.T) {
 		t.Errorf("with settings =\n %q, want\n %q", got, want)
 	}
 
+	// an entry for a language or for a manifest leaves the others alone
+	c = cfg
+	c.IgnoreDependencies = []string{"go:*", "web/package.json:left-pad", "other/package.json:moved", "python:eslint-plugin-x"}
+	want = []string{
+		"warn web/package.json:13 eslint-plugin-x is declared but nothing imports it or names it (not certain: its name marks it as an add-on of eslint, which may load it without an import)",
+		"error web/package.json:8 moved is declared but nothing imports it or names it",
+	}
+	if got := eval(repo, c); !reflect.DeepEqual(got, want) {
+		t.Errorf("with scoped ignores =\n %q, want\n %q", got, want)
+	}
+
 	c = cfg
 	c.Settings = map[string]rules.RuleSetting{rules.RuleUnusedDependency: {Disabled: true}}
 	if got := eval(repo, c); len(got) != 0 {

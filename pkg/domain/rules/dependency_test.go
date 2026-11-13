@@ -2,6 +2,7 @@ package rules
 
 import (
 	"reflect"
+	"regexp"
 	"testing"
 )
 
@@ -47,19 +48,44 @@ func TestUnusedDependencySeverity(t *testing.T) {
 	}
 }
 
-func TestDependencyIgnoreRegexes(t *testing.T) {
+// An ignore entry is a name pattern, alone or after the language or the
+// manifest (a path glob) it applies to.
+func TestDependencyIgnores(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.IgnoreDependencies = []string{"tslib", "@types/*"}
-	got, err := cfg.DependencyIgnoreRegexes()
+	cfg.IgnoreDependencies = []string{"tslib", "@types/*", "ruby:pg", "python:*", "javascript:left-pad", "go:github.com/acme/*",
+		"web/package.json:lodash", "services/**/requirements.txt:*", "Gemfile:tzinfo-*"}
+	got, err := cfg.DependencyIgnores()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{`^tslib$`, `^@types/.*$`}; !reflect.DeepEqual(got, want) {
-		t.Errorf("regexes = %q, want %q", got, want)
+	want := []DependencyIgnore{
+		{Name: `^tslib$`},
+		{Name: `^@types/.*$`},
+		{Ecosystems: []string{"gem"}, Name: `^pg$`},
+		{Ecosystems: []string{"pypi"}, Name: `^.*$`},
+		{Ecosystems: []string{"npm"}, Name: `^left-pad$`},
+		{Ecosystems: []string{"go"}, Name: `^github\.com/acme/.*$`},
+		{Manifest: got[6].Manifest, Name: `^lodash$`},
+		{Manifest: got[7].Manifest, Name: `^.*$`},
+		{Manifest: got[8].Manifest, Name: `^tzinfo-.*$`},
 	}
-	cfg.IgnoreDependencies = []string{" "}
-	if err := cfg.Validate(); err == nil {
-		t.Error("an empty pattern must be refused")
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ignores =\n %+v, want\n %+v", got, want)
+	}
+	for i, c := range []struct {
+		manifest string
+		match    bool
+	}{{"web/package.json", true}, {"package.json", false}, {"services/a/b/requirements.txt", true}, {"Gemfile", true}} {
+		rx := got[[]int{6, 6, 7, 8}[i]].Manifest
+		if ok, _ := regexp.MatchString(rx, c.manifest); ok != c.match {
+			t.Errorf("%q against %q = %v, want %v", c.manifest, rx, ok, c.match)
+		}
+	}
+	for _, bad := range []string{" ", "ruby:", ":pg", "web/package.json:"} {
+		cfg.IgnoreDependencies = []string{bad}
+		if err := cfg.Validate(); err == nil {
+			t.Errorf("%q must be refused", bad)
+		}
 	}
 	if r, ok := Lookup(RuleUnusedDependency); !ok || r.Severity != SeverityError || !reflect.DeepEqual(r.Options, []string{"ignore"}) {
 		t.Errorf("registry = %+v, %v", r, ok)

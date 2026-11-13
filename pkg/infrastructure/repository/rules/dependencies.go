@@ -189,17 +189,25 @@ const uncheckedDoubt = "what else may use it was not read"
 // file imports (a file in a language of the manifest and of a scope whose
 // imports use the declaration; for a gem also a Ruby file that refers to one
 // of its constants) and that nothing else uses (use). Not those
-// in an ignored directory or named by the rule's ignore. doubt, when
+// in an ignored directory or named by the rule's ignore (by name, also
+// for one ecosystem or one manifest only). doubt, when
 // linking found one, makes the finding uncertain.
 func (r *Repository) unusedDependencies(ctx context.Context, cfg rules.Config, ignore []string) ([]rules.Finding, error) {
-	names, err := cfg.DependencyIgnoreRegexes()
+	ignores, err := cfg.DependencyIgnores()
 	if err != nil {
 		return nil, err
+	}
+	ignored := make([]map[string]any, len(ignores))
+	for i, ig := range ignores {
+		// "" and no ecosystem: the entry applies to every manifest / ecosystem
+		ignored[i] = map[string]any{"ecosystems": append([]string{}, ig.Ecosystems...), "manifest": ig.Manifest, "name": ig.Name}
 	}
 	rows, err := r.query(ctx, `
 		MATCH (d:Dependency {project: $project})
 		WHERE d.use IS NULL
-		  AND NOT any(rx IN $names WHERE d.name =~ rx)
+		  AND NOT any(ig IN $ignored WHERE d.name =~ ig.name
+		        AND (size(ig.ecosystems) = 0 OR d.eco IN ig.ecosystems)
+		        AND (ig.manifest = '' OR d.manifest =~ ig.manifest))
 		  AND NOT any(rx IN $ignore WHERE d.dir =~ rx)
 		  AND NOT EXISTS {
 		    MATCH (d)-[p:PROVIDES]->(:Package)<-[:IMPORTS]-(f:File {project: $project})
@@ -212,7 +220,7 @@ func (r *Repository) unusedDependencies(ctx context.Context, cfg rules.Config, i
 		RETURN d.manifest AS manifest, d.line AS line, d.name AS name,
 		       CASE WHEN coalesce(d.checked, false) THEN d.doubt ELSE coalesce(d.doubt, $unchecked) END AS doubt
 		ORDER BY manifest, name
-	`, ignore, map[string]any{"names": names, "unchecked": uncheckedDoubt})
+	`, ignore, map[string]any{"ignored": ignored, "unchecked": uncheckedDoubt})
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", rules.RuleUnusedDependency, err)
 	}

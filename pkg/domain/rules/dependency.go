@@ -1,6 +1,9 @@
 package rules
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // RuleUnusedDependency: a dependency a manifest declares (a direct `require`
 // of go.mod; dependencies, devDependencies and optionalDependencies of
@@ -53,8 +56,53 @@ func (s Severity) doubtful() Severity {
 	return SeverityInfo
 }
 
-// DependencyIgnoreRegexes compiles IgnoreDependencies (NamePattern over
-// dependency names) into the regular expressions the store filters with.
-func (c Config) DependencyIgnoreRegexes() ([]string, error) {
-	return nameRegexes(RuleUnusedDependency, c.IgnoreDependencies)
+// DependencyIgnore is one entry of unused-dependency's ignore: the
+// dependencies whose name matches Name, of the Ecosystems and of the
+// manifests matching Manifest when those are given. Name and Manifest are
+// regular expressions that mean the same in Go and in the store.
+type DependencyIgnore struct {
+	Ecosystems []string // nil: every ecosystem
+	Manifest   string   // "": every manifest
+	Name       string
+}
+
+// dependencyLanguages are the words an ignore entry names a language by,
+// and the ecosystem of its manifests.
+var dependencyLanguages = map[string]string{
+	"go": "go", "javascript": "npm", "typescript": "npm", "npm": "npm",
+	"python": "pypi", "pypi": "pypi", "ruby": "gem", "gem": "gem",
+}
+
+// DependencyIgnores compiles IgnoreDependencies. An entry is a name pattern
+// (see NamePattern: "tslib", "@types/*"), alone or after what it applies to
+// and a colon: a language ("ruby:pg", "python:*") or a manifest, as a path
+// glob (see Glob: "web/package.json:lodash", "services/**/requirements.txt:*").
+func (c Config) DependencyIgnores() ([]DependencyIgnore, error) {
+	out := make([]DependencyIgnore, 0, len(c.IgnoreDependencies))
+	for _, entry := range c.IgnoreDependencies {
+		fail := func(err error) ([]DependencyIgnore, error) {
+			return nil, fmt.Errorf("rule %s: ignore %q: %w", RuleUnusedDependency, entry, err)
+		}
+		var ig DependencyIgnore
+		name := entry
+		if scope, rest, ok := strings.Cut(entry, ":"); ok {
+			name = rest
+			if eco, ok := dependencyLanguages[scope]; ok {
+				ig.Ecosystems = []string{eco}
+			} else {
+				g, err := CompileGlob(scope)
+				if err != nil {
+					return fail(err)
+				}
+				ig.Manifest = g.Regex()
+			}
+		}
+		p, err := CompileNamePattern(name)
+		if err != nil {
+			return fail(err)
+		}
+		ig.Name = p.regex
+		out = append(out, ig)
+	}
+	return out, nil
 }

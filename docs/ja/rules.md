@@ -193,7 +193,19 @@ depgraph から見えない方法で読み込まれるファイル（名前で�
 
 確実でないのは次の場合です。名前や peer からアドオンと分かるパッケージ（`eslint-plugin-x`・`@vitest/coverage-v8`・`sass-loader`: ホストが名前で読み込むことがある）、型定義（`x` が見当たらない `@types/x`）、コンパイラが出力に import を挿入するヘルパー（`tslib`・`core-js`）、そしてインストールされておらず、`node_modules` からバイナリやほかのパッケージの peer を読めなかった場合。Python のディストリビューションは、ほかのパッケージが読み込むエントリポイントを登録している場合（`pytest-cov`）と型スタブ（`types-*`）の場合に確実でなくなります。gem が確実になるのは `require: false` のときだけです。それ以外の gem はアプリケーションの起動時に Bundler が require するので、参照されなくても動作することがあります（ほかのクラスを拡張するなど）。`go.mod` の指摘はすべて確実です。`severity: warn` を設定すると、確実な指摘が `warn`、それ以外が `info` になります。
 
-リポジトリからは見えない形で使っている依存は、`.depgraph.yml` で名前を指定して対象外にします: `unused-dependency: {ignore: [tslib, "@types/*"]}`（[設定](configuration.md)）。
+リポジトリからは見えない形で使っている依存は、`.depgraph.yml` のルールの `ignore` で対象外にします（[設定](configuration.md)）。名前だけ、言語を限定して、マニフェストを限定して、のいずれでも指定できます。
+
+```yaml
+rules:
+  unused-dependency:
+    ignore:
+      - tslib                            # 名前。どのマニフェストにあっても対象外
+      - "@types/*"                       # * は任意の文字列、? は 1 文字
+      - "ruby:pg"                        # gem だけ。ほかに go:、javascript:、python:
+      - "python:*"                       # Python のディストリビューションすべて
+      - "web/package.json:lodash"        # そのマニフェストの中だけ（コロンの前はパスの glob）
+      - "services/**/requirements.txt:*" # それらのマニフェストが宣言するものすべて
+```
 
 コード以外のファイル（設定ファイル、`node_modules`）の内容は、グラフをリンクするとき、つまりソースファイル・マニフェスト・インストール内容のいずれかが変わったあとに読みます。
 

@@ -251,9 +251,20 @@ without being referenced (it extends other classes). Every `go.mod`
 finding is certain. With `severity: warn` the certain
 findings are `warn` and the others `info`.
 
-A dependency used in a way nothing in the repository shows is left out by name:
-`unused-dependency: {ignore: [tslib, "@types/*"]}` in `.depgraph.yml`
-([Configuration](configuration.md)).
+A dependency used in a way nothing in the repository shows is left out with the rule's `ignore` in
+`.depgraph.yml` ([Configuration](configuration.md)): by name, for one language, or for one manifest.
+
+```yaml
+rules:
+  unused-dependency:
+    ignore:
+      - tslib                            # a name, in every manifest
+      - "@types/*"                       # * is any run of characters, ? one character
+      - "ruby:pg"                        # only gems; also go:, javascript:, python:
+      - "python:*"                       # every Python distribution
+      - "web/package.json:lodash"        # only in that manifest (a path glob before the colon)
+      - "services/**/requirements.txt:*" # everything those manifests declare
+```
 
 What files outside the code say (a configuration, `node_modules`) is read when the graph is linked:
 after a change of a source file, of a manifest or of what is installed.

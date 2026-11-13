@@ -47,7 +47,7 @@ rules:                      # ルールごと: enabled、severity（error | warn
   unused-export: {ignore: ["pkg/api/**"]}            # 報告しないパス（ライブラリの公開 API など）
   unreachable-file: {entries: ["plugins/**"]}       # depgraph から見えないエントリポイント
   # entries / ignore は unused-export・unreachable-file・unreachable-package で共通
-  unused-dependency: {ignore: [tslib, "@types/*"]}   # 報告しない依存パッケージ（名前のパターン）
+  unused-dependency: {ignore: [tslib, "ruby:pg", "web/package.json:lodash"]}  # 報告しない依存パッケージ（名前、言語別、マニフェスト別）
 
 ignore: ["**/testdata/**"]  # すべてのルールから除外するパッケージ
 

@@ -48,7 +48,7 @@ rules:                      # per rule: enabled, severity (error | warn | info),
   unused-export: {ignore: ["pkg/api/**"]}            # paths not reported (a library's public API)
   unreachable-file: {entries: ["plugins/**"]}       # entry points depgraph cannot see
   # entries / ignore are shared by unused-export, unreachable-file and unreachable-package
-  unused-dependency: {ignore: [tslib, "@types/*"]}   # dependencies never reported (name patterns)
+  unused-dependency: {ignore: [tslib, "ruby:pg", "web/package.json:lodash"]}  # dependencies never reported: a name, for a language, for a manifest
 
 ignore: ["**/testdata/**"]  # packages left out of every rule
 

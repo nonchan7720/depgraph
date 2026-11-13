@@ -51,8 +51,11 @@ import path whose first element has no dot is the standard library (the go comma
 - `low-cohesion` splits a package by its files.
 - `function-cycle` reads the calls of every function and method: `f()` (a function of the package, unless a
   parameter or local variable has that name), `pkg.F()` and, in a method, `recv.m()`. It reports a cycle of calls
-  that passes through more than one file, unless every function on it is a method of the same type. A call through
-  a field, a parameter or an interface is not followed.
+  that passes through more than one file, unless every function on it is a method of the same type. A method
+  called on a field of the receiver or on a parameter (`s.repo.Find()`, `r.Find()`) is followed by the member's
+  declared type, also when the package itself declares it: to the method of a struct, or through an interface to its
+  implementation when exactly one type of the project has every method of it. `wide-function` counts the package
+  that declares the member's type.
 
 ## Language server
 

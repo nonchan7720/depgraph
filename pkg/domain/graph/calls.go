@@ -39,6 +39,38 @@ type FuncCalls struct {
 type Call struct {
 	Target string `json:"target,omitempty"`
 	Name   string `json:"name"`
+	// Via: the call is a method (Name) called on a member whose type is
+	// declared: "Owner|member", Owner and member as in TypeUse (a field of
+	// the receiver's type or class: "Svc|repo"; a parameter:
+	// "Svc.Run|r", "handle|r"; a constructor's parameter belongs to the
+	// class). Target is empty: the rules find the member's type and, for an
+	// interface, the types that implement it.
+	Via string `json:"via,omitempty"`
+}
+
+// ViaSep separates the owner and the member of Call.Via.
+const ViaSep = "|"
+
+// OwnMember is a field or parameter (Owner, Member as in TypeUse) whose
+// type is declared in the file's own package (Go): the members model
+// (TypeUse) only holds the types of other packages, and a Go interface is
+// usually declared where it is used.
+type OwnMember struct {
+	Owner  string `json:"owner"`
+	Member string `json:"member"`
+	Type   string `json:"type"`
+}
+
+// Encode returns m as one string.
+func (m OwnMember) Encode() string { return strings.Join([]string{m.Owner, m.Member, m.Type}, usesSep) }
+
+// DecodeOwnMember is the inverse of OwnMember.Encode.
+func DecodeOwnMember(s string) (OwnMember, bool) {
+	f := strings.Split(s, usesSep)
+	if len(f) != 3 || f[0] == "" || f[1] == "" || f[2] == "" {
+		return OwnMember{}, false
+	}
+	return OwnMember{Owner: f[0], Member: f[1], Type: f[2]}, true
 }
 
 const callSep = "\x1e"
@@ -53,6 +85,10 @@ func (f FuncCalls) Encode() string {
 	head := strings.Join([]string{f.Name, flag, strings.Join(f.Ignore, ","), strconv.Itoa(f.Line)}, usesSep)
 	parts = append(parts, head)
 	for _, c := range f.Calls {
+		if c.Via != "" {
+			parts = append(parts, c.Target+usesSep+c.Name+usesSep+"v"+c.Via)
+			continue
+		}
 		parts = append(parts, c.Target+usesSep+c.Name)
 	}
 	return strings.Join(parts, callSep)
@@ -74,11 +110,15 @@ func DecodeFuncCalls(s string) (FuncCalls, bool) {
 	}
 	f.Line, _ = strconv.Atoi(head[3])
 	for _, p := range parts[1:] {
-		target, name, ok := strings.Cut(p, usesSep)
-		if !ok || name == "" {
+		fields := strings.Split(p, usesSep) // target, name [, "v" + via]
+		if len(fields) < 2 || fields[1] == "" {
 			return FuncCalls{}, false
 		}
-		f.Calls = append(f.Calls, Call{Target: target, Name: name})
+		c := Call{Target: fields[0], Name: fields[1]}
+		if len(fields) > 2 {
+			c.Via = strings.TrimPrefix(fields[2], "v")
+		}
+		f.Calls = append(f.Calls, c)
 	}
 	return f, true
 }

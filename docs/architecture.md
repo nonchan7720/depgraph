@@ -290,9 +290,10 @@ external packages.)
 
 ## Why Neo4j
 
-Neo4j has been the store since the first commit. The reasons, in the order they matter:
+Neo4j has been the store since the first commit. The principle behind the choice is that **a
+rule is a Cypher query**. The reasons, in the order they matter:
 
-1. **The data is a graph and the first questions are path questions.** "Is this import on a
+1. **The data is a graph and the rules are path questions.** "Is this import on a
    cycle, and which is the shortest one?", "does a package of this layer reach a package of that
    layer?", "who depends on this package?" are patterns and paths. In Cypher the query has the
    shape of the question, and the shortest-path search is the database's, not code to maintain.
@@ -309,16 +310,24 @@ Neo4j has been the store since the first commit. The reasons, in the order they 
 4. **Per-file replacement is cheap to express.** `MERGE`, `DETACH DELETE` and `UNWIND` replace a
    file's subgraph in one transaction without bookkeeping of foreign keys.
 
-What Neo4j is *not* used for is equally deliberate: the rules about the inside of files are
-joined in Go ([above](#how-the-rules-are-evaluated)), because there the per-file properties are
-what keeps incremental updates correct, and because that logic is easier to test and to keep
-exact in Go.
+**Where the code does not follow the principle yet.** Only four rules are Cypher from end to
+end today (`import-cycle`, `layer-violation`, `god-package`, `duplicate-symbol`). The rules
+added later, the function-level ones included (`function-cycle`, `pass-through`,
+`wide-function`), read the facts of every file with one simple query and do the graph work
+(building the call graph, searching cycles and chains) in Go
+([above](#how-the-rules-are-evaluated)). The reason is how those facts are stored: as list
+properties of the `File` node, which keeps a per-file update correct, but leaves no function
+nodes and call edges in the graph for a Cypher query to match.
 
 ## Why not SQLite
 
-There is no SQLite implementation in this repository's history to compare with: no pull request
-tried one. What follows is the design reasoning, not a benchmark. **SQLite could store this
-data**; it was not chosen because of what the queries and the processes would then look like.
+SQLite was ruled out for one reason: **the rules are meant to be written in Cypher.** A rule is
+a question about a graph (a path, a pattern, a neighbourhood), and depgraph wants that question
+written in a graph query language, where it can be read, changed and tried by hand against the
+stored graph. SQLite has no such language: every rule would be recursive SQL or application
+code. **SQLite could store this data**; what it cannot do is run the rules as they are meant to
+be written. The table shows what each choice means in practice (this repository has no SQLite
+implementation to benchmark against, so it is a comparison of designs).
 
 | | Neo4j (today) | SQLite |
 |---|---|---|

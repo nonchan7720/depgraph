@@ -59,6 +59,11 @@ See [Frameworks](../configuration.md#frameworks-external-packages-in-layers).
 
 ### What is reported
 
+- `unused-dependency`: a gem of the `Gemfile` that no file requires, whose constants no file refers to and
+  that nothing names. Only with the bundle installed inside the repository (`vendor/bundle`), which says
+  what a gem is required as and which constants it declares; any other gem is skipped. `error` for a gem
+  with `require: false`, `warn` otherwise (Bundler requires it at boot). See
+  [Unused dependencies](../rules.md#unused-dependencies).
 - `unused-export`: classes, modules with something in them, and constants that are classes
   (`Struct.new`, `Class.new`, `Data.define`). Methods are never reported: callbacks, routes, views and
   `send` call them by name.

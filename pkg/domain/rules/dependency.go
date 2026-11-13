@@ -4,8 +4,10 @@ import "fmt"
 
 // RuleUnusedDependency: a dependency a manifest declares (a direct `require`
 // of go.mod; dependencies, devDependencies and optionalDependencies of
-// package.json) that no code of its module imports and nothing else in it
-// names. Dependencies pile up when code is removed or rewritten and the
+// package.json; pyproject.toml and requirements files; a Gemfile) that no
+// code imports and nothing else names. A Python distribution or a gem whose
+// import names are not known (it is not installed inside the repository) is
+// not checked. Dependencies pile up when code is removed or rewritten and the
 // manifest is not: they are installed, audited and updated for nothing. A
 // compiler sees the imports of one file, never the manifest.
 //

@@ -225,3 +225,51 @@ func TestUnusedDependencySettings(t *testing.T) {
 		t.Errorf("enabled again = %q", got)
 	}
 }
+
+// Python distributions and gems are checked when the repository holds
+// where they are installed (a virtual environment, a vendored bundle): what
+// is imported, required or referred to by a constant is used, the rest is
+// reported. Without that, nothing is known and nothing is reported.
+func TestEvaluateUnusedDependencyPythonRuby(t *testing.T) {
+	ctx, st := connect(t)
+	key := fmt.Sprintf("zz_test_%d_deps_envs", time.Now().UnixNano())
+	site := ".venv/lib/python3.12/site-packages/"
+	gems := "vendor/bundle/ruby/3.3.0/gems/"
+	root := projectTree(t, map[string]string{
+		"requirements.txt": "PyYAML\nleft-over\npytest-cov\nnot-installed\n",
+		"app/main.py":      "",
+		site + "PyYAML-6.0.dist-info/top_level.txt":        "yaml\n",
+		site + "left_over-1.0.dist-info/top_level.txt":     "left_over\n",
+		site + "pytest_cov-5.0.dist-info/top_level.txt":    "pytest_cov\n",
+		site + "pytest_cov-5.0.dist-info/entry_points.txt": "[pytest11]\npytest_cov = pytest_cov.plugin\n",
+		"Gemfile":                                 "gem \"sidekiq\"\ngem \"rack-cors\"\ngem \"bootsnap\", require: false\ngem \"leftover\", require: false\ngem \"patcher\"\ngem \"not-vendored\"\n",
+		"config/boot.rb":                          "",
+		"app/jobs/job.rb":                         "",
+		gems + "sidekiq-7.0.0/lib/sidekiq.rb":     "module Sidekiq\nend\n",
+		gems + "rack-cors-2.0.0/lib/rack/cors.rb": "module Rack\n  class Cors\n  end\nend\n",
+		gems + "bootsnap-1.18.0/lib/bootsnap.rb":  "module Bootsnap\nend\n",
+		gems + "leftover-1.0.0/lib/leftover.rb":   "module Leftover\nend\n",
+		gems + "patcher-1.0.0/lib/patcher.rb":     "class String\nend\n",
+	})
+	job := importing("app/jobs/job.rb", graph.Ruby, ".")
+	job.Usage.ExtConstants = []string{"Sidekiq", "Rack"}
+	upsertAll(ctx, t, st, key, []*graph.FileGraph{
+		importing("app/main.py", graph.Python, ".", "yaml.representer"),
+		importing("config/boot.rb", graph.Ruby, ".", "bootsnap"),
+		job,
+	})
+	fs, err := New(st, key).WithRoot(root).Evaluate(ctx, rules.DefaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := sevMessages(byRule(fs, rules.RuleUnusedDependency))
+	want := []string{
+		"error Gemfile:4 leftover is declared but nothing imports it or names it",
+		"warn Gemfile:5 patcher is declared but nothing imports it or names it (not certain: Bundler requires it when the application boots, so it may act without being referenced)",
+		"error requirements.txt:2 left-over is declared but nothing imports it or names it",
+		"warn requirements.txt:3 pytest-cov is declared but nothing imports it or names it (not certain: it registers entry points (pytest11) that another package loads without an import)",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("unused-dependency =\n %q, want\n %q", got, want)
+	}
+}

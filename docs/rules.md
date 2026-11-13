@@ -123,7 +123,7 @@ A Go package no `main` package, test or public package of a library module impor
 
 Default severity: `error` when the finding is certain, `warn` when it is not
 
-A dependency that `go.mod` (a direct `require`) or `package.json` (`dependencies`, `devDependencies`, `optionalDependencies`) declares, that no code of its module imports and that nothing else in it names. What counts as a use, and when a finding is certain, is in [Unused dependencies](#unused-dependencies).
+A dependency that `go.mod` (a direct `require`), `package.json` (`dependencies`, `devDependencies`, `optionalDependencies`), `pyproject.toml` / a requirements file or a `Gemfile` declares, that no code imports and that nothing else names. What counts as a use, and when a finding is certain, is in [Unused dependencies](#unused-dependencies).
 
 ## Structure that rots
 
@@ -190,9 +190,16 @@ Layers, forbidden imports, severities and thresholds are set in `.depgraph.yml` 
 manifest is not: packages that are installed, audited and updated for nothing. A compiler sees the
 imports of one file, never the manifest.
 
-It reads `go.mod` and `package.json`, where an import names its package exactly (a Go import path
-starts with the module's path, a JavaScript import with the package's name). Python distributions
-and Ruby gems are imported under names their manifests do not give, so they are not checked.
+In `go.mod` and `package.json` an import names its package exactly (a Go import path starts with
+the module's path, a JavaScript import with the package's name). Python distributions and Ruby gems
+are imported under names their manifests do not give (`PyYAML` is `yaml`, `rack-cors` is
+`Rack::Cors`), so those names are read from where the project installs them **inside the
+repository**: the `dist-info` of a virtual environment (`.venv`, `venv`) for `pyproject.toml`
+(`[project]`, `[dependency-groups]`, Poetry) and `requirements*.txt` / `requirements/*.txt`, and
+the files of a vendored bundle (`vendor/bundle`, or `BUNDLE_PATH` of `.bundle/config`) for a
+`Gemfile`. A dependency whose names are not known is skipped, never reported: one that is not
+installed there, or a distribution that shares its only module with another (`google.*`). Without
+such an environment, nothing of that manifest is reported.
 
 A dependency is **used**, and never reported, when:
 
@@ -210,7 +217,15 @@ A dependency is **used**, and never reported, when:
   does not parse imports it (`.vue`, `.svelte`, `.scss`), code gives it as a string (`client: 'pg'`,
   a path into `node_modules`), a CI workflow or a hook runs it. A file names a package for the same
   manifest its imports would use. It is also used when another declared package needs it as a peer,
-  and `@types/x` when `x` is used.
+  and `@types/x` when `x` is used;
+- **Python**: a file imports one of its modules (anywhere in the repository: the files share one
+  environment), another installed distribution imports it (Django imports the database driver the
+  settings choose; a pinned transitive dependency), or a file names it: a module in a string
+  (`INSTALLED_APPS = ['storages']`, a dotted path), its name or one of its commands in a file that
+  is run (`gunicorn` in a `Procfile`);
+- **Ruby**: a file requires it, refers to one of the constants its files declare (Rails code uses
+  a gem through its constants), or names it or one of its commands (a `Procfile`, a script, a CI
+  workflow).
 
 Not dependencies at all: indirect requirements, `peerDependencies`, and what the repository provides
 itself (a module or workspace package of it, a local `replace`, `workspace:` / `file:` / `link:`).
@@ -226,7 +241,11 @@ A finding is not certain when the package is an add-on by its name or its peer (
 `@vitest/coverage-v8`, `sass-loader`: its host may load it by name), holds type declarations
 (`@types/x` without a visible `x`), is a helper compilers import from what they build (`tslib`,
 `core-js`), or is not installed, so that its binaries and the peers of the other packages could not
-be read from `node_modules`. Every `go.mod` finding is certain. With `severity: warn` the certain
+be read from `node_modules`. A Python distribution is not certain when it registers entry points
+another package loads (`pytest-cov`) or holds type stubs (`types-*`). A gem is certain only with
+`require: false`: any other gem is required by Bundler when the application boots and may act
+without being referenced (it extends other classes, or Rails loads its railtie). Every `go.mod`
+finding is certain. With `severity: warn` the certain
 findings are `warn` and the others `info`.
 
 A dependency used in a way nothing in the repository shows is left out by name:

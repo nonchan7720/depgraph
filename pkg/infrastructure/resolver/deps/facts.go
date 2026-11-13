@@ -45,17 +45,24 @@ type Lookup struct {
 // with ctx's error when ctx ends before every file was read.
 func Facts(ctx context.Context, root string, ms []Manifest, open map[string][]string, l Lookup) (map[string]map[string]Fact, error) {
 	out := map[string]map[string]Fact{}
-	var searches []*npmSearch
+	var searches []*search
 	for _, m := range ms {
 		names := open[m.Path]
 		if len(names) == 0 {
 			continue
 		}
-		if m.Ecosystem == Go {
+		var s *search
+		switch m.Ecosystem {
+		case Go:
 			out[m.Path] = m.goFacts(ctx, root, names, l)
 			continue
+		case PyPI:
+			s = m.pythonSearch(ctx, root, names)
+		case Gem:
+			s = m.rubySearch(names)
+		default:
+			s = m.npmSearch(root, names, l)
 		}
-		s := m.npmSearch(root, names, l)
 		out[m.Path] = s.facts
 		searches = append(searches, s)
 	}
@@ -155,37 +162,42 @@ var compilerHelpers = map[string]bool{
 }
 
 // word is a word that names a dependency: its name, another name it goes
-// by (as: " as x") or a binary it installs.
+// by (as: " as x"; dotted: a module, also named by a dotted path below it)
+// or a binary it installs.
 type word struct {
-	text string
-	as   string
-	bin  bool
+	text   string
+	as     string
+	bin    bool
+	dotted bool
 }
 
-// npmSearch is the search for what names the packages of one package.json
+// search is the search for what names the dependencies of one manifest
 // that nothing imports.
-type npmSearch struct {
-	m       Manifest
-	facts   map[string]Fact
-	words   map[string][]word       // package -> the words that name it; removed when found
-	own     map[string]*packageJSON // the package.json of the installed packages
-	missing []string                // declared packages that are not installed
+type search struct {
+	m     Manifest
+	facts map[string]Fact
+	words map[string][]word // dependency -> the words that name it; removed when found
+	// doubt says why a dependency nothing names may be used all the same
+	// ("" when nothing says so). complete: every file was searched.
+	doubt func(name string, complete bool) string
 }
 
 // npmSearch starts the facts of the packages names of m: a package nothing
 // imports is used when it holds the types of a package that is used or
 // another dependency needs it as a peer. For the others, what is left to
 // find is a file that names it or one of its binaries (searchNames).
-func (m Manifest) npmSearch(root string, names []string, l Lookup) *npmSearch {
-	s := &npmSearch{m: m, facts: make(map[string]Fact, len(names)), words: map[string][]word{}, own: map[string]*packageJSON{}}
-	peerOf := map[string]string{} // package -> a declared dependency that needs it as a peer
+func (m Manifest) npmSearch(root string, names []string, l Lookup) *search {
+	s := &search{m: m, facts: make(map[string]Fact, len(names)), words: map[string][]word{}}
+	own := map[string]*packageJSON{} // the package.json of the installed packages
+	var missing []string             // declared packages that are not installed
+	peerOf := map[string]string{}    // package -> a declared dependency that needs it as a peer
 	for _, name := range slices.Sorted(maps.Keys(m.declared)) {
 		pj := installedPackage(root, m.Dir, name)
 		if pj == nil {
-			s.missing = append(s.missing, name)
+			missing = append(missing, name)
 			continue
 		}
-		s.own[name] = pj
+		own[name] = pj
 		for _, p := range slices.Sorted(maps.Keys(pj.PeerDeps)) {
 			if p != name && peerOf[p] == "" {
 				peerOf[p] = name
@@ -208,21 +220,21 @@ func (m Manifest) npmSearch(root string, names []string, l Lookup) *npmSearch {
 			if _, short := addon(n); short != "" {
 				s.words[n] = append(s.words[n], word{text: short, as: " as " + short})
 			}
-			if pj := s.own[n]; pj != nil {
+			if pj := own[n]; pj != nil {
 				for _, b := range binNames(n, pj.Bin) {
 					s.words[n] = append(s.words[n], word{text: b, bin: true})
 				}
 			}
 		}
 	}
+	s.doubt = func(n string, complete bool) string { return m.npmDoubt(n, own[n], missing, complete) }
 	return s
 }
 
-// conclude gives the packages no file names their doubt, "" when nothing
-// says they may be used all the same. complete: every file was searched.
-func (s *npmSearch) conclude(complete bool) {
+// conclude gives the dependencies no file names their doubt.
+func (s *search) conclude(complete bool) {
 	for n := range s.words {
-		s.facts[n] = Fact{Doubt: s.m.npmDoubt(n, s.own[n], s.missing, complete)}
+		s.facts[n] = Fact{Doubt: s.doubt(n, complete)}
 	}
 }
 
@@ -377,6 +389,9 @@ var notUses = map[string]bool{
 	"package-lock.json": true, "npm-shrinkwrap.json": true, "yarn.lock": true, "pnpm-lock.yaml": true,
 	"bun.lock": true, "bun.lockb": true, "deno.lock": true,
 	"renovate.json": true, "renovate.json5": true, ".renovaterc": true, ".renovaterc.json": true, "dependabot.yml": true,
+	// the manifests and lockfiles of Python and Ruby
+	"pyproject.toml": true, "setup.py": true, "setup.cfg": true, "Pipfile": true, "Pipfile.lock": true, "poetry.lock": true,
+	"uv.lock": true, "pdm.lock": true, "Gemfile": true, "Gemfile.lock": true, "gems.rb": true, "gems.locked": true,
 }
 
 // docExts are documentation: prose about a package is not a use of it.
@@ -400,7 +415,7 @@ var codeExts = map[string]bool{
 // names the tools of every package.json, a file of a package that declares
 // the package itself only its own. It reports whether every file was
 // searched.
-func searchNames(ctx context.Context, root string, ix *Index, searches []*npmSearch) (complete bool) {
+func searchNames(ctx context.Context, root string, ix *Index, searches []*search) (complete bool) {
 	left := 0
 	for _, s := range searches {
 		left += len(s.words)
@@ -449,7 +464,7 @@ func searchNames(ctx context.Context, root string, ix *Index, searches []*npmSea
 			for dep, ws := range s.words {
 				for _, w := range ws {
 					// a binary is a word of a command, wherever it is written
-					if !mentions(b, w.text, codeExts[ext] && !w.bin) || !slices.Contains(ix.Users("javascript", dir, extPrefix+dep), Ref{s.m.Path, dep}) {
+					if !mentions(b, w.text, codeExts[ext] && !w.bin, w.dotted) || !s.usedFrom(ix, dir, dep) {
 						continue
 					}
 					use := "named in " + rel + w.as
@@ -466,6 +481,16 @@ func searchNames(ctx context.Context, root string, ix *Index, searches []*npmSea
 		return nil
 	})
 	return complete
+}
+
+// usedFrom reports whether a file in dir that names the dependency dep
+// uses the declaration of s.m: of the manifest its imports would use
+// (JavaScript), of every manifest (Python and Ruby: one environment).
+func (s *search) usedFrom(ix *Index, dir, dep string) bool {
+	if s.m.Ecosystem != Npm {
+		return true
+	}
+	return slices.Contains(ix.Users("javascript", dir, extPrefix+dep), Ref{s.m.Path, dep})
 }
 
 // withoutDependencies is a package.json without the sections that list
@@ -491,8 +516,9 @@ func withoutDependencies(b []byte) []byte {
 // name ends where another could go on: react is not named by react-dom,
 // lodash not by lodash.debounce, core not by @babel/core), or, when quoted,
 // as a string or the start of one ('pg', "pg/lib"), or in the path of an
-// installed package ("node_modules/pg/lib").
-func mentions(text []byte, word string, quoted bool) bool {
+// installed package ("node_modules/pg/lib"). dotted: a quoted module is
+// also named by a dotted path below it ('storages.backends.s3').
+func mentions(text []byte, word string, quoted, dotted bool) bool {
 	w := []byte(word)
 	for at := 0; ; {
 		i := bytes.Index(text[at:], w)
@@ -502,7 +528,7 @@ func mentions(text []byte, word string, quoted bool) bool {
 		start, end := at+i, at+i+len(w)
 		at = start + 1
 		if quoted {
-			if start > 0 && (isQuote(text[start-1]) || installPath(text[:start])) && end < len(text) && (isQuote(text[end]) || text[end] == '/') {
+			if start > 0 && (isQuote(text[start-1]) || installPath(text[:start])) && end < len(text) && (isQuote(text[end]) || text[end] == '/' || (dotted && text[end] == '.')) {
 				return true
 			}
 			continue

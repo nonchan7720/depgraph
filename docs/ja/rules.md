@@ -123,7 +123,7 @@ Import してはいけないレイヤーを import している（`handler → r
 
 デフォルトの severity: 確実な指摘は `error`、確実でない指摘は `warn`
 
-`go.mod`（直接の `require`）または `package.json`（`dependencies`・`devDependencies`・`optionalDependencies`）で宣言されているのに、そのモジュールのコードがどこからも import せず、ほかのファイルも名前を挙げていない依存パッケージ。何を使用とみなすか、どんなときに確実とするかは[未使用の依存パッケージ](#未使用の依存パッケージ)を見てください。
+`go.mod`（直接の `require`）、`package.json`（`dependencies`・`devDependencies`・`optionalDependencies`）、`pyproject.toml` / requirements ファイル、`Gemfile` のいずれかで宣言されているのに、どのコードも import せず、ほかのファイルも名前を挙げていない依存パッケージ。何を使用とみなすか、どんなときに確実とするかは[未使用の依存パッケージ](#未使用の依存パッケージ)を見てください。
 
 ## 劣化していく構造
 
@@ -172,13 +172,15 @@ depgraph から見えない方法で読み込まれるファイル（名前で�
 
 `unused-dependency` は、コードを消したり書き直したりしたのにマニフェストだけが残った依存を報告します。使われないままインストールされ、監査され、更新され続けるパッケージです。コンパイラが見るのは 1 ファイルの import で、マニフェストは見ません。
 
-対象は `go.mod` と `package.json` です。この 2 つでは import がパッケージを正確に指します（Go の import パスはモジュールのパスで始まり、JavaScript の import はパッケージ名で始まります）。Python のディストリビューションと Ruby の gem は、マニフェストに書かれていない名前で import されるため、対象にしていません。
+`go.mod` と `package.json` では import がパッケージを正確に指します（Go の import パスはモジュールのパスで始まり、JavaScript の import はパッケージ名で始まります）。Python のディストリビューションと Ruby の gem は、マニフェストに書かれていない名前で import されます（`PyYAML` は `yaml`、`rack-cors` は `Rack::Cors`）。そこで、その名前は**リポジトリ内**のインストール先から読みます。`pyproject.toml`（`[project]`・`[dependency-groups]`・Poetry）と `requirements*.txt` / `requirements/*.txt` については仮想環境（`.venv`・`venv`）の `dist-info`、`Gemfile` についてはリポジトリ内にインストールされた bundle（`vendor/bundle`、または `.bundle/config` の `BUNDLE_PATH`）のファイルです。名前が分からない依存はスキップし、報告しません。そこにインストールされていないもの、唯一のモジュールをほかのディストリビューションと共有しているもの（`google.*`）が該当します。そうした環境がリポジトリ内になければ、そのマニフェストについては何も報告しません。
 
 次のいずれかに当てはまる依存は**使用中**で、報告しません。
 
 - ファイルが import している。import は、そのパッケージを挙げている最も近いマニフェストの宣言を使います。Go ならファイル自身の `go.mod`、JavaScript ならファイルの位置かそれより上にある最も近い `package.json` です（ワークスペースパッケージは、自分で宣言していなければ上の `package.json` がインストールしたものを使います）。import したファイルのどのマニフェストもそのパッケージを挙げていない場合は、別の何かが提供しているので（ホイストするワークスペース、`go.work`）、それを宣言しているすべてのマニフェストを使用中とみなします。Go の import は、パスが最も長く一致する require 済みモジュールのものです。
 - **Go**: `go.mod` の `tool` がそのモジュールを指している。または、depgraph がスキャンしていない（除外ディレクトリの）Go ファイルが import している。`go mod tidy` と同じ判断基準です。
 - **JavaScript / TypeScript**: リポジトリ内の、ドキュメントとロックファイル以外のファイルが名前を挙げている。`package.json` の scripts がバイナリを実行している（`typescript` の `tsc`）、設定ファイルが列挙している（アドオンの省略名でも可: `babel-plugin-x` に対する `"plugins": ["x"]`）、depgraph がパースしないファイルが import している（`.vue`・`.svelte`・`.scss`）、コードが文字列で指定している（`client: 'pg'`、`node_modules` 内へのパス）、CI ワークフローやフックが実行している、など。名前を挙げたファイルがどのマニフェストの依存を使ったことになるかは、import の場合と同じ規則で決まります。ほかの宣言済みパッケージが peer として必要としている場合と、`x` が使われているときの `@types/x` も使用中です。
+- **Python**: ファイルがそのモジュールを import している（リポジトリのどこでも可。ファイルは 1 つの環境を共有するため）。インストール済みのほかのディストリビューションが import している（設定で選んだ DB ドライバを Django が import する場合や、バージョン固定のために書いた間接依存）。または、ファイルが名前を挙げている。文字列中のモジュール名（`INSTALLED_APPS = ['storages']`、ドット区切りのパス）や、実行されるファイル中のディストリビューション名・コマンド名（`Procfile` の `gunicorn`）です。
+- **Ruby**: ファイルが require している。gem のファイルが宣言する定数を参照している（Rails のコードは gem を定数経由で使います）。または、gem 名やそのコマンド名をファイルが挙げている（`Procfile`、スクリプト、CI ワークフロー）。
 
 そもそも依存として数えないもの: indirect な require、`peerDependencies`、リポジトリ自身が提供するもの（リポジトリ内のモジュール・ワークスペースパッケージ、ローカルへの `replace`、`workspace:` / `file:` / `link:`）。
 
@@ -189,7 +191,7 @@ depgraph から見えない方法で読み込まれるファイル（名前で�
 | 確実 | 誰も import せず、誰も名前を挙げず、何かが勝手に読み込む可能性もない | ルールの severity（`error`） |
 | 確実でない | import 以外の使われ方を否定できない。理由を指摘に書きます | 1 段階下（`warn`） |
 
-確実でないのは次の場合です。名前や peer からアドオンと分かるパッケージ（`eslint-plugin-x`・`@vitest/coverage-v8`・`sass-loader`: ホストが名前で読み込むことがある）、型定義（`x` が見当たらない `@types/x`）、コンパイラが出力に import を挿入するヘルパー（`tslib`・`core-js`）、そしてインストールされておらず、`node_modules` からバイナリやほかのパッケージの peer を読めなかった場合。`go.mod` の指摘はすべて確実です。`severity: warn` を設定すると、確実な指摘が `warn`、それ以外が `info` になります。
+確実でないのは次の場合です。名前や peer からアドオンと分かるパッケージ（`eslint-plugin-x`・`@vitest/coverage-v8`・`sass-loader`: ホストが名前で読み込むことがある）、型定義（`x` が見当たらない `@types/x`）、コンパイラが出力に import を挿入するヘルパー（`tslib`・`core-js`）、そしてインストールされておらず、`node_modules` からバイナリやほかのパッケージの peer を読めなかった場合。Python のディストリビューションは、ほかのパッケージが読み込むエントリポイントを登録している場合（`pytest-cov`）と型スタブ（`types-*`）の場合に確実でなくなります。gem が確実になるのは `require: false` のときだけです。それ以外の gem はアプリケーションの起動時に Bundler が require するので、参照されなくても動作することがあります（ほかのクラスを拡張する、Rails が railtie を読み込む）。`go.mod` の指摘はすべて確実です。`severity: warn` を設定すると、確実な指摘が `warn`、それ以外が `info` になります。
 
 リポジトリからは見えない形で使っている依存は、`.depgraph.yml` で名前を指定して対象外にします: `unused-dependency: {ignore: [tslib, "@types/*"]}`（[設定](configuration.md)）。
 

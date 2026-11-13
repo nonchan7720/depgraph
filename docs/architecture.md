@@ -148,7 +148,7 @@ only resolves names when linking and turns the rows of a query into the text of 
 | `low-cohesion` | the connected groups of `(Part)-[:LINKS]-(Part)` of a unit, each used from outside, with no user in two groups |
 | `unreachable-file`, `unreachable-package` | one walk from the entry points marks what is reached; what is not is grouped under the file / package nothing imports |
 | `unused-export` | exported declarations without a `USES_NAMES` / `USES_GO` naming them, outside entry points and dead files |
-| `unused-dependency` | the `Dependency` nodes without a use that no file imports: no `(Dependency)-[:PROVIDES {scopes}]->(Package)<-[:IMPORTS]-(File)` with a file of one of the scopes |
+| `unused-dependency` | the `Dependency` nodes without a use that no file imports: no `(Dependency)-[:PROVIDES {scopes}]->(Package)<-[:IMPORTS]-(File)` with a file of one of the scopes, and for a gem no Ruby file whose `extConstants` hold one of its `constants` |
 
 Layers and `ignore` are globs in `.depgraph.yml`. They are translated once into regular
 expressions that mean the same in Go (RE2) and in Cypher (`=~`, Java), so a pattern matches the
@@ -212,7 +212,8 @@ The linked graph, resolved from those facts before the rules run:
 (Part {unit, what, id, data, used})-[:LINKS]->(Part)               # the parts of a package / module
 (ExtImport {pkg, file, ext, lang, python, class, basis})           # external imports of Python / Ruby files
 (Dependency {manifest, dir, eco, name, section, line, languages,   # a dependency a manifest declares
-             checked, use, doubt})-[:PROVIDES {scopes}]->(Package) # and the external packages it provides (to the files of scopes)
+             constants, checked, use, doubt})                      # constants: of a gem
+(Dependency)-[:PROVIDES {scopes}]->(Package)                       # the external packages it provides (to the files of scopes)
 (Root {key: 'unused'})-[:ENTRY {why}]->(File)                      # entry points
 (File)-[:USES_FILE]->(File), (File)-[:GO_PKG]->(File)              # what a file reaches
 (File)-[:USES_NAMES {names}]->(File), (File)-[:USES_GO {names}]->(Package)
@@ -437,7 +438,7 @@ pkg/infrastructure/
   resolver/                              repository walk + exclude patterns
     treesitter/                          structural analysis per file (gotreesitter)
     imports/                             import resolution per ecosystem (esbuild, go.mod / go.work, Python, Ruby)
-    deps/                                the dependencies the manifests declare (go.mod, package.json) and what else uses them
+    deps/                                the dependencies the manifests declare (go.mod, package.json, pyproject.toml / requirements, Gemfile) and what else uses them
     lsp/                                 refinement with language servers (callHierarchy / references)
   repository/graph/                      Neo4j: writes, schema, UI views
   repository/rules/                      Neo4j: linking and the rules (Cypher)

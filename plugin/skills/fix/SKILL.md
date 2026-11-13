@@ -89,12 +89,14 @@ refactor nobody asked for.
   file (`// depgraph:entry`, `# depgraph:entry`), or `entries` / `ignore` path globs for the rule in
   `.depgraph.yml`. Say which one it is and why.
 
-- **unused-dependency** (error; warn when not certain): a dependency `go.mod` or `package.json`
-  declares that no code of its module imports and nothing else names. An `error` is certain: remove
-  the declaration with the ecosystem's own tool (`go mod tidy`, `npm uninstall` / `pnpm remove` /
-  `yarn remove`) so the lockfile follows, never by editing the lockfile. If you just added it,
+- **unused-dependency** (error; warn when not certain): a dependency `go.mod`, `package.json`,
+  `pyproject.toml` / a requirements file or a `Gemfile` declares that no code imports and nothing
+  else names. An `error` is certain: remove the declaration with the ecosystem's own tool
+  (`go mod tidy`, `npm uninstall` / `pnpm remove` / `yarn remove`, `uv remove` / `poetry remove`,
+  `bundle remove`) so the lockfile follows, never by editing the lockfile. If you just added it,
   write the code that uses it or take it out again. A `warn` says why a use cannot be ruled out
-  (an add-on its host loads by name, type declarations, a package that is not installed): check
+  (an add-on its host loads by name, type declarations, a package that is not installed, a gem
+  Bundler requires at boot): check
   that reason first (the host's configuration, `node_modules`), and remove it only when it does
   not hold. A dependency that really is used in a way the repository does not show goes into the
   rule's `ignore` in `.depgraph.yml`, with the reason; do not add an import just to silence it.

@@ -252,7 +252,7 @@ func TestMentions(t *testing.T) {
 		{`"web/node_modules/@scope/pkg/dist/x.js"`, "@scope/pkg", true, true},
 		{`"web/node_modules/@scope/pkg-two/dist/x.js"`, "@scope/pkg", true, false},
 	} {
-		if got := mentions([]byte(c.text), c.word, c.quoted); got != c.want {
+		if got := mentions([]byte(c.text), c.word, c.quoted, false); got != c.want {
 			t.Errorf("mentions(%q, %q, quoted=%v) = %v, want %v", c.text, c.word, c.quoted, got, c.want)
 		}
 	}

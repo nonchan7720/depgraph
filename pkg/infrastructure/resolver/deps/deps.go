@@ -1,12 +1,12 @@
 // Package deps reads the dependencies the manifests of a repository declare
-// (go.mod, package.json) and what, besides an import, says one of them is
+// (go.mod, package.json, pyproject.toml / requirements files, Gemfile) and what, besides an import, says one of them is
 // used: the facts of the unused-dependency rule.
 //
-// Only ecosystems where an import names its package exactly are read: a Go
-// import path starts with the module's path, a JavaScript import with the
-// package's name. A Python distribution or a Ruby gem is imported under
-// names its manifest does not give, so telling "unused" from "used under
-// another name" would be a guess.
+// A Go import path starts with the module's path and a JavaScript import
+// with the package's name, so go.mod and package.json say what their
+// dependencies are imported as. Python distributions and Ruby gems are
+// imported under other names, read from where the project installs them
+// (envs.go); one whose names are not known is left out.
 //
 // Nothing is executed and nothing is written; files are read with safefile.
 package deps
@@ -30,8 +30,10 @@ import (
 
 // Ecosystems.
 const (
-	Go  = "go"
-	Npm = "npm"
+	Go   = "go"
+	Npm  = "npm"
+	PyPI = "pypi"
+	Gem  = "gem"
 )
 
 // extPrefix prefixes the key of a package outside the repository.
@@ -61,13 +63,19 @@ type Manifest struct {
 	tools    []string        // go: the packages of the tool directives
 	declared map[string]bool // npm: every package a section names, peers too
 	name     string          // npm: the package's own name
+	env      *env            // pypi, gem: what is installed for it (nil: nothing to read)
 }
 
 // Languages are the languages of the files whose imports use the
 // manifest's dependencies.
 func (m Manifest) Languages() []string {
-	if m.Ecosystem == Go {
+	switch m.Ecosystem {
+	case Go:
 		return []string{"go"}
+	case PyPI:
+		return []string{"python"}
+	case Gem:
+		return []string{"ruby"}
 	}
 	return []string{"javascript", "typescript"}
 }
@@ -91,8 +99,11 @@ func (m Manifest) Declares(key string) bool {
 	if !ok {
 		return false
 	}
-	if m.Ecosystem == Npm {
+	switch m.Ecosystem {
+	case Npm:
 		return m.declared[spec]
+	case PyPI, Gem:
+		return m.Provider(key) != ""
 	}
 	return slices.ContainsFunc(m.requires, func(mod string) bool { return spec == mod || strings.HasPrefix(spec, mod+"/") })
 }
@@ -123,6 +134,10 @@ func ecosystemOf(lang string) string {
 		return Go
 	case "javascript", "typescript":
 		return Npm
+	case "python":
+		return PyPI
+	case "ruby":
+		return Gem
 	}
 	return ""
 }
@@ -133,13 +148,15 @@ func ecosystemOf(lang string) string {
 // the nearest manifest that declares the package. When none of the file's
 // manifests does, something else provides the package to it (a workspace
 // that hoists, a go.work): every manifest that declares it may be the one.
+// Python and Ruby files share one environment: an import uses the
+// dependency in every manifest that declares it.
 func (ix *Index) Users(lang, dir, key string) []Ref {
 	eco := ecosystemOf(lang)
 	if eco == "" {
 		return nil
 	}
 	chain, ok := ix.chains[eco+" "+dir]
-	if !ok {
+	if !ok && eco != PyPI && eco != Gem {
 		for i, m := range ix.ms {
 			if m.Ecosystem == eco && m.Governs(dir) {
 				chain = append(chain, i)
@@ -182,13 +199,28 @@ func (m Manifest) Provider(key string) string {
 		return ""
 	}
 	name := spec
-	if m.Ecosystem == Go {
+	switch m.Ecosystem {
+	case Go:
 		name = ""
 		for _, mod := range m.requires {
 			if (spec == mod || strings.HasPrefix(spec, mod+"/")) && len(mod) > len(name) {
 				name = mod
 			}
 		}
+	case PyPI, Gem:
+		// the distribution / gem that is imported under the first name of the path
+		if m.env == nil {
+			return ""
+		}
+		if m.Ecosystem == PyPI {
+			spec, _, _ = strings.Cut(spec, ".")
+		}
+		for _, d := range m.Deps {
+			if slices.Contains(m.env.imports[d.Name], spec) {
+				return d.Name
+			}
+		}
+		return ""
 	}
 	if _, ok := slices.BinarySearchFunc(m.Deps, name, func(d Dependency, n string) int { return strings.Compare(d.Name, n) }); ok {
 		return name
@@ -209,7 +241,12 @@ func Declared(root string, dirs []string) []Manifest {
 	sort.Strings(dirs)
 	dirs = slices.Compact(dirs)
 	var all []Manifest
+	sites := map[string]*site{}
 	for _, dir := range dirs {
+		all = append(all, readPython(root, dir, sites)...)
+		if m, ok := readGemfile(root, dir); ok {
+			all = append(all, m)
+		}
 		if m, ok := readGoMod(root, dir); ok {
 			all = append(all, m)
 		}
@@ -245,8 +282,8 @@ func Signature(root string, ms []Manifest) string {
 		for _, d := range m.Deps {
 			_, _ = fmt.Fprintf(&b, "\x00%s\x1f%s\x1f%d", d.Name, d.Section, d.Line)
 		}
-		_, _ = fmt.Fprintf(&b, "\x00%s\x00%s\x00%s\n", strings.Join(m.tools, "\x1f"), strings.Join(m.requires, "\x1f"),
-			strings.Join(slices.Sorted(maps.Keys(m.declared)), "\x1f"))
+		_, _ = fmt.Fprintf(&b, "\x00%s\x00%s\x00%s\x00%s\n", strings.Join(m.tools, "\x1f"), strings.Join(m.requires, "\x1f"),
+			strings.Join(slices.Sorted(maps.Keys(m.declared)), "\x1f"), m.env.signature())
 	}
 	return b.String()
 }

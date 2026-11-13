@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.1.13](https://github.com/nonchan7720/depgraph/compare/v0.1.12...v0.1.13) (2026-11-13)
+
+
+### Features
+
+* **rules:** follow calls through fields and parameters by their declared type (interfaces to their only implementation) ([#78](https://github.com/nonchan7720/depgraph/issues/78)) ([823ddeb](https://github.com/nonchan7720/depgraph/commit/823ddebfbb0f1f70223db8c0db18c78ad679eae7))
+* **rules:** function-level call graph and call cycles across files (function-cycle) ([#73](https://github.com/nonchan7720/depgraph/issues/73)) ([cb2e846](https://github.com/nonchan7720/depgraph/commit/cb2e8468594a90f7ffe80a72e6daf38ffe983052))
+* **rules:** report chains of functions that only pass their parameters on (pass-through) ([#76](https://github.com/nonchan7720/depgraph/issues/76)) ([eb8d635](https://github.com/nonchan7720/depgraph/commit/eb8d6356b395b230c1709abf3a8f89c2e00c85c8))
+* **rules:** report functions that call into too many packages (wide-function) and the depgraph:ignore comment ([#77](https://github.com/nonchan7720/depgraph/issues/77)) ([2f2260d](https://github.com/nonchan7720/depgraph/commit/2f2260d393faa0ff163b7e08ea2395188aed3046))
+* **rules:** report import cycles between the files of one directory (file-cycle) ([#71](https://github.com/nonchan7720/depgraph/issues/71)) ([b953c18](https://github.com/nonchan7720/depgraph/commit/b953c1879defef9673653cb693fcb00f2ea2dc38))
+
+
+### Bug Fixes
+
+* **store:** delete a project's data in batches ([#75](https://github.com/nonchan7720/depgraph/issues/75)) ([fad2e00](https://github.com/nonchan7720/depgraph/commit/fad2e00c14a04d52a1cc8401e2fd7e674ae3124b))
+
+
+### Miscellaneous Chores
+
+* **gate:** review the session's changes before stopping (stop_review) ([#72](https://github.com/nonchan7720/depgraph/issues/72)) ([6f7e432](https://github.com/nonchan7720/depgraph/commit/6f7e4320ef4b05fca223cd6b40d5e2ecb2e174d2))
+* list the repositories rules are validated on (skill and script) ([#74](https://github.com/nonchan7720/depgraph/issues/74)) ([2f37b11](https://github.com/nonchan7720/depgraph/commit/2f37b11f18d12b923f5b4dfefe847f6579184dfd))
+
 ## [0.1.12](https://github.com/nonchan7720/depgraph/compare/v0.1.11...v0.1.12) (2026-11-12)
 
 

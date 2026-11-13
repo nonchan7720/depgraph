@@ -5,9 +5,11 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"os"
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/nonchan7720/depgraph/pkg/domain/graph"
 	"github.com/nonchan7720/depgraph/pkg/domain/rules"
@@ -18,9 +20,16 @@ type Querier interface {
 	Query(ctx context.Context, cypher string, params map[string]any) ([]map[string]any, error)
 }
 
+// Store is the graph store: the rules read it, linking writes the linked
+// graph (link.go).
+type Store interface {
+	Querier
+	Writer
+}
+
 // Repository evaluates rules as Cypher queries over one project's graph.
 type Repository struct {
-	q       Querier
+	q       Store
 	project string
 	// root is the directory the project's files are read from (version
 	// files, type checker data), "" when they are not available.
@@ -30,7 +39,7 @@ type Repository struct {
 var _ rules.Repository = (*Repository)(nil)
 
 // New returns a rules repository over q (the graph store) bound to project.
-func New(q Querier, project string) *Repository { return &Repository{q: q, project: project} }
+func New(q Store, project string) *Repository { return &Repository{q: q, project: project} }
 
 // WithRoot returns r reading the project's files from root (the tree that
 // was scanned: the gate's worktree, not necessarily the configuration's).
@@ -40,21 +49,30 @@ func (r *Repository) WithRoot(root string) *Repository {
 	return &c
 }
 
-// moduleCycles finds the cycles between cfg's modules and components; the
-// directory cycles already in found (import-cycle) are not repeated.
-func (r *Repository) moduleCycles(ctx context.Context, cfg rules.Config, ignore []string, found []rules.Finding) ([]rules.ModuleCycle, error) {
+// moduleUnits are the module directories of cfg: its modules and its
+// components (patterns expanded over the project's packages), sorted.
+func (r *Repository) moduleUnits(ctx context.Context, cfg rules.Config) ([]string, error) {
 	units := append([]string(nil), cfg.Modules...)
 	if len(cfg.Components) > 0 {
 		keys, err := r.packageKeys(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("module cycles: %w", err)
+			return nil, err
 		}
 		for _, c := range cfg.ExpandComponents(keys).Components {
 			units = append(units, c.Dir)
 		}
 	}
+	sort.Strings(units)
+	return slices.Compact(units), nil
+}
+
+// linkModules adds the modules of the project (units; "." for what is in
+// none) and the imports between them: (Module)-[:MODULE_IMPORTS {from, to}]->
+// (Module), from -> to being one package import that makes it (the
+// smallest).
+func (r *Repository) linkModules(ctx context.Context, units, ignore []string, want *linked) error {
 	if len(units) == 0 {
-		return nil, nil
+		return nil
 	}
 	rows, err := r.query(ctx, `
 		MATCH (a:Package {project: $project})-[:IMPORTS]->(b:Package {project: $project})
@@ -63,23 +81,69 @@ func (r *Repository) moduleCycles(ctx context.Context, cfg rules.Config, ignore 
 		RETURN a.key AS from, b.key AS to
 	`, ignore, nil)
 	if err != nil {
-		return nil, fmt.Errorf("module cycles: %w", err)
+		return fmt.Errorf("modules: %w", err)
 	}
-	edges := make([][2]string, 0, len(rows))
 	for _, row := range rows {
-		from, _ := row["from"].(string)
-		to, _ := row["to"].(string)
-		edges = append(edges, [2]string{from, to})
+		from, to := str(row["from"]), str(row["to"])
+		a, b := nodeID{"Module", rules.ModuleOf(units, from)}, nodeID{"Module", rules.ModuleOf(units, to)}
+		if a == b {
+			continue
+		}
+		want.node(a, nil)
+		want.node(b, nil)
+		id := edgeID{"MODULE_IMPORTS", a, b}
+		if old, ok := want.edges[id]; ok && (str(old["from"]) < from || (str(old["from"]) == from && str(old["to"]) <= to)) {
+			continue
+		}
+		want.edges[id] = map[string]any{"from": from, "to": to}
 	}
-	var dirCycles [][]string
+	return nil
+}
+
+// moduleCycles reports the import cycles between the modules (Go modules,
+// npm packages, Python projects, components): for every import between two
+// modules, the shortest cycle of modules through it (at most 8). A cycle of
+// the same modules as a directory cycle already in found (import-cycle) is
+// not repeated.
+func (r *Repository) moduleCycles(ctx context.Context, cfg rules.Config, found []rules.Finding) ([]rules.Finding, error) {
+	units, err := r.moduleUnits(ctx, cfg)
+	if err != nil || len(units) == 0 {
+		return nil, err
+	}
+	var known []string
 	for _, f := range found {
-		if f.Rule == rules.RuleImportCycle {
-			if keys, ok := f.Data["packages"].([]string); ok {
-				dirCycles = append(dirCycles, keys)
-			}
+		if keys, ok := f.Data["packages"].([]string); ok && f.Rule == rules.RuleImportCycle {
+			known = append(known, rules.ModuleSet(units, keys))
 		}
 	}
-	return rules.ModuleCycles(edges, units, dirCycles), nil
+	rows, err := r.query(ctx, `
+		MATCH (a:Module {project: $project})-[e:MODULE_IMPORTS]->(b:Module {project: $project})
+		MATCH p = allShortestPaths((b)-[:MODULE_IMPORTS*1..7]->(a))
+		WITH a, b, e, p, [n IN nodes(p) | n.key] AS back ORDER BY back
+		WITH a, b, e, head(collect(p)) AS p
+		WITH [a.key] + [n IN nodes(p) | n.key][0..-1] AS ring, [e] + relationships(p) AS hops
+		WITH ring, hops, reduce(m = 0, i IN range(0, size(ring) - 1) | CASE WHEN ring[i] < ring[m] THEN i ELSE m END) AS s
+		WITH ring[s..] + ring[..s] AS ring, [h IN hops[s..] + hops[..s] | h.from + ' -> ' + h.to] AS imports ORDER BY imports
+		WITH ring, head(collect(imports)) AS imports
+		WITH ring, imports, COLLECT { UNWIND ring AS m RETURN m ORDER BY m } AS members
+		WHERE NOT reduce(set = '', m IN members | set + m + '\u0000') IN $known
+		RETURN ring, imports ORDER BY size(ring), ring LIMIT 50
+	`, nil, map[string]any{"known": known})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]rules.Finding, 0, len(rows))
+	for _, row := range rows {
+		ring, imports := toStrings(row["ring"]), toStrings(row["imports"])
+		modules := append(ring, ring[0])
+		out = append(out, rules.Finding{
+			Rule: rules.RuleModuleCycle, Severity: string(cfg.Severity(rules.RuleModuleCycle)),
+			Message: strings.Join(modules, " -> ") + " (" + strings.Join(imports, ", ") + ")",
+			ID:      strings.Join(modules, " -> "),
+			Data:    map[string]any{"modules": modules, "imports": imports},
+		})
+	}
+	return out, nil
 }
 
 // packageKeys returns the keys of the project's in-repo packages.
@@ -150,13 +214,24 @@ func inExtLayer(n, s, py, tp string) string {
 		(%[4]s AND any(rx IN %[2]s.libRx WHERE %[1]s.key =~ rx))))`, n, s, py, tp)
 }
 
+// reportsExt is the Cypher condition "the pair pr applies to an import of
+// the external package b (a map with its key) by the in-repo package a (a
+// map with its key)": rules.LayerPair.Reports. py: the import is of a
+// Python file (dotted submodules); tp: it is known to be third-party.
+func reportsExt(py, tp string) string {
+	return `(NOT any(rx IN pr.exceptRx WHERE a.key =~ rx)
+		AND ` + inRepoLayer("a", "pr.fromSet") + ` AND NOT ` + inRepoLayer("a", "pr.toSet") + `
+		AND ` + inExtLayer("b", "pr.toSet", py, tp) + ` AND NOT ` + inExtLayer("b", "pr.fromSet", py, tp) + `)`
+}
+
 // externalUnclassified lists, per language, the external imports of the
 // from layer of a forbidden pair whose to layer has a wildcard that would
 // match them if they were known to be third-party, and is not decided by an
-// exact pattern or an exclusion.
-func (r *Repository) externalUnclassified(ctx context.Context, cfg rules.Config, ignore []string,
-	pythonFor func([]rules.LayerPair) (*pythonImports, error)) ([]rules.Finding, error) {
-	pairs, lp, err := r.layerPairs(ctx, cfg)
+// exact pattern or an exclusion: the imports of files whose language
+// classifies at parse time (the class of IMPORTS) and those classified from
+// the project's files (ExtImport: Python, Ruby).
+func (r *Repository) externalUnclassified(ctx context.Context, cfg rules.Config, ignore []string) ([]rules.Finding, error) {
+	pairs, _, err := r.layerPairs(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -175,13 +250,17 @@ func (r *Repository) externalUnclassified(ctx context.Context, cfg rules.Config,
 		UNWIND $pairs AS pr
 		MATCH (a:Package {project: $project})-[:CONTAINS]->(f:File)-[e:IMPORTS]->(b:Package)
 		WHERE a.external = false AND b.external = true AND e.class IS NULL AND NOT f.language IN ['python', 'ruby']
-		  AND NOT any(rx IN pr.exceptRx WHERE a.key =~ rx)
 		  AND NOT any(rx IN $ignore WHERE a.key =~ rx OR b.key =~ rx)
-		  AND `+inRepoLayer("a", "pr.fromSet")+` AND NOT `+inRepoLayer("a", "pr.toSet")+`
 		WITH a, b, f, e, pr, false AS py
-		WHERE `+inExtLayer("b", "pr.toSet", "py", "true")+` AND NOT `+inExtLayer("b", "pr.toSet", "py", "false")+`
-		  AND NOT `+inExtLayer("b", "pr.fromSet", "py", "true")+`
+		WHERE `+reportsExt("py", "true")+` AND NOT `+reportsExt("py", "false")+`
 		RETURN DISTINCT f.language AS lang, b.key AS key, e.basis AS basis
+		UNION
+		UNWIND $pairs AS pr
+		MATCH (i:ExtImport {project: $project})
+		WHERE i.class IS NULL AND NOT i.unlisted
+		WITH i, pr, {key: i.pkg} AS a, {key: i.ext} AS b, i.python AS py
+		WHERE `+reportsExt("py", "true")+` AND NOT `+reportsExt("py", "false")+`
+		RETURN DISTINCT i.lang AS lang, i.ext AS key, i.basis AS basis
 	`, ignore, map[string]any{"pairs": wild})
 	if err != nil {
 		return nil, fmt.Errorf("external unclassified: %w", err)
@@ -194,13 +273,6 @@ func (r *Repository) externalUnclassified(ctx context.Context, cfg rules.Config,
 			item += " (" + basis + ")"
 		}
 		byLang[lang] = append(byLang[lang], item)
-	}
-	py, err := pythonFor(lp)
-	if err != nil {
-		return nil, err
-	}
-	for lang, items := range py.unclassified(lp) {
-		byLang[string(lang)] = append(byLang[string(lang)], items...)
 	}
 	langs := slices.Sorted(maps.Keys(byLang))
 	out := make([]rules.Finding, 0, len(langs))
@@ -229,7 +301,28 @@ func (r *Repository) externalUnclassified(ctx context.Context, cfg rules.Config,
 func (r *Repository) query(ctx context.Context, cypher string, ignore []string, p map[string]any) ([]map[string]any, error) {
 	params := map[string]any{"project": r.project, "ignore": ignore}
 	maps.Copy(params, p)
+	defer timing(cypher)()
 	return r.q.Query(ctx, cypher, params)
+}
+
+// write runs a statement that changes the linked graph.
+func (r *Repository) write(ctx context.Context, cypher string, params map[string]any) error {
+	defer timing(cypher)()
+	_, err := r.q.Write(ctx, cypher, params)
+	return err
+}
+
+// timing prints how long a statement took when DEPGRAPH_TIMING is set
+// (to find the statement that is slow on a large repository).
+func timing(cypher string) func() {
+	if os.Getenv("DEPGRAPH_TIMING") == "" {
+		return func() {}
+	}
+	start := time.Now()
+	return func() {
+		text := strings.Join(strings.Fields(cypher), " ")
+		_, _ = fmt.Fprintf(os.Stderr, "TIMING %8.2fs %s\n", time.Since(start).Seconds(), text[:min(110, len(text))])
+	}
 }
 
 // Evaluate runs every enabled rule and returns findings sorted by key.
@@ -245,24 +338,34 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 	}
 	ignore := rules.Regexes(ignoreGlobs)
 	sev := func(rule string) string { return string(cfg.Severity(rule)) }
+	// The names the files use are resolved into the linked graph first
+	// (link.go); the rules below query it.
+	if err := r.link(ctx, cfg, ignore); err != nil {
+		return nil, err
+	}
 	var out []rules.Finding
 
-	// 1. Import cycles between in-repo packages (none through an ignored one).
+	// 1. Import cycles between in-repo packages (none through an ignored
+	// one): among the packages a cycle can go through (Package.cyclic,
+	// marked when the graph is linked: link.go).
 	if cfg.Enabled(rules.RuleImportCycle) {
 		// For every import a -> b, the shortest way back from b to a closes
 		// the shortest cycle through that import: every import on a cycle of
 		// at most 8 packages is reported, in polynomial time. (Enumerating
 		// every elementary cycle, as before, is exponential: a 700-file
-		// repository took 17 s, beyond the hook's budget.) shortestPath, not
-		// GQL SHORTEST, which the 5.26 planner ran ~500x slower here. Cycles
+		// repository took 17 s, beyond the hook's budget.) allShortestPaths, not
+		// GQL SHORTEST, which the 5.26 planner ran ~500x slower here. Of
+		// several shortest ways back the smallest (by its keys) is taken, so
+		// the cycles reported for a graph are the same in every run. Cycles
 		// are rotated to start at their smallest key and deduplicated.
 		rows, err := r.query(ctx, `
 			MATCH (a:Package {project: $project})-[:IMPORTS]->(b:Package {project: $project})
-			WHERE a.external = false AND b.external = false AND a <> b
-			  AND none(rx IN $ignore WHERE a.key =~ rx OR b.key =~ rx)
-			MATCH p = shortestPath((b)-[:IMPORTS*1..7]->(a))
-			WHERE all(x IN nodes(p) WHERE x.external = false AND none(rx IN $ignore WHERE x.key =~ rx))
-			WITH [a.key] + [n IN nodes(p) | n.key] AS cyc
+			WHERE a.cyclic AND b.cyclic AND a <> b
+			MATCH p = allShortestPaths((b)-[:IMPORTS*1..7]->(a))
+			WHERE all(x IN nodes(p) WHERE x.cyclic)
+			WITH a, b, [n IN nodes(p) | n.key] AS back ORDER BY back
+			WITH a, b, head(collect(back)) AS back
+			WITH [a.key] + back AS cyc
 			WITH cyc[0..size(cyc)-1] AS ring
 			WITH ring, reduce(m = 0, i IN range(0, size(ring) - 1) | CASE WHEN ring[i] < ring[m] THEN i ELSE m END) AS s
 			WITH ring[s..] + ring[..s] AS r
@@ -285,70 +388,51 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 	// 1b. Import cycles between modules (Go modules, npm packages, Python
 	// projects, components) that are not directory cycles too.
 	if cfg.Enabled(rules.RuleModuleCycle) {
-		found, err := r.moduleCycles(ctx, cfg, ignore, out)
+		fs, err := r.moduleCycles(ctx, cfg, out)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("module cycles: %w", err)
 		}
-		for _, c := range found {
-			out = append(out, rules.Finding{
-				Rule: rules.RuleModuleCycle, Severity: sev(rules.RuleModuleCycle),
-				Message: strings.Join(c.Modules, " -> ") + " (" + strings.Join(c.Imports, ", ") + ")",
-				ID:      strings.Join(c.Modules, " -> "),
-				Data:    map[string]any{"modules": c.Modules, "imports": c.Imports},
-			})
-		}
+		out = append(out, fs...)
 	}
 
 	// 1c. Import cycles between the files of one directory (filecycle.go).
 	if cfg.Enabled(rules.RuleFileCycle) {
-		fc, err := r.fileCycles(ctx, cfg, ignore)
+		fc, err := r.fileCycles(ctx, cfg)
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, fc...)
 	}
 
-	// 1d. The function-level call graph (callgraph.go): cycles of calls
-	// across files and chains of functions that only forward (callrules.go).
-	if cfg.Enabled(rules.RuleFunctionCycle) || cfg.Enabled(rules.RulePassThrough) || cfg.Enabled(rules.RuleWideFunction) {
-		g, err := r.callGraph(ctx, ignore)
+	// 1d. The function-level call graph (linked by callgraph.go): cycles of
+	// calls across files, chains of functions that only forward, functions
+	// that call into too many packages (callrules.go).
+	for _, rule := range []struct {
+		name string
+		run  func(context.Context, rules.Config) ([]rules.Finding, error)
+	}{
+		{rules.RuleFunctionCycle, r.functionCycles},
+		{rules.RulePassThrough, r.passThrough},
+		{rules.RuleWideFunction, r.wideFunctions},
+	} {
+		if !cfg.Enabled(rule.name) {
+			continue
+		}
+		fs, err := rule.run(ctx, cfg)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%s: %w", rule.name, err)
 		}
-		if cfg.Enabled(rules.RuleFunctionCycle) {
-			out = append(out, functionCycles(g, cfg)...)
-		}
-		if cfg.Enabled(rules.RulePassThrough) {
-			out = append(out, passThrough(g, cfg)...)
-		}
-		if cfg.Enabled(rules.RuleWideFunction) {
-			out = append(out, wideFunctions(g, cfg)...)
-		}
+		out = append(out, fs...)
 	}
 
 	// 2. Layer violations: a in from, b in to, and the edge crosses the pair
 	// (a is not also in to, b is not also in from). The pairs of the root
 	// and of every component (components: packages/* expanded over the
 	// stored packages) run in one query.
-	// Python imports are classified now, from the project's files
-	// (python.go), and their pairs evaluated with rules.LayerPair.Reports.
-	var py *pythonImports
-	pythonFor := func(lp []rules.LayerPair) (*pythonImports, error) {
-		if py == nil && slices.ContainsFunc(lp, func(p rules.LayerPair) bool { return p.ToSet.HasExternal() }) {
-			var err error
-			if py, err = r.pythonImports(ctx, cfg, ignore); err != nil {
-				return nil, err
-			}
-			rb, err := r.rubyImports(ctx, ignore)
-			if err != nil {
-				return nil, err
-			}
-			py.add(rb)
-		}
-		return py, nil
-	}
+	// The external imports of Python and Ruby files are classified from
+	// the project's files when the graph is linked (ExtImport, python.go).
 	if cfg.Enabled(rules.RuleLayerViolation) {
-		pairs, lp, err := r.layerPairs(ctx, cfg)
+		pairs, _, err := r.layerPairs(ctx, cfg)
 		if err != nil {
 			return nil, err
 		}
@@ -382,15 +466,17 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 				WITH pr, a, b, false AS py, coalesce(e.class = '`+graph.ClassThirdParty+`', false) AS tp
 				WHERE `+inExtLayer("b", "pr.toSet", "py", "tp")+` AND NOT `+inExtLayer("b", "pr.fromSet", "py", "tp")+`
 				RETURN DISTINCT a.key AS from, b.key AS to, pr.from AS fromLayer, pr.to AS toLayer, pr.component AS component
+				UNION
+				UNWIND $pairs AS pr
+				WITH pr WHERE pr.toExternal
+				MATCH (i:ExtImport {project: $project})
+				WITH pr, {key: i.pkg} AS a, {key: i.ext} AS b, i.python AS py, coalesce(i.class = '`+graph.ClassThirdParty+`', false) AS tp
+				WHERE `+reportsExt("py", "tp")+`
+				RETURN DISTINCT a.key AS from, b.key AS to, pr.from AS fromLayer, pr.to AS toLayer, pr.component AS component
 			`, ignore, params)
 			if err != nil {
 				return nil, fmt.Errorf("layers: %w", err)
 			}
-			py, err := pythonFor(lp)
-			if err != nil {
-				return nil, err
-			}
-			rows = append(rows, py.violations(lp)...)
 			for _, row := range rows {
 				msg := fmt.Sprintf("%s -> %s (%s must not import %s)", row["from"], row["to"], row["fromLayer"], row["toLayer"])
 				if c, _ := row["component"].(string); c != "" {
@@ -408,7 +494,7 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 
 	// 2b. Imports a wildcard external layer could not classify.
 	if cfg.Enabled(rules.RuleExternalUnclassified) {
-		fs, err := r.externalUnclassified(ctx, cfg, ignore, pythonFor)
+		fs, err := r.externalUnclassified(ctx, cfg, ignore)
 		if err != nil {
 			return nil, err
 		}
@@ -484,44 +570,17 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 	}
 
 	// 5. Duplicated code: the same (or nearly the same) logic in several
-	// places, whatever the names. Test code is left out (table tests look
-	// alike on purpose), and so are ignored packages.
+	// places, whatever the names (clones.go).
 	if cfg.Enabled(rules.RuleDuplicateCode) {
-		rows, err := r.query(ctx, `
-			MATCH (p:Package {project: $project})-[:CONTAINS]->(f:File)-[:DECLARES]->(s:Symbol)
-			WHERE s.tokens >= $min AND none(rx IN $ignore WHERE p.key =~ rx)
-			RETURN f.path AS file, s.name AS name, s.kind AS kind, s.line AS line, s.endLine AS endLine,
-			       s.tokens AS tokens, s.cloneHash AS hash, s.fingerprints AS fps
-		`, ignore, map[string]any{"min": max(cfg.Clones.MinTokens, 1)})
+		fs, err := r.duplicateCode(ctx, cfg)
 		if err != nil {
-			return nil, fmt.Errorf("duplicate code: %w", err)
+			return nil, err
 		}
-		var cands []rules.CloneCandidate
-		for _, row := range rows {
-			file := fmt.Sprint(row["file"])
-			if rules.IsTestFile(file) {
-				continue
-			}
-			c := rules.CloneCandidate{File: file, Name: fmt.Sprint(row["name"]), Kind: fmt.Sprint(row["kind"]),
-				Line: toInt(row["line"]), EndLine: toInt(row["endLine"]), Tokens: toInt(row["tokens"])}
-			c.Hash, _ = row["hash"].(string)
-			if fps, ok := row["fps"].([]any); ok {
-				for _, f := range fps {
-					if v, ok := f.(int64); ok {
-						c.Fingerprints = append(c.Fingerprints, v)
-					}
-				}
-			}
-			cands = append(cands, c)
-		}
-		for _, f := range rules.FindClones(cands, cfg.Clones) {
-			f.Severity = sev(rules.RuleDuplicateCode)
-			out = append(out, f)
-		}
+		out = append(out, fs...)
 	}
 
 	// 5b. The code inside the layers (members.go).
-	members, err := r.evaluateMembers(ctx, cfg, ignore)
+	members, err := r.evaluateMembers(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -529,19 +588,35 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 
 	// 5c. Packages / modules holding unrelated parts (cohesion.go).
 	if cfg.Enabled(rules.RuleLowCohesion) {
-		lc, err := r.lowCohesion(ctx, cfg, ignore)
+		lc, err := r.lowCohesion(ctx, cfg)
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, lc...)
 	}
 
-	// 6. Unused code at project level (unused.go).
-	unused, err := r.evaluateUnused(ctx, cfg)
-	if err != nil {
-		return nil, err
+	// 6. Unused code at project level (unused.go, unreachable.go).
+	if cfg.Enabled(rules.RuleUnreachableFile) {
+		fs, err := r.unreachable(ctx, cfg, rules.RuleUnreachableFile, "File", "path")
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, fs...)
 	}
-	out = append(out, unused...)
+	if cfg.Enabled(rules.RuleUnreachablePackage) {
+		fs, err := r.unreachable(ctx, cfg, rules.RuleUnreachablePackage, "Package", "key")
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, fs...)
+	}
+	if cfg.Enabled(rules.RuleUnusedExport) {
+		fs, err := r.unusedExports(ctx, cfg, ignore)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, fs...)
+	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].Key() < out[j].Key() })
 	return out, nil

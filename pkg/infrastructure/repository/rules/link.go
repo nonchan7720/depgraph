@@ -179,7 +179,7 @@ func (r *Repository) link(ctx context.Context, cfg rules.Config, ignore []string
 
 // linkVersion changes when linking stores something else for the same
 // files: an older linked graph is then rebuilt.
-const linkVersion = "8"
+const linkVersion = "9"
 
 // linkKey identifies what the linked graph is made from: the stored files
 // (their number and the last update) and the settings linking reads.
@@ -198,28 +198,30 @@ func (r *Repository) linkKey(ctx context.Context, ignore, settings []string) (st
 }
 
 // storeLinked writes the difference between want and the stored linked
-// graph: relationships and nodes that are no longer wanted are removed, new
-// and changed ones written.
+// graph. The unit of comparison is a node with its outgoing relationships:
+// every such node is stored with a digest of them (linkSig), so what is
+// stored is read as one small row per node (the digest and how many
+// relationships leave it), not relationship by relationship. A node whose
+// digest and count are as wanted is left alone; any other is written again
+// with its relationships; one that is no longer wanted is removed. The
+// count catches a relationship lost with its end node (a file removed and
+// stored again).
 func (r *Repository) storeLinked(ctx context.Context, want *linked) error {
-	p := map[string]any{"project": r.project}
-	// what is stored: one query for the nodes, one for the relationships
-	done := timing("read the linked nodes")
-	rows, err := r.q.Query(ctx, `MATCH (n:`+strings.Join(ownedLabels, "|")+` {project: $project})
-		RETURN labels(n)[0] AS label, n.key AS key, properties(n) AS props`, p)
-	done()
-	if err != nil {
-		return err
+	type bundle struct {
+		props map[string]any // of a node linking owns, nil for the others
+		owned bool
+		edges []edgeID
 	}
-	haveNodes := map[string]map[string]string{} // label -> key -> signature
-	for _, row := range rows {
-		label := str(row["label"])
-		props, _ := row["props"].(map[string]any)
-		delete(props, "project")
-		delete(props, keyProp[label])
-		if haveNodes[label] == nil {
-			haveNodes[label] = map[string]string{}
+	bundles := map[nodeID]*bundle{}
+	at := func(id nodeID) *bundle {
+		if bundles[id] == nil {
+			bundles[id] = &bundle{}
 		}
-		haveNodes[label][str(row["key"])] = signature(props)
+		return bundles[id]
+	}
+	for id, props := range want.nodes {
+		b := at(id)
+		b.props, b.owned = props, true
 	}
 	var types, starts []string
 	kindOf := map[string][3]string{}
@@ -230,94 +232,119 @@ func (r *Repository) storeLinked(ctx context.Context, want *linked) error {
 			starts = append(starts, k[1])
 		}
 	}
-	done = timing("read the linked relationships")
-	rows, err = r.q.Query(ctx, `MATCH (a:`+strings.Join(starts, "|")+` {project: $project})-[e:`+strings.Join(types, "|")+`]->(b)
-		RETURN type(e) AS type, labels(a)[0] AS fromLabel, labels(b)[0] AS toLabel,
-		       coalesce(a.path, a.key) AS from, coalesce(b.path, b.key) AS to, properties(e) AS props`, p)
+	for id := range want.edges {
+		if k := kindOf[id.typ]; k[1] != id.from.label || k[2] != id.to.label {
+			return fmt.Errorf("relationship %s between %s and %s is not of the linked graph", id.typ, id.from.label, id.to.label)
+		}
+		b := at(id.from)
+		b.edges = append(b.edges, id)
+	}
+	digest := func(b *bundle) string {
+		lines := make([]string, 0, len(b.edges))
+		for _, e := range b.edges {
+			lines = append(lines, e.typ+"\x00"+e.to.label+"\x00"+e.to.key+"\x00"+signature(want.edges[e]))
+		}
+		sort.Strings(lines)
+		h := sha256.New()
+		_, _ = h.Write([]byte(signature(b.props)))
+		for _, l := range lines {
+			_, _ = h.Write([]byte("\x01" + l))
+		}
+		return hex.EncodeToString(h.Sum(nil)[:12])
+	}
+
+	// what is stored
+	labels := append(slices.Clone(ownedLabels), "File", "Package")
+	done := timing("read the linked graph")
+	rows, err := r.q.Query(ctx, `
+		MATCH (n:`+strings.Join(labels, "|")+` {project: $project})
+		WHERE n.linkSig IS NOT NULL OR NOT (n:File OR n:Package)
+		RETURN labels(n)[0] AS label, coalesce(n.path, n.key) AS key, n.linkSig AS sig,
+		       COUNT { (n)-[:`+strings.Join(types, "|")+`]->() } AS out
+	`, map[string]any{"project": r.project})
 	done()
 	if err != nil {
 		return err
 	}
-	haveEdges := map[string]map[[2]string]string{} // type -> (from, to) -> signature
+	stale := map[string][]string{} // label -> keys of nodes that are not wanted any more
+	current := map[nodeID]bool{}
 	for _, row := range rows {
-		typ := str(row["type"])
-		if k := kindOf[typ]; k[1] != str(row["fromLabel"]) || k[2] != str(row["toLabel"]) {
-			continue // not of the linked graph (CALLS between symbols is the language servers')
+		id := nodeID{str(row["label"]), str(row["key"])}
+		b := bundles[id]
+		switch {
+		case b == nil:
+			stale[id.label] = append(stale[id.label], id.key)
+		case str(row["sig"]) == digest(b) && toInt(row["out"]) == len(b.edges):
+			current[id] = true
 		}
-		props, _ := row["props"].(map[string]any)
-		if haveEdges[typ] == nil {
-			haveEdges[typ] = map[[2]string]string{}
-		}
-		haveEdges[typ][[2]string{str(row["from"]), str(row["to"])}] = signature(props)
 	}
-	// nodes
+	write := func(cypher string, rows []map[string]any) error {
+		for chunk := range slices.Chunk(rows, linkBatch) {
+			if err := r.write(ctx, cypher, map[string]any{"project": r.project, "rows": chunk}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	// 1. the nodes that changed (before the relationships that end at them)
+	changed := map[string][]map[string]any{} // label -> rows {key, props | sig}
+	for id, b := range bundles {
+		if current[id] {
+			continue
+		}
+		row := map[string]any{"key": id.key, "sig": digest(b)}
+		if b.owned {
+			all := map[string]any{"project": r.project, keyProp[id.label]: id.key, "linkSig": row["sig"]}
+			maps.Copy(all, b.props)
+			row["props"] = all
+		}
+		changed[id.label] = append(changed[id.label], row)
+	}
 	for _, label := range ownedLabels {
-		have := haveNodes[label]
-		var write []map[string]any
-		for id, props := range want.nodes {
-			if id.label != label {
-				continue
-			}
-			if sig, ok := have[id.key]; !ok || sig != signature(props) {
-				all := map[string]any{"project": r.project, keyProp[label]: id.key}
-				maps.Copy(all, props)
-				write = append(write, map[string]any{"key": id.key, "props": all})
-			}
-			delete(have, id.key)
-		}
-		gone := make([]string, 0, len(have))
-		for k := range have {
-			gone = append(gone, k)
-		}
-		for chunk := range slices.Chunk(gone, linkBatch) {
-			if err := r.write(ctx, `UNWIND $keys AS k MATCH (n:`+label+` {project: $project, `+keyProp[label]+`: k}) DETACH DELETE n`,
-				map[string]any{"project": r.project, "keys": chunk}); err != nil {
-				return err
-			}
-		}
-		for chunk := range slices.Chunk(write, linkBatch) {
-			if err := r.write(ctx, `UNWIND $rows AS row MERGE (n:`+label+` {project: $project, `+keyProp[label]+`: row.key}) SET n = row.props`,
-				map[string]any{"project": r.project, "rows": chunk}); err != nil {
-				return err
-			}
+		if err := write(`UNWIND $rows AS row MERGE (n:`+label+` {project: $project, `+keyProp[label]+`: row.key}) SET n = row.props`, changed[label]); err != nil {
+			return err
 		}
 	}
-	// relationships
+	// 2. what is not wanted any more: the nodes linking owns, and the
+	// relationships of the others
+	for label, keys := range stale {
+		rows := make([]map[string]any, len(keys))
+		for i, k := range keys {
+			rows[i] = map[string]any{"key": k}
+		}
+		cypher := `UNWIND $rows AS row MATCH (n:` + label + ` {project: $project, ` + keyProp[label] + `: row.key}) DETACH DELETE n`
+		if !slices.Contains(ownedLabels, label) {
+			cypher = `UNWIND $rows AS row MATCH (n:` + label + ` {project: $project, ` + keyProp[label] + `: row.key})
+				REMOVE n.linkSig WITH n MATCH (n)-[e:` + strings.Join(types, "|") + `]->() DELETE e`
+		}
+		if err := write(cypher, rows); err != nil {
+			return err
+		}
+	}
+	// 3. the relationships of the nodes that changed: all of them again
+	for _, label := range starts {
+		if err := write(`UNWIND $rows AS row MATCH (n:`+label+` {project: $project, `+keyProp[label]+`: row.key})
+			SET n.linkSig = row.sig WITH n MATCH (n)-[e:`+strings.Join(types, "|")+`]->() DELETE e`, changed[label]); err != nil {
+			return err
+		}
+	}
 	for _, k := range edgeKinds {
 		typ, from, to := k[0], k[1], k[2]
-		have := haveEdges[typ]
-		var write, gone []map[string]any
+		var rows []map[string]any
 		for id, props := range want.edges {
-			if id.typ != typ {
+			if id.typ != typ || current[id.from] {
 				continue
 			}
-			if id.from.label != from || id.to.label != to {
-				return fmt.Errorf("relationship %s between %s and %s is not of the linked graph", typ, id.from.label, id.to.label)
+			if props == nil {
+				props = map[string]any{}
 			}
-			pair := [2]string{id.from.key, id.to.key}
-			if sig, ok := have[pair]; !ok || sig != signature(props) {
-				if props == nil {
-					props = map[string]any{}
-				}
-				write = append(write, map[string]any{"from": id.from.key, "to": id.to.key, "props": props})
-			}
-			delete(have, pair)
+			rows = append(rows, map[string]any{"from": id.from.key, "to": id.to.key, "props": props})
 		}
-		for pair := range have {
-			gone = append(gone, map[string]any{"from": pair[0], "to": pair[1]})
-		}
-		ends := `MATCH (a:` + from + ` {project: $project, ` + keyProp[from] + `: row.from}) MATCH (b:` + to + ` {project: $project, ` + keyProp[to] + `: row.to})`
-		for chunk := range slices.Chunk(gone, linkBatch) {
-			if err := r.write(ctx, `UNWIND $rows AS row `+ends+` MATCH (a)-[e:`+typ+`]->(b) DELETE e`,
-				map[string]any{"project": r.project, "rows": chunk}); err != nil {
-				return err
-			}
-		}
-		for chunk := range slices.Chunk(write, linkBatch) {
-			if err := r.write(ctx, `UNWIND $rows AS row `+ends+` MERGE (a)-[e:`+typ+`]->(b) SET e = row.props`,
-				map[string]any{"project": r.project, "rows": chunk}); err != nil {
-				return err
-			}
+		if err := write(`UNWIND $rows AS row
+			MATCH (a:`+from+` {project: $project, `+keyProp[from]+`: row.from})
+			MATCH (b:`+to+` {project: $project, `+keyProp[to]+`: row.to})
+			MERGE (a)-[e:`+typ+`]->(b) SET e = row.props`, rows); err != nil {
+			return err
 		}
 	}
 	return nil

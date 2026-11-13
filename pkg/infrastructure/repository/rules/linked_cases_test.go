@@ -11,6 +11,7 @@ import (
 
 	"github.com/nonchan7720/depgraph/pkg/domain/graph"
 	"github.com/nonchan7720/depgraph/pkg/domain/rules"
+	graphrepo "github.com/nonchan7720/depgraph/pkg/infrastructure/repository/graph"
 )
 
 // The cases the Go implementations of these rules were tested with, before
@@ -201,5 +202,65 @@ func TestFileCyclesIsBoundedCases(t *testing.T) {
 	ring8 := append(edges[:7:7], [2]string{"d/h.ts", "d/a.ts"})
 	if got := evaluateGraph(t, "filec_8", rules.RuleFileCycle, cfg, tsLoads(ring8, nil)); len(got) != 1 || strings.Count(got[0], " -> ") != 8 {
 		t.Errorf("a ring of 8 files: %v", got)
+	}
+}
+
+// The linked graph follows the files: a file removed and stored again (its
+// node is new, so the relationships other files had to it are gone), a file
+// changed and changed back. Every evaluation reports what a fresh project
+// with the same files reports.
+func TestLinkedGraphFollowsTheFiles(t *testing.T) {
+	ctx, st := connect(t)
+	key := fmt.Sprintf("zz_test_%d_relink", time.Now().UnixNano())
+	g := graphrepo.ForProject(st, key)
+	files := func(bLoadsA bool) []*graph.FileGraph {
+		loads := [][2]string{{"src/a.ts", "src/b.ts"}, {"src/c.ts", "src/a.ts"}}
+		if bLoadsA {
+			loads = append(loads, [2]string{"src/b.ts", "src/a.ts"})
+		}
+		fs := tsLoads(loads, nil)
+		slices.SortFunc(fs, func(x, y *graph.FileGraph) int { return strings.Compare(x.Path, y.Path) })
+		return fs
+	}
+	upsertAll(ctx, t, st, key, files(true))
+	eval := func() []string {
+		t.Helper()
+		fs, err := New(st, key).Evaluate(ctx, rules.DefaultConfig())
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, f := range fs {
+			out = append(out, f.Rule+": "+f.Message)
+		}
+		return out
+	}
+	first := eval()
+	if !slices.Contains(first, "file-cycle: src/a.ts -> src/b.ts -> src/a.ts") {
+		t.Fatalf("findings = %q", first)
+	}
+	// b.ts is removed and stored again, unchanged
+	b := files(true)[1]
+	if err := g.DeleteFile(ctx, b.Path); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.UpsertFile(ctx, b); err != nil {
+		t.Fatal(err)
+	}
+	if got := eval(); !slices.Equal(got, first) {
+		t.Errorf("after removing and storing src/b.ts again:\n %q, want\n %q", got, first)
+	}
+	// b.ts no longer loads a.ts: the cycle is gone; and back
+	if err := g.UpsertFile(ctx, files(false)[1]); err != nil {
+		t.Fatal(err)
+	}
+	if got := eval(); slices.Contains(got, "file-cycle: src/a.ts -> src/b.ts -> src/a.ts") {
+		t.Errorf("the cycle is still reported: %q", got)
+	}
+	if err := g.UpsertFile(ctx, b); err != nil {
+		t.Fatal(err)
+	}
+	if got := eval(); !slices.Equal(got, first) {
+		t.Errorf("after changing src/b.ts back:\n %q, want\n %q", got, first)
 	}
 }

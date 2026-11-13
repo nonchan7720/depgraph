@@ -138,6 +138,9 @@ type Config struct {
 	// UnusedIgnore: path globs (files or Go package dirs) the unused-code
 	// rules never report, e.g. a library's public API.
 	UnusedIgnore []string
+	// FileCycleDeferred: file-cycle also reports the cycles that only close
+	// through an import inside a function.
+	FileCycleDeferred bool
 	// Clones tunes duplicate-code.
 	Clones CloneOptions
 	// DefaultLayers: Layers are the built-in defaults, a guess from
@@ -184,11 +187,12 @@ func DefaultConfig() Config {
 			{"domain", "infra"}, {"domain", "handler"}, {"domain", "repository"},
 			{"usecase", "handler"},
 		},
-		AbstractLayers:   [][2]string{{"usecase", "infra"}, {"usecase", "db"}},
-		DefaultLayers:    true,
-		GodPackageFanIn:  10,
-		GodPackageFanOut: 3,
-		Clones:           DefaultCloneOptions(),
+		AbstractLayers:    [][2]string{{"usecase", "infra"}, {"usecase", "db"}},
+		DefaultLayers:     true,
+		GodPackageFanIn:   10,
+		GodPackageFanOut:  3,
+		FileCycleDeferred: true,
+		Clones:            DefaultCloneOptions(),
 		IgnoreDuplicateNames: []string{
 			"main", "init", "TestMain", "New", "String", "Error", "Close", "Run", "Validate",
 			"default", "index", "setup", "teardown", "handler", "render", "App",

@@ -28,7 +28,7 @@ type pendingUse struct {
 	spec     string
 	name     string
 	reexport bool
-	as       string
+	as       string // a load: graph.LoadDeferred for an import inside a function
 	// prefix: the target is every file under the resolved directory.
 	prefix bool
 }
@@ -74,6 +74,11 @@ type usageCollector struct {
 	declRefList []graph.DeclRef            // cohesion.go
 	rbExtConsts []string                   // Ruby: constants the repository does not declare
 	tsBind      map[string]tsBinding       // TS/JS: local names bound by imports
+	loads       []pendingUse               // loads.go: imports that load their module
+	tsValues    map[string]bool            // loads.go: specs a TypeScript file uses a value of
+	tsTypeDepth int                        // loads.go: inside `typeof x` of a type
+	pyTypeOnly  bool                       // loads.go: the import being read is under `if TYPE_CHECKING:`
+	pyInFunc    bool                       // loads.go: the import being read is inside a function
 	pyBind      map[string]*pyBinding      // Python: local names bound by imports
 }
 
@@ -116,6 +121,9 @@ func (u *usageCollector) requests() []imports.Request {
 	}
 	for _, gi := range u.goImports {
 		add(gi.spec)
+	}
+	for _, p := range u.loads {
+		add(p.spec)
 	}
 	u.memberSpecs(add)
 	u.rbRequests(add)
@@ -240,6 +248,7 @@ func (r *Resolver) finishUsage(ctx context.Context, root string, fg *graph.FileG
 		Internal:     m.internalAPI(fg.Path, fg.Language, entry),
 		Generated:    generated(u.x.src) || m.isVendored(fg.Path),
 		Uses:         dedupUses(us),
+		Loads:        u.loadUses(bySpec),
 		Exports:      u.exports,
 		Keep:         dedupStrings(u.keep),
 		Mentions:     dedupStrings(u.mentions),

@@ -14,6 +14,8 @@ type tsBinding struct {
 	spec      string
 	name      string // imported name ("default", "a"); "" for a namespace
 	namespace bool
+	// typeOnly: bound by `import type` or a `type` specifier
+	typeOnly bool
 }
 
 // TypeScript / JavaScript usage:
@@ -73,6 +75,7 @@ func (u *usageCollector) tsFile(root *gts.Node) {
 		declared := x.declNames(n)
 		x.walk(n, func(c *gts.Node) bool { return u.tsNode(c, bind, own, declared) })
 	}
+	u.tsLoads(root)
 }
 
 func tsChildOfType(x *extractor, n *gts.Node, typ string) *gts.Node {
@@ -90,6 +93,7 @@ func (u *usageCollector) tsRequireClause(c *gts.Node) {
 	for i := 0; i < c.NamedChildCount(); i++ {
 		if s, ok := x.stringContent(c.NamedChild(i)); ok {
 			u.use(s, "*")
+			u.load(s, "")
 		}
 	}
 }
@@ -113,15 +117,16 @@ func (u *usageCollector) tsImport(n *gts.Node, bind map[string]tsBinding) {
 		return
 	}
 	u.use(spec, "")
+	typeOnly := x.hasToken(n, "type") // import type ...
 	for i := 0; i < clause.NamedChildCount(); i++ {
 		c := clause.NamedChild(i)
 		switch x.typ(c) {
 		case "identifier": // default import
-			bind[x.text(c)] = tsBinding{spec: spec, name: "default"}
+			bind[x.text(c)] = tsBinding{spec: spec, name: "default", typeOnly: typeOnly}
 			u.use(spec, "default")
 		case "namespace_import":
 			if id := tsChildOfType(x, c, "identifier"); id != nil {
-				bind[x.text(id)] = tsBinding{spec: spec, namespace: true}
+				bind[x.text(id)] = tsBinding{spec: spec, namespace: true, typeOnly: typeOnly}
 			}
 		case "named_imports":
 			for j := 0; j < c.NamedChildCount(); j++ {
@@ -137,7 +142,7 @@ func (u *usageCollector) tsImport(n *gts.Node, bind map[string]tsBinding) {
 				if name == "" {
 					continue
 				}
-				bind[local] = tsBinding{spec: spec, name: name}
+				bind[local] = tsBinding{spec: spec, name: name, typeOnly: typeOnly || x.hasToken(sp, "type")}
 				u.use(spec, name)
 			}
 		}
@@ -162,6 +167,9 @@ func (u *usageCollector) tsExport(n *gts.Node, bind map[string]tsBinding) {
 		spec, _ = x.stringContent(src)
 	}
 	clause := tsChildOfType(x, n, "export_clause")
+	if !x.hasToken(n, "type") { // not `export type { ... }`
+		u.tsExportLoads(spec, clause, bind)
+	}
 	switch {
 	case spec != "" && clause == nil:
 		if ns := tsChildOfType(x, n, "namespace_export"); ns != nil {
@@ -206,11 +214,13 @@ func (u *usageCollector) tsExport(n *gts.Node, bind map[string]tsBinding) {
 			return
 		}
 		if v := x.field(n, "value"); v != nil && x.typ(v) == "identifier" {
+			u.tsValue(x.text(v))
 			u.tsExportLocal(x.text(v), "default", bind)
 			return
 		}
 		// `export default bar` parses without a field in some grammars
 		if id := tsChildOfType(x, n, "identifier"); id != nil {
+			u.tsValue(x.text(id))
 			u.tsExportLocal(x.text(id), "default", bind)
 		}
 	}
@@ -254,6 +264,14 @@ func (u *usageCollector) tsNode(n *gts.Node, bind map[string]tsBinding, own, dec
 			u.use(s, "")
 		}
 		return false
+	case "type_query":
+		// `typeof x` in a type names x without loading its module
+		u.tsTypeDepth++
+		for i := 0; i < n.NamedChildCount(); i++ {
+			x.walk(n.NamedChild(i), func(c *gts.Node) bool { return u.tsNode(c, bind, own, declared) })
+		}
+		u.tsTypeDepth--
+		return false
 	case "member_expression":
 		obj := x.field(n, "object")
 		if obj != nil && x.typ(obj) == "identifier" {
@@ -261,6 +279,7 @@ func (u *usageCollector) tsNode(n *gts.Node, bind map[string]tsBinding, own, dec
 				if p := x.field(n, "property"); p != nil {
 					u.use(b.spec, x.text(p))
 				}
+				u.tsValue(x.text(obj))
 				return false
 			}
 		}
@@ -272,6 +291,9 @@ func (u *usageCollector) tsNode(n *gts.Node, bind map[string]tsBinding, own, dec
 			if x.typ(m) == "identifier" {
 				if b, ok := bind[x.text(m)]; ok && b.namespace {
 					u.use(b.spec, x.text(nm))
+					if x.typ(n) == "nested_identifier" {
+						u.tsValue(x.text(m))
+					}
 					return false
 				}
 			}
@@ -279,6 +301,9 @@ func (u *usageCollector) tsNode(n *gts.Node, bind map[string]tsBinding, own, dec
 		return true
 	case "identifier", "type_identifier", "shorthand_property_identifier":
 		name := x.text(n)
+		if x.typ(n) != "type_identifier" {
+			u.tsValue(name)
+		}
 		if b, ok := bind[name]; ok && b.namespace {
 			u.use(b.spec, "*") // the namespace object escapes
 		}
@@ -302,6 +327,9 @@ func (u *usageCollector) tsCall(n *gts.Node) {
 	case x.typ(fn) == "import" || (x.typ(fn) == "identifier" && x.text(fn) == "require"):
 		if s, ok := x.stringContent(first); ok {
 			u.use(s, "*")
+			if x.typ(fn) != "import" {
+				u.load(s, "") // require() runs the module; import() only when called
+			}
 		} else if x.typ(first) == "template_string" {
 			u.tsPrefix(x.staticPrefix(first))
 		}

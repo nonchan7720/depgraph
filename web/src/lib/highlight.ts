@@ -56,6 +56,7 @@ export function findingPackageKeys(f: Finding): string[] {
     case 'god-package':
     case 'low-cohesion':
       return typeof d.pkg === 'string' ? [d.pkg] : [];
+    case 'file-cycle':
     case 'duplicate-symbol':
       return strs(d.files).map((p) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '.'));
   }

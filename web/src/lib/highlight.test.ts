@@ -43,6 +43,7 @@ describe('findingPackageKeys', () => {
     expect(findingPackageKeys(f('concrete-dependency', { from: 'a', to: 'b', type: 'T' }))).toEqual(['a', 'b']);
     expect(findingPackageKeys(f('type-leak', { from: 'a', to: 'b', type: 'T' }))).toEqual(['a', 'b']);
     expect(findingPackageKeys(f('low-cohesion', { pkg: 'a' }))).toEqual(['a']);
+    expect(findingPackageKeys(f('file-cycle', { files: ['src/a.ts', 'src/b.ts', 'src/a.ts'] }))).toEqual(['src', 'src', 'src']);
     expect(findingPackageKeys(f('duplicate-symbol', { files: ['x/y/z.go', 'main.go'] }))).toEqual(['x/y', '.']);
     expect(findingPackageKeys(f('unknown', {}))).toEqual([]);
     expect(findingPackageKeys({ rule: 'god-package', severity: 'warn', message: '', id: '' })).toEqual([]);

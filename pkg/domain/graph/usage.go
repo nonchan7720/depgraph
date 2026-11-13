@@ -26,6 +26,15 @@ type Usage struct {
 	// Uses are the names this file uses of other files (and, for Go, of its
 	// own package).
 	Uses []Use `json:"uses,omitempty"`
+	// Loads are the files this file's imports load when it is loaded
+	// (TypeScript / JavaScript, Python): the edges of file-cycle. A Use
+	// whose Target is a file, or a Python package directory with the name
+	// imported from it (its submodule, else a name of its __init__.py).
+	// Left out: an import the compiler erases with the types (import type, a
+	// name used only as a type, `if TYPE_CHECKING:`), one made on demand
+	// (import()) and a path in a string. As is LoadDeferred for an import
+	// inside a function (Python): it runs when the function does.
+	Loads []Use `json:"loads,omitempty"`
 	// Exports maps the names this file exports under another name to the
 	// declaration they stand for ("default" -> "foo", "b" -> "a").
 	Exports []ExportName `json:"exports,omitempty"`
@@ -80,6 +89,9 @@ type Use struct {
 // constant under Importers). It is looked up the way Ruby does, among the
 // constants the project declares.
 const RubyConstPrefix = "::"
+
+// LoadDeferred marks (as Use.As) a load made by an import inside a function.
+const LoadDeferred = "deferred"
 
 // ExportName maps an exported name to the local declaration it exports.
 type ExportName struct {

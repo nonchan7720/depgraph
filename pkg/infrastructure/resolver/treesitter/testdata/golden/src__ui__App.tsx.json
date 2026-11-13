@@ -92,6 +92,11 @@
         "name": "Button"
       }
     ],
+    "loads": [
+      {
+        "target": "src/ui/Button.tsx"
+      }
+    ],
     "exports": [
       {
         "name": "default",

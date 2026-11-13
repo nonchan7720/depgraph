@@ -276,6 +276,32 @@
           },
           "type": "object"
         },
+        "file-cycle": {
+          "additionalProperties": false,
+          "description": "import cycle between the files of one directory (TypeScript / JavaScript, Python)",
+          "properties": {
+            "deferred": {
+              "default": true,
+              "description": "Also report the cycles that only close through an import inside a function (Python): a deferred import hides a cycle, it does not remove it.",
+              "type": "boolean"
+            },
+            "enabled": {
+              "default": true,
+              "description": "false turns the rule off.",
+              "type": "boolean"
+            },
+            "severity": {
+              "default": "warn",
+              "description": "Severity of the rule's findings.",
+              "enum": [
+                "error",
+                "warn",
+                "info"
+              ]
+            }
+          },
+          "type": "object"
+        },
         "god-package": {
           "additionalProperties": false,
           "description": "a hub: imported by many packages and importing many",

@@ -299,6 +299,15 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 		}
 	}
 
+	// 1c. Import cycles between the files of one directory (filecycle.go).
+	if cfg.Enabled(rules.RuleFileCycle) {
+		fc, err := r.fileCycles(ctx, cfg, ignore)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, fc...)
+	}
+
 	// 2. Layer violations: a in from, b in to, and the edge crosses the pair
 	// (a is not also in to, b is not also in from). The pairs of the root
 	// and of every component (components: packages/* expanded over the

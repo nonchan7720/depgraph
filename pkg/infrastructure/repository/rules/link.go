@@ -27,6 +27,8 @@ import (
 //	(Function)-[:CALLS_INTO]->(Package)
 //	(File)-[:LOADS {eager}]->(File)
 //	(Module {key})-[:IMPORTS {from, to}]->(Module)
+//	(Symbol)-[:SIMILAR {score}]->(Symbol)                  (clones.go)
+//	(Type), (Type)-[:IMPLEMENTS]->(Type), (Use)-[:OF]->(Type)  (members.go)
 //
 // Linking resolves names; it decides nothing a rule reports. It is redone
 // when the files or the configuration changed (LinkState.key) and writes
@@ -48,12 +50,12 @@ type edgeID struct {
 }
 
 // keyProp is the property that identifies a node of a label in a project.
-var keyProp = map[string]string{"Function": "key", "Package": "key", "File": "path", "Module": "key"}
+var keyProp = map[string]string{"Function": "key", "Package": "key", "File": "path", "Module": "key", "Type": "key", "Use": "key"}
 
 // ownedLabels are the labels whose nodes exist only in the linked graph:
 // linking creates and removes them. Nodes of the other labels are only
 // connected.
-var ownedLabels = []string{"Function", "Module"}
+var ownedLabels = []string{"Function", "Module", "Type", "Use"}
 
 // edgeKinds are the relationships of the linked graph: type, label of the
 // start node, label of the end node. Linking owns every relationship of
@@ -64,6 +66,8 @@ var edgeKinds = [][3]string{
 	{"CALLS_INTO", "Function", "Package"},
 	{"LOADS", "File", "File"},
 	{"IMPORTS", "Module", "Module"},
+	{"IMPLEMENTS", "Type", "Type"},
+	{"OF", "Use", "Type"},
 }
 
 // linked is the linked graph of a project, as it should be stored.
@@ -96,7 +100,9 @@ func (r *Repository) link(ctx context.Context, cfg rules.Config, ignore []string
 	if err != nil {
 		return fmt.Errorf("link: %w", err)
 	}
-	key, err := r.linkKey(ctx, ignore, units)
+	clones := cfg.Clones.WithDefaults()
+	settings := append([]string{fmt.Sprint(cfg.Enabled(rules.RuleDuplicateCode), clones)}, units...)
+	key, err := r.linkKey(ctx, ignore, settings)
 	if err != nil {
 		return fmt.Errorf("link: %w", err)
 	}
@@ -117,10 +123,18 @@ func (r *Repository) link(ctx context.Context, cfg rules.Config, ignore []string
 	if err := r.linkModules(ctx, units, ignore, want); err != nil {
 		return err
 	}
+	if err := r.linkMembers(ctx, ignore, want); err != nil {
+		return err
+	}
 	if err := r.storeLinked(ctx, want); err != nil {
 		return fmt.Errorf("link: %w", err)
 	}
-	_, err = r.q.Write(ctx, `MERGE (s:LinkState {project: $project}) SET s.key = $key`, map[string]any{"project": r.project, "key": key})
+	if cfg.Enabled(rules.RuleDuplicateCode) {
+		if err := r.linkClones(ctx, clones, ignore, key); err != nil {
+			return err
+		}
+	}
+	err = r.write(ctx, `MERGE (s:LinkState {project: $project}) SET s.key = $key`, map[string]any{"project": r.project, "key": key})
 	if err != nil {
 		return fmt.Errorf("link: %w", err)
 	}
@@ -129,11 +143,11 @@ func (r *Repository) link(ctx context.Context, cfg rules.Config, ignore []string
 
 // linkVersion changes when linking stores something else for the same
 // files: an older linked graph is then rebuilt.
-const linkVersion = "1"
+const linkVersion = "3"
 
 // linkKey identifies what the linked graph is made from: the stored files
 // (their number and the last update) and the settings linking reads.
-func (r *Repository) linkKey(ctx context.Context, ignore, units []string) (string, error) {
+func (r *Repository) linkKey(ctx context.Context, ignore, settings []string) (string, error) {
 	rows, err := r.q.Query(ctx, `
 		MATCH (f:File {project: $project})
 		RETURN count(f) AS files, toString(max(f.updatedAt)) AS updated
@@ -143,7 +157,7 @@ func (r *Repository) linkKey(ctx context.Context, ignore, units []string) (strin
 	}
 	h := sha256.New()
 	_, _ = fmt.Fprintf(h, "%s\x00%v\x00%v\x00%s", linkVersion, rows[0]["files"], rows[0]["updated"], strings.Join(ignore, "\x00"))
-	_, _ = fmt.Fprintf(h, "\x01%s", strings.Join(units, "\x00"))
+	_, _ = fmt.Fprintf(h, "\x01%s", strings.Join(settings, "\x00"))
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
@@ -182,13 +196,13 @@ func (r *Repository) storeLinked(ctx context.Context, want *linked) error {
 			gone = append(gone, k)
 		}
 		for chunk := range slices.Chunk(gone, linkBatch) {
-			if _, err := r.q.Write(ctx, `UNWIND $keys AS k MATCH (n:`+label+` {project: $project, `+keyProp[label]+`: k}) DETACH DELETE n`,
+			if err := r.write(ctx, `UNWIND $keys AS k MATCH (n:`+label+` {project: $project, `+keyProp[label]+`: k}) DETACH DELETE n`,
 				map[string]any{"project": r.project, "keys": chunk}); err != nil {
 				return err
 			}
 		}
 		for chunk := range slices.Chunk(write, linkBatch) {
-			if _, err := r.q.Write(ctx, `UNWIND $rows AS row MERGE (n:`+label+` {project: $project, `+keyProp[label]+`: row.key}) SET n = row.props`,
+			if err := r.write(ctx, `UNWIND $rows AS row MERGE (n:`+label+` {project: $project, `+keyProp[label]+`: row.key}) SET n = row.props`,
 				map[string]any{"project": r.project, "rows": chunk}); err != nil {
 				return err
 			}
@@ -229,13 +243,13 @@ func (r *Repository) storeLinked(ctx context.Context, want *linked) error {
 		}
 		ends := `MATCH (a:` + from + ` {project: $project, ` + keyProp[from] + `: row.from}) MATCH (b:` + to + ` {project: $project, ` + keyProp[to] + `: row.to})`
 		for chunk := range slices.Chunk(gone, linkBatch) {
-			if _, err := r.q.Write(ctx, `UNWIND $rows AS row `+ends+` MATCH (a)-[e:`+typ+`]->(b) DELETE e`,
+			if err := r.write(ctx, `UNWIND $rows AS row `+ends+` MATCH (a)-[e:`+typ+`]->(b) DELETE e`,
 				map[string]any{"project": r.project, "rows": chunk}); err != nil {
 				return err
 			}
 		}
 		for chunk := range slices.Chunk(write, linkBatch) {
-			if _, err := r.q.Write(ctx, `UNWIND $rows AS row `+ends+` MERGE (a)-[e:`+typ+`]->(b) SET e = row.props`,
+			if err := r.write(ctx, `UNWIND $rows AS row `+ends+` MERGE (a)-[e:`+typ+`]->(b) SET e = row.props`,
 				map[string]any{"project": r.project, "rows": chunk}); err != nil {
 				return err
 			}

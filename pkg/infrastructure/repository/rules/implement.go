@@ -5,9 +5,11 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"os"
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/nonchan7720/depgraph/pkg/domain/graph"
 	"github.com/nonchan7720/depgraph/pkg/domain/rules"
@@ -291,7 +293,28 @@ func (r *Repository) externalUnclassified(ctx context.Context, cfg rules.Config,
 func (r *Repository) query(ctx context.Context, cypher string, ignore []string, p map[string]any) ([]map[string]any, error) {
 	params := map[string]any{"project": r.project, "ignore": ignore}
 	maps.Copy(params, p)
+	defer timing(cypher)()
 	return r.q.Query(ctx, cypher, params)
+}
+
+// write runs a statement that changes the linked graph.
+func (r *Repository) write(ctx context.Context, cypher string, params map[string]any) error {
+	defer timing(cypher)()
+	_, err := r.q.Write(ctx, cypher, params)
+	return err
+}
+
+// timing prints how long a statement took when DEPGRAPH_TIMING is set
+// (to find the statement that is slow on a large repository).
+func timing(cypher string) func() {
+	if os.Getenv("DEPGRAPH_TIMING") == "" {
+		return func() {}
+	}
+	start := time.Now()
+	return func() {
+		text := strings.Join(strings.Fields(cypher), " ")
+		_, _ = fmt.Fprintf(os.Stderr, "TIMING %8.2fs %s\n", time.Since(start).Seconds(), text[:min(110, len(text))])
+	}
 }
 
 // Evaluate runs every enabled rule and returns findings sorted by key.
@@ -551,44 +574,17 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 	}
 
 	// 5. Duplicated code: the same (or nearly the same) logic in several
-	// places, whatever the names. Test code is left out (table tests look
-	// alike on purpose), and so are ignored packages.
+	// places, whatever the names (clones.go).
 	if cfg.Enabled(rules.RuleDuplicateCode) {
-		rows, err := r.query(ctx, `
-			MATCH (p:Package {project: $project})-[:CONTAINS]->(f:File)-[:DECLARES]->(s:Symbol)
-			WHERE s.tokens >= $min AND none(rx IN $ignore WHERE p.key =~ rx)
-			RETURN f.path AS file, s.name AS name, s.kind AS kind, s.line AS line, s.endLine AS endLine,
-			       s.tokens AS tokens, s.cloneHash AS hash, s.fingerprints AS fps
-		`, ignore, map[string]any{"min": max(cfg.Clones.MinTokens, 1)})
+		fs, err := r.duplicateCode(ctx, cfg)
 		if err != nil {
-			return nil, fmt.Errorf("duplicate code: %w", err)
+			return nil, err
 		}
-		var cands []rules.CloneCandidate
-		for _, row := range rows {
-			file := fmt.Sprint(row["file"])
-			if rules.IsTestFile(file) {
-				continue
-			}
-			c := rules.CloneCandidate{File: file, Name: fmt.Sprint(row["name"]), Kind: fmt.Sprint(row["kind"]),
-				Line: toInt(row["line"]), EndLine: toInt(row["endLine"]), Tokens: toInt(row["tokens"])}
-			c.Hash, _ = row["hash"].(string)
-			if fps, ok := row["fps"].([]any); ok {
-				for _, f := range fps {
-					if v, ok := f.(int64); ok {
-						c.Fingerprints = append(c.Fingerprints, v)
-					}
-				}
-			}
-			cands = append(cands, c)
-		}
-		for _, f := range rules.FindClones(cands, cfg.Clones) {
-			f.Severity = sev(rules.RuleDuplicateCode)
-			out = append(out, f)
-		}
+		out = append(out, fs...)
 	}
 
 	// 5b. The code inside the layers (members.go).
-	members, err := r.evaluateMembers(ctx, cfg, ignore)
+	members, err := r.evaluateMembers(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}

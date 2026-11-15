@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "packageManager": "pnpm@12.14.0",
+  "packageManager": "pnpm@12.18.0",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build && vite build --mode mcp-app",
@@ -20,6 +20,6 @@
     "@types/node": "26.6.6",
     "typescript": "7.0.2",
     "vite": "8.3.6",
-    "vitest": "5.0.5"
+    "vitest": "5.1.0"
   }
 }

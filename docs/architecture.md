@@ -413,7 +413,7 @@ The choice has a price, and several pull requests were about paying it:
 | A container runtime is still required; the image is about 1 GB and starts in 10-20 s | memory is capped (heap 512 MiB, page cache 64 MiB); a `local` provider that runs an installed Neo4j as a child process is on the [roadmap](development.md#roadmap) |
 | Enumerating cycles was exponential | the shortest paths of one import at a time ([above](#example-import-cycle)) |
 | `shortestPath` returns any of several shortest paths, so a cycle changed between runs | the smallest of `allShortestPaths` |
-| Deleting a large project in one transaction exceeded the transaction memory (a 14,000-file repository) | deletes run in batches of 10,000 nodes |
+| Deleting a large project in one transaction exceeded the transaction memory (a 14,000-file repository) | deletes run in batches of 10,000: the relationships first, then the nodes (a node can have any number of relationships, so a batch of nodes deleted with theirs is not bounded: the linked graph of a large repository still went over the limit) |
 | `IF NOT EXISTS` does not protect two sessions that create the same constraint at once | `EnsureSchema` treats "already exists" as success |
 | `collect()` has no order, so a message changed between runs | lists are sorted in Go before a finding is built |
 

@@ -75,8 +75,8 @@ func (r *Repository) linkModules(ctx context.Context, units, ignore []string, wa
 		return nil
 	}
 	rows, err := r.query(ctx, `
-		MATCH (a:Package {project: $project})-[:IMPORTS]->(b:Package {project: $project})
-		WHERE a.external = false AND b.external = false AND a <> b
+		MATCH (a:Package {project: $project})-[e:IMPORTS]->(b:Package {project: $project})
+		WHERE a.external = false AND b.external = false AND a <> b AND coalesce(e.test, false) = false
 		  AND none(rx IN $ignore WHERE a.key =~ rx OR b.key =~ rx)
 		RETURN a.key AS from, b.key AS to
 	`, ignore, nil)
@@ -359,11 +359,14 @@ func (r *Repository) Evaluate(ctx context.Context, cfg rules.Config) ([]rules.Fi
 		// several shortest ways back the smallest (by its keys) is taken, so
 		// the cycles reported for a graph are the same in every run. Cycles
 		// are rotated to start at their smallest key and deduplicated.
+		// An import only Go test files make (e.test, see packageEdge of the
+		// graph store) is no edge of a cycle.
 		rows, err := r.query(ctx, `
-			MATCH (a:Package {project: $project})-[:IMPORTS]->(b:Package {project: $project})
-			WHERE a.cyclic AND b.cyclic AND a <> b
+			MATCH (a:Package {project: $project})-[e:IMPORTS]->(b:Package {project: $project})
+			WHERE a.cyclic AND b.cyclic AND a <> b AND coalesce(e.test, false) = false
 			MATCH p = allShortestPaths((b)-[:IMPORTS*1..7]->(a))
 			WHERE all(x IN nodes(p) WHERE x.cyclic)
+			  AND all(i IN relationships(p) WHERE coalesce(i.test, false) = false)
 			WITH a, b, [n IN nodes(p) | n.key] AS back ORDER BY back
 			WITH a, b, head(collect(back)) AS back
 			WITH [a.key] + back AS cyc

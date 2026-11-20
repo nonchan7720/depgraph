@@ -17,6 +17,11 @@ that points into the repository but at no package is unresolved, not external, s
 
 Each directory with a `go.mod` is a module, one of the units of `module-cycle`.
 
+A package is a directory, so the files of an external test package (`package x_test`) count as files of the
+directory's package. For `import-cycle` and `module-cycle` an import only `_test.go` files make is left out: Go
+compiles a test file with the tests of its own package only, and an external test package may import what imports
+the package under test.
+
 ## Third-party packages (`ext:` in layers)
 
 A module the importing module's `go.mod` (or its `go.work`) requires or replaces is third-party. An

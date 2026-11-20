@@ -48,20 +48,23 @@ func parseRepo(t *testing.T, root string) []*graph.FileGraph {
 	return out
 }
 
-// toUnusedFiles is what the store returns for the parsed files.
-func toUnusedFiles(fgs []*graph.FileGraph) []unusedFile {
-	out := make([]unusedFile, 0, len(fgs))
-	for _, fg := range fgs {
-		f := unusedFile{Path: fg.Path, Lang: string(fg.Language)}
-		if u := fg.Usage; u != nil {
-			f.HasUsage = true
-			f.Scope, f.Entry, f.Internal, f.Generated = u.Scope, u.Entry, u.Internal, u.Generated
-			f.Uses, f.Exports, f.Keep, f.Mentions = u.Uses, u.Exports, u.Keep, u.Mentions
+// evalUnused stores the parsed files and returns the findings of the three
+// unused-code rules with cfg.
+func evalUnused(t *testing.T, fgs []*graph.FileGraph, cfg rules.Config) []rules.Finding {
+	t.Helper()
+	ctx, st := connect(t)
+	key := fmt.Sprintf("zz_test_%d_unused", time.Now().UnixNano())
+	upsertAll(ctx, t, st, key, fgs)
+	fs, err := New(st, key).Evaluate(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []rules.Finding
+	for _, f := range fs {
+		switch f.Rule {
+		case rules.RuleUnusedExport, rules.RuleUnreachableFile, rules.RuleUnreachablePackage:
+			out = append(out, f)
 		}
-		for _, s := range fg.Symbols {
-			f.Symbols = append(f.Symbols, unusedSymbol{Name: s.Name, Kind: s.Kind, Exported: s.Exported, Line: s.Line})
-		}
-		out = append(out, f)
 	}
 	return out
 }
@@ -126,7 +129,7 @@ export interface UnusedIface {}
 	cfg := rules.DefaultConfig()
 	cfg.UnusedEntries = []string{"src/plugin.ts", "src/main2.ts"}
 	cfg.UnusedIgnore = []string{"src/public/**"}
-	got := evalUnused(toUnusedFiles(parseRepo(t, root)), cfg)
+	got := evalUnused(t, (parseRepo(t, root)), cfg)
 	wantFindings(t, got,
 		"unused-export|src/lib.ts#unusedFn",
 		"unused-export|src/lib.ts#unusedConst",
@@ -178,7 +181,7 @@ func init() {}
 		"lib/api/api.go":             "package api\n\nfunc Public() {}\n",
 		"lib/internal/x/x.go":        "package x\n\nfunc Hidden() {}\n",
 	})
-	got := evalUnused(toUnusedFiles(parseRepo(t, root)), rules.DefaultConfig())
+	got := evalUnused(t, (parseRepo(t, root)), rules.DefaultConfig())
 	wantFindings(t, got,
 		"unused-export|internal/used/used.go#Unused",
 		"unused-export|internal/used/used.go#T",
@@ -218,7 +221,7 @@ def _private(): pass
 		"app/plugins/p1.py": "def plugin(): pass\n",
 		"app/loader.py":     "import importlib\n\ndef load(n):\n    return importlib.import_module(f\"app.plugins.{n}\")\n",
 	})
-	got := evalUnused(toUnusedFiles(parseRepo(t, root)), rules.DefaultConfig())
+	got := evalUnused(t, (parseRepo(t, root)), rules.DefaultConfig())
 	wantFindings(t, got,
 		"unused-export|app/services.py#unused_service",
 		"unused-export|app/services.py#UnusedClass",
@@ -250,7 +253,7 @@ func TestUnusedMentionedFileAndDocPackage(t *testing.T) {
 		"cmd/gen/static/x/b.js":     "console.log(2);\n",
 		"media/testdata/fixture.js": "console.log(3);\n",
 	})
-	got := evalUnused(toUnusedFiles(parseRepo(t, root)), rules.DefaultConfig())
+	got := evalUnused(t, (parseRepo(t, root)), rules.DefaultConfig())
 	wantFindings(t, got, "unreachable-file|js/dead.js", "unreachable-package|internal/y")
 }
 
@@ -267,7 +270,7 @@ func TestUnusedUnknownImportTarget(t *testing.T) {
 		"docs/assets/js/old.js":             "export const old = 1;\n",
 		"docs/assets/js/a.test.js":          "import 'lodash';\n",
 	})
-	got := evalUnused(toUnusedFiles(parseRepo(t, root)), rules.DefaultConfig())
+	got := evalUnused(t, (parseRepo(t, root)), rules.DefaultConfig())
 	wantFindings(t, got, "unused-export|docs/assets/js/helpers/helpers.js#unusedHelper", "unreachable-file|docs/assets/js/old.js")
 }
 
@@ -282,14 +285,14 @@ func TestUnusedRuleSettings(t *testing.T) {
 		"src/gen/x.ts":      "export function d() {}\n",
 		"src/gen/y.test.ts": "import { d } from './x';\n",
 	})
-	files := toUnusedFiles(parseRepo(t, root))
+	files := parseRepo(t, root)
 	cfg := rules.DefaultConfig()
 	cfg.Settings = map[string]rules.RuleSetting{
 		rules.RuleUnreachableFile: {Disabled: true},
 		rules.RuleUnusedExport:    {Severity: rules.SeverityInfo},
 	}
 	cfg.Ignore = []string{"src/gen/**"}
-	got := evalUnused(files, cfg)
+	got := evalUnused(t, files, cfg)
 	wantFindings(t, got, "unused-export|src/lib.ts#b", "unused-export|src/old.ts#c")
 	for _, f := range got {
 		if f.Severity != "info" {
@@ -301,11 +304,12 @@ func TestUnusedRuleSettings(t *testing.T) {
 // Without usage data for every file (a graph stored by an older depgraph,
 // not rescanned yet) nothing is reported: a missing use is a false positive.
 func TestUnusedNeedsUsageOfEveryFile(t *testing.T) {
-	files := []unusedFile{
-		{Path: "a.ts", Lang: "typescript", HasUsage: true, Scope: ".", Symbols: []unusedSymbol{{Name: "f", Kind: "function", Exported: true, Line: 1}}},
-		{Path: "b.ts", Lang: "typescript"},
+	files := []*graph.FileGraph{
+		{Path: "a.ts", Package: ".", Language: graph.TypeScript, Usage: &graph.Usage{Scope: "."},
+			Symbols: []graph.Symbol{{Name: "f", Kind: "function", Exported: true, Line: 1}}},
+		{Path: "b.ts", Package: ".", Language: graph.TypeScript},
 	}
-	if got := evalUnused(files, rules.DefaultConfig()); len(got) != 0 {
+	if got := evalUnused(t, files, rules.DefaultConfig()); len(got) != 0 {
 		t.Errorf("findings without usage: %v", ids(got))
 	}
 }
@@ -384,7 +388,7 @@ func TestUnusedInternalWorkspacePackage(t *testing.T) {
 	if want := map[string]bool{"packages/ui/src/index.ts": true, "packages/kit/src/index.ts": true}; fmt.Sprint(internal) != fmt.Sprint(want) {
 		t.Errorf("internal entries = %v, want %v", internal, want)
 	}
-	got := evalUnused(toUnusedFiles(fgs), rules.DefaultConfig())
+	got := evalUnused(t, (fgs), rules.DefaultConfig())
 	wantFindings(t, got,
 		"unused-export|packages/ui/src/index.ts#uiUnused",
 		"unused-export|packages/kit/src/index.ts#kitUnused",
@@ -403,7 +407,7 @@ func TestUnusedAliasedDynamicImport(t *testing.T) {
 		"src/widgets/Trends.tsx":  "export default function Trends() {}\n",
 		"src/other/Dead.tsx":      "export default function Dead() {}\n",
 	})
-	got := evalUnused(toUnusedFiles(parseRepo(t, root)), rules.DefaultConfig())
+	got := evalUnused(t, (parseRepo(t, root)), rules.DefaultConfig())
 	wantFindings(t, got, "unreachable-file|src/other/Dead.tsx")
 }
 
@@ -418,7 +422,7 @@ func TestUnusedInternalFrameworkPackage(t *testing.T) {
 		"frontend/kit/package.json":          `{"name": "kit", "private": true, "main": "index.js", "dependencies": {"app": "workspace:*"}}`,
 		"frontend/kit/index.js":              "import 'app/adapters/group';\n",
 	})
-	wantFindings(t, evalUnused(toUnusedFiles(parseRepo(t, root)), rules.DefaultConfig()))
+	wantFindings(t, evalUnused(t, (parseRepo(t, root)), rules.DefaultConfig()))
 }
 
 // A directory named like a built-in skip dir (src/build) holds real source;
@@ -444,13 +448,13 @@ func TestUnusedNegatedBuildDir(t *testing.T) {
 		}
 		return false
 	}
-	before := evalUnused(toUnusedFiles(parseRepo(t, root)), cfg)
+	before := evalUnused(t, (parseRepo(t, root)), cfg)
 	if !has(before, "WidgetContainer") {
 		t.Fatalf("precondition: without negation WidgetContainer is falsely unused, got %v", ids(before))
 	}
 
 	resolver.AddSkipPatterns([]string{"!src/build"})
-	after := evalUnused(toUnusedFiles(parseRepo(t, root)), cfg)
+	after := evalUnused(t, (parseRepo(t, root)), cfg)
 	if has(after, "WidgetContainer") {
 		t.Errorf("with !src/build WidgetContainer must not be reported, got %v", ids(after))
 	}

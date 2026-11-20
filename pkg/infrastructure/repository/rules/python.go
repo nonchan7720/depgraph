@@ -3,7 +3,8 @@ package rules
 import (
 	"context"
 	"fmt"
-	"sort"
+	"slices"
+	"strings"
 
 	"github.com/nonchan7720/depgraph/pkg/domain/graph"
 	"github.com/nonchan7720/depgraph/pkg/domain/rules"
@@ -88,68 +89,60 @@ func (r *Repository) pythonImports(ctx context.Context, cfg rules.Config, ignore
 	return out, nil
 }
 
-func (im pythonImport) refs(thirdParty bool) (from, to rules.PackageRef) {
-	return rules.PackageRef{Key: im.pkg}, rules.PackageRef{Key: im.key, External: true, Python: im.python, ThirdParty: thirdParty}
+// extImports are the external imports of the project's Python and Ruby
+// files, classified from the project's files (nil when no layer names
+// external packages: nothing reads them then).
+func (r *Repository) extImports(ctx context.Context, cfg rules.Config, ignore []string) (*pythonImports, error) {
+	_, lp, err := r.layerPairs(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	if !slices.ContainsFunc(lp, func(p rules.LayerPair) bool { return p.ToSet.HasExternal() }) {
+		return nil, nil
+	}
+	py, err := r.pythonImports(ctx, cfg, ignore)
+	if err != nil {
+		return nil, err
+	}
+	rb, err := r.rubyImports(ctx, ignore)
+	if err != nil {
+		return nil, err
+	}
+	py.add(rb)
+	return py, nil
 }
 
-// violations are the rows of the layer violations of Python imports, in
-// the shape of the store query's.
-func (p *pythonImports) violations(lp []rules.LayerPair) []map[string]any {
+// signature identifies the classification (the link is redone when a
+// version file or a Gemfile.lock changed it).
+func (p *pythonImports) signature() string {
 	if p == nil {
-		return nil
+		return ""
 	}
-	seen := map[string]bool{}
-	var out []map[string]any
+	var b strings.Builder
 	for _, im := range p.list {
-		from, to := im.refs(im.class == graph.ClassThirdParty)
-		for _, pr := range lp {
-			if !pr.Reports(from, to) {
-				continue
-			}
-			k := im.pkg + "\x00" + im.key + "\x00" + pr.From + "\x00" + pr.To + "\x00" + pr.Component
-			if seen[k] {
-				continue
-			}
-			seen[k] = true
-			out = append(out, map[string]any{"from": im.pkg, "to": im.key, "fromLayer": pr.From, "toLayer": pr.To, "component": pr.Component})
-		}
+		_, _ = fmt.Fprintf(&b, "%s\x00%s\x00%s\x00%s\x00%v\n", im.file, im.key, im.class, im.basis, im.unlisted)
 	}
-	return out
+	return b.String()
 }
 
-// unclassified lists, per language, the unknown imports a wildcard of a
-// pair would match if they were third-party and that the pair does not
-// decide otherwise, as "key (basis)".
-func (p *pythonImports) unclassified(lp []rules.LayerPair) map[graph.Language][]string {
+// link adds the imports to the linked graph: an ExtImport per file and
+// external package, with its class ("third-party", "standard"; none when
+// it could not be told) and the reason. The rules match them against the
+// layers like the IMPORTS of the other languages (implement.go).
+//
+//	(ExtImport {key, pkg, file, ext, lang, python, class, basis, unlisted})
+func (p *pythonImports) link(want *linked) {
 	if p == nil {
-		return nil
+		return
 	}
-	seen := map[string]bool{}
-	out := map[graph.Language][]string{}
 	for _, im := range p.list {
-		if im.class != "" || im.unlisted {
-			continue
+		props := map[string]any{"pkg": im.pkg, "file": im.file, "ext": im.key, "lang": string(im.lang),
+			"python": im.python, "basis": im.basis, "unlisted": im.unlisted}
+		if im.class != "" {
+			props["class"] = im.class
 		}
-		for _, pr := range lp {
-			if !pr.ToSet.HasWildcard() {
-				continue
-			}
-			from, tp := im.refs(true)
-			_, notTP := im.refs(false)
-			if pr.Reports(from, tp) && !pr.Reports(from, notTP) {
-				item := im.key + " (" + im.basis + ")"
-				if k := string(im.lang) + "\x00" + item; !seen[k] {
-					seen[k] = true
-					out[im.lang] = append(out[im.lang], item)
-				}
-				break
-			}
-		}
+		want.node(nodeID{"ExtImport", im.file + "|" + im.key}, props)
 	}
-	for l := range out {
-		sort.Strings(out[l])
-	}
-	return out
 }
 
 // add appends q's imports to p's (q may be nil).

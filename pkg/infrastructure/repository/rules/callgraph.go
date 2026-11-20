@@ -3,6 +3,7 @@ package rules
 import (
 	"context"
 	"fmt"
+	"maps"
 	"path"
 	"slices"
 	"strings"
@@ -48,7 +49,7 @@ type caller struct {
 }
 
 // callGraph reads the call graph of the project.
-func (r *Repository) callGraph(ctx context.Context, ignore []string) (*callGraph, error) {
+func (r *Repository) callGraph(ctx context.Context, ignore []string, types *typeIndex) (*callGraph, error) {
 	rows, err := r.query(ctx, `
 		MATCH (p:Package {project: $project})-[:CONTAINS]->(f:File)
 		WHERE p.external = false AND none(rx IN $ignore WHERE p.key =~ rx) AND coalesce(f.generated, false) = false
@@ -63,9 +64,7 @@ func (r *Repository) callGraph(ctx context.Context, ignore []string) (*callGraph
 	}
 	g := &callGraph{goFuncs: map[funcKey][]string{}, fileFuncs: map[funcKey]bool{}, exports: map[funcKey]string{}, files: map[string]bool{},
 		classes: map[funcKey]bool{}, members: map[memberKey]graph.TypeRef{}}
-	if g.types, err = r.typeIndex(ctx, ignore); err != nil {
-		return nil, err
-	}
+	g.types = types
 	for _, row := range rows {
 		pkg, file, lang := fmt.Sprint(row["pkg"]), fmt.Sprint(row["file"]), fmt.Sprint(row["lang"])
 		if rules.IsTestFile(file) {
@@ -256,4 +255,81 @@ func (g *callGraph) implementation(i rules.TypeInfo) *rules.TypeInfo {
 	}
 	g.impls[i.Ref] = found
 	return found
+}
+
+// linkCalls adds the function-level call graph to the linked graph: a
+// Function for every function that calls or is called, CALLS for every
+// call whose callee is a function of the project (via: reached through a
+// member's declared type; construct: the callee builds a value), FORWARDS
+// from a function that only passes its parameters on, CALLS_INTO to the
+// package that declares the type of a member a function calls through.
+func (r *Repository) linkCalls(ctx context.Context, ignore []string, types *typeIndex, want *linked) error {
+	g, err := r.callGraph(ctx, ignore, types)
+	if err != nil {
+		return err
+	}
+	fn := func(n rules.FuncNode) nodeID { return nodeID{"Function", n.File + "#" + n.Name} }
+	langOf := map[rules.FuncNode]string{}
+	add := func(n rules.FuncNode, lang string, extra map[string]any) {
+		id := fn(n)
+		props := want.nodes[id]
+		if props == nil {
+			props = map[string]any{"file": n.File, "name": n.Name, "dir": path.Dir(n.File), "lang": lang}
+			if recv, _, method := strings.Cut(n.Name, "."); method {
+				props["recv"] = recv
+			}
+			want.node(id, props)
+			langOf[n] = lang
+		}
+		maps.Copy(props, extra)
+	}
+	// a callee is declared in a file of its own language: the caller's,
+	// unless a file of another language declares it
+	calleeLang := func(to rules.FuncNode, callerLang string) string {
+		if l, ok := langOf[to]; ok {
+			return l
+		}
+		return callerLang
+	}
+	for _, c := range g.callers {
+		add(c.node(), c.lang, map[string]any{"caller": true, "line": c.calls.Line, "ignore": c.calls.Ignore})
+	}
+	for _, c := range g.callers {
+		from := c.node()
+		for _, call := range c.calls.Calls {
+			via := call.Via != ""
+			var to []rules.FuncNode
+			if via {
+				var declared string
+				declared, to = g.memberCallees(c, call)
+				if declared != "" {
+					want.edge(edgeID{"CALLS_INTO", fn(from), nodeID{"Package", declared}}, nil)
+				}
+			} else {
+				to = g.callees(c, call)
+			}
+			for _, t := range to {
+				add(t, calleeLang(t, c.lang), nil)
+				id := edgeID{"CALLS", fn(from), fn(t)}
+				props := map[string]any{"via": via, "construct": !via && g.constructs(c.lang, t)}
+				if old, ok := want.edges[id]; ok {
+					// called both ways: a direct call counts
+					props["via"] = via && old["via"] == true
+					props["construct"] = props["construct"] == true || old["construct"] == true
+					want.edges[id] = props
+					continue
+				}
+				want.edge(id, props)
+			}
+		}
+		// the function only forwards, to exactly one function of the project
+		if !c.calls.Forwards || len(c.calls.Calls) != 1 || c.calls.Calls[0].Via != "" ||
+			rules.IgnoresRule(c.calls.Ignore, rules.RulePassThrough) {
+			continue
+		}
+		if to := g.callees(c, c.calls.Calls[0]); len(to) == 1 && to[0] != from {
+			want.edge(edgeID{"FORWARDS", fn(from), fn(to[0])}, nil)
+		}
+	}
+	return nil
 }

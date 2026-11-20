@@ -174,6 +174,7 @@ rules:
   wide-function: {maxPackages: 8}
   duplicate-symbol: {enabled: false, ignore: [main]}
   unused-export: {ignore: ["pkg/api/**"]}
+  unused-dependency: {severity: error, ignore: [tslib, "@types/*"]}
   unreachable-file: {entries: ["plugins/**"]}
 ignore: ["**/testdata/**"]
 store: {persist: true, provider: container, containerCli: podman}

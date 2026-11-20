@@ -34,6 +34,8 @@ var ruleOrder = map[string]int{
 	rules.RuleFunctionCycle: 4,
 	rules.RulePassThrough:   3,
 	rules.RuleWideFunction:  5,
+
+	rules.RuleUnusedDependency: 8,
 }
 
 var ruleHints = map[string]string{
@@ -55,6 +57,7 @@ var ruleHints = map[string]string{
 	rules.RuleConcreteDependency:   "hold the interface it implements; build the implementation in the composition root",
 	rules.RuleTypeLeak:             "expose the layer's own types or an interface, not the outer layer's",
 	rules.RuleLowCohesion:          "split it along its parts; put new code where its users are",
+	rules.RuleUnusedDependency:     "nothing imports these: remove them from the manifest, or use them",
 }
 
 func severityRank(s string) int {

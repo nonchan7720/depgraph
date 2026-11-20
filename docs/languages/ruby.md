@@ -3,7 +3,7 @@
 English | [日本語](ja/ruby.md) · [README](../../README.md) · other languages: [Go](go.md), [TypeScript / JavaScript](typescript.md), [Python](python.md)
 
 What depgraph reads in Ruby code, and what the language-specific rules mean for it. The rules
-themselves, their options and `.depgraph.yml` are described in the [README](../../README.md#rules).
+themselves, their options and `.depgraph.yml` are described in [Rules](../rules.md) and [Configuration](../configuration.md).
 
 Rails code names other files by constant, not by `require`: Zeitwerk loads `Admin::User` from
 `admin/user.rb`. So depgraph treats constants as dependencies and uses, and it knows the conventions
@@ -53,12 +53,18 @@ by its top-level name (`ActiveRecord` of `ActiveRecord::Base`). Anything else is
 - One that is likely Ruby's own (`Hash`, `IO`) is not listed: telling them apart would take a list of
   Ruby's constants per version.
 
-See [Frameworks](../../README.md#frameworks-external-packages-in-layers).
+See [Frameworks](../configuration.md#frameworks-external-packages-in-layers).
 
 ## Unused code
 
 ### What is reported
 
+- `unused-dependency`: a gem of the `Gemfile` that no file requires, whose constants no file refers to and
+  that nothing names. What a gem is required as and which constants it declares is read from the installed
+  gems (the bundle's path, `GEM_HOME` / `GEM_PATH`, rbenv / asdf / mise / rvm), in the locked version; a gem
+  that is not installed is skipped, and one with a railtie or an engine is used. `error` for a gem
+  with `require: false`, `warn` otherwise (Bundler requires it at boot). See
+  [Unused dependencies](../rules.md#unused-dependencies).
 - `unused-export`: classes, modules with something in them, and constants that are classes
   (`Struct.new`, `Class.new`, `Data.define`). Methods are never reported: callbacks, routes, views and
   `send` call them by name.

@@ -50,6 +50,8 @@ archives:
       - THIRD_PARTY_NOTICES.md
       - README.md
       - README_ja.md
+      # the pages the READMEs link to
+      - docs/**/*
 
 checksum:
   name_template: checksums.txt

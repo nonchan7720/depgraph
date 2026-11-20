@@ -3,7 +3,7 @@
 English | [日本語](ja/go.md) · [README](../../README.md) · other languages: [TypeScript / JavaScript](typescript.md), [Python](python.md), [Ruby](ruby.md)
 
 What depgraph reads in Go code, and what the language-specific rules mean for it. The rules
-themselves, their options and `.depgraph.yml` are described in the [README](../../README.md#rules).
+themselves, their options and `.depgraph.yml` are described in [Rules](../rules.md) and [Configuration](../configuration.md).
 
 ## Files
 
@@ -26,7 +26,7 @@ the package under test.
 
 A module the importing module's `go.mod` (or its `go.work`) requires or replaces is third-party. An
 import path whose first element has no dot is the standard library (the go command's rule). See
-[Frameworks](../../README.md#frameworks-external-packages-in-layers).
+[Frameworks](../configuration.md#frameworks-external-packages-in-layers).
 
 ## Unused code
 
@@ -41,6 +41,9 @@ import path whose first element has no dot is the standard library (the go comma
   - `unused-export`: exported functions and types of non-main packages.
   - `unreachable-package`: a package that no `main` package, test or public package of a library module imports.
   - Go files are never reported by `unreachable-file`: a package is reached as a whole.
+  - `unused-dependency`: a direct `require` of `go.mod` whose packages no Go file of the module imports
+    (the files depgraph does not scan are read too) and that no `tool` directive names; always certain
+    (`error`). See [Unused dependencies](../rules.md#unused-dependencies).
 - **Never reported**:
   - Exported methods (an interface may need them; interface satisfaction is invisible to a syntactic analysis).
   - A package that only holds documentation (`doc.go`).
@@ -52,7 +55,7 @@ import path whose first element has no dot is the standard library (the go comma
   constraints).
 - `concrete-dependency` and `type-leak` read struct fields, `New*` constructor parameters, parameters
   and results, and composite literals (`&infra.T{}`). An implementation satisfies an interface when it
-  has every method of it. See [Inside the layers](../../README.md#inside-the-layers-dependency-inversion-and-leaking-types).
+  has every method of it. See [Inside the layers](../configuration.md#inside-the-layers-dependency-inversion-and-leaking-types).
 - `low-cohesion` splits a package by its files.
 - `function-cycle` reads the calls of every function and method: `f()` (a function of the package, unless a
   parameter or local variable has that name), `pkg.F()` and, in a method, `recv.m()`. It reports a cycle of calls

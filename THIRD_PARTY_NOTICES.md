@@ -766,7 +766,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### github.com/spf13/cobra v1.10.1
+### github.com/spf13/cobra v1.10.2
 
 ```
                                 Apache License
@@ -945,7 +945,7 @@ SOFTWARE.
       of your accepting any such warranty or additional liability.
 ```
 
-### github.com/spf13/pflag v1.0.9
+### github.com/spf13/pflag v1.0.10
 
 ```
 Copyright (c) 2012 Alex Ogier. All rights reserved.
@@ -1248,7 +1248,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.```
 
-### elkjs 0.12.0 (EPL-2.0 OR GPL-3.0-or-later)
+### elkjs 0.12.1 (EPL-2.0 OR GPL-3.0-or-later)
 
 Used under the Eclipse Public License 2.0. Source code: https://github.com/kieler/elkjs
 

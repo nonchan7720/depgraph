@@ -80,6 +80,9 @@ func optionSchema(rule, option string) jsonObj {
 		if rules.IsUnusedRule(rule) {
 			return stringList(unusedOptionDesc[option])
 		}
+		if rule == rules.RuleUnusedDependency {
+			return stringList("Dependencies never reported (used in a way nothing in the repository shows). A name: exact, or a glob where * is any run of characters and ? one character (\"@types/*\"). For one language only: \"go:\", \"javascript:\", \"python:\" or \"ruby:\" before the name (\"ruby:pg\", \"python:*\"). For one manifest only: its path, as a path glob, and a colon before the name (\"web/package.json:lodash\", \"services/**/requirements.txt:*\"); both: \"ruby:engines/**/Gemfile:pg\". In the .depgraph.yml of a directory below the root, the entries apply to the manifests in and below that directory and manifest paths are relative to it.")
+		}
 		return stringList("Symbol names never reported (replaces the defaults): an exact name, a prefix such as Test*, or a glob where * is any run of characters and ? one character.")
 	case "entries":
 		return stringList(unusedOptionDesc[option])

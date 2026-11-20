@@ -3,7 +3,7 @@
 [English](../ruby.md) | 日本語 · [README](../../../README_ja.md) · 他の言語: [Go](go.md)、[TypeScript / JavaScript](typescript.md)、[Python](python.md)
 
 depgraph が Ruby のコードから何を読むか、言語ごとに意味の変わるルールが Ruby では何を指すかをまとめます。
-ルールそのもの、オプション、`.depgraph.yml` は [README](../../../README_ja.md#rules) を見てください。
+ルールそのもの、オプション、`.depgraph.yml` は[ルール](../../ja/rules.md)と[設定](../../ja/configuration.md)を見てください。
 
 Rails のコードは、他のファイルを `require` ではなく定数で参照します（Zeitwerk が `Admin::User` を `admin/user.rb` から読み込む）。そのため depgraph は定数を依存と使用として扱い、Rails やそのツールがコードを読み込む規約を知っています。
 
@@ -35,12 +35,17 @@ Rails のコードは、他のファイルを `require` ではなく定数で参
 - 名前では確かめられないが gem のものらしい定数（`actionpack` の `ActionController`、`aws-sdk-s3` の `Aws`）も一覧に出します。
 - Ruby 自身のものらしい定数（`Hash`・`IO`）は出しません。見分けるには、Ruby のバージョンごとの定数の一覧が要るためです。
 
-[フレームワーク](../../../README_ja.md#フレームワークレイヤーに外部パッケージ)を参照してください。
+[フレームワーク](../../ja/configuration.md#フレームワークレイヤーに外部パッケージ)を参照してください。
 
 ## 未使用コード
 
 ### 報告するもの
 
+- `unused-dependency`: `Gemfile` の gem のうち、どのファイルも require せず、その定数をどのファイルも参照せず、誰も名前を挙げて
+  いないもの。gem が何という名前で require され、どんな定数を宣言するかは、インストール済みの gem（bundle のパス、
+  `GEM_HOME` / `GEM_PATH`、rbenv / asdf / mise / rvm）のうちロックされたバージョンから読みます。インストールされていない gem は
+  スキップし、railtie や engine を持つ gem は使用中とみなします。`require: false` の gem は `error`、それ以外は `warn` です
+  （起動時に Bundler が require するため）。[未使用の依存パッケージ](../../ja/rules.md#未使用の依存パッケージ)を参照してください。
 - `unused-export`: クラス、中身のあるモジュール、クラスである定数（`Struct.new`・`Class.new`・`Data.define`）。メソッドは報告しません（コールバック・ルーティング・ビュー・`send` が名前で呼ぶため）。
 - `unreachable-file`: どのエントリポイントからも辿れない Ruby ファイル。
 - 他のクラスを入れるだけのモジュールは名前空間で、使う中身がないので報告しません。

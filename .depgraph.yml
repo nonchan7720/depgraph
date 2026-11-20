@@ -1,5 +1,5 @@
 # yaml-language-server: $schema=./schema/depgraph.schema.json
-# depgraph's own architecture (see "Configuration" in README.md).
+# depgraph's own architecture (see docs/configuration.md).
 layers:
   domain: ["pkg/domain/**"]
   services: ["pkg/services/**"]

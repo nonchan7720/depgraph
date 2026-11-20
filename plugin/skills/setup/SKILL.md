@@ -11,8 +11,9 @@ one); `update` changes the existing ones for what the user describes, or for wha
 shows; `review` reports what the current setup does and what to change, without editing.
 Without an argument: `init` when `.depgraph.yml` does not exist, else `update`.
 
-depgraph's README is the reference for every key and rule:
-https://github.com/nonchan7720/depgraph#readme (`depgraph --help` and `depgraph schema` print the
+depgraph's documentation is the reference for every key and rule:
+https://github.com/nonchan7720/depgraph/blob/main/docs/configuration.md (`.depgraph.yml`) and
+https://github.com/nonchan7720/depgraph/blob/main/docs/rules.md (the rules) (`depgraph --help` and `depgraph schema` print the
 flags and the JSON Schema of `.depgraph.yml` of the installed version).
 
 ## 1. The binary
@@ -65,7 +66,7 @@ this session and need `depgraph` on `PATH`. If `command -v depgraph` finds nothi
 - Entry points depgraph cannot see (plugins loaded by name, files an external tool runs, a
   library's public API the repository itself does not use). depgraph already treats `main`
   packages, tests, `package.json` entries and scripts, framework routes, Dockerfiles, CI
-  workflows, Makefiles and many more as entry points (README "Unused code"); only add what it
+  workflows, Makefiles and many more as entry points (docs/rules.md, "Unused code"); only add what it
   cannot know.
 
 ## 3. `.depgraph.yml`
@@ -98,7 +99,7 @@ ignore: ["**/testdata/**"]  # packages left out of every rule (still scanned)
   `"packages/*"` is one component per directory with the same layout) or in a `.depgraph.yml` in a
   part whose layout is its own. A component's pairs only check imports inside one directory; keep
   repository-wide rules (apps must not import each other) in the root's `layers` / `forbidden`.
-  See README "Monorepos".
+  See docs/configuration.md, "Monorepos".
 - Prefer a `depgraph:entry` comment (`// depgraph:entry`, `# depgraph:entry`) in the file itself for
   a single entry point; `entries` / `ignore` are for path globs.
 - Do not disable a rule to make findings go away. Disabling is for a rule that does not apply to
@@ -123,7 +124,7 @@ match wins; `!build` lifts every such directory, `!/build` only the root one).
   the plugin's hooks take over.
 - In Codex, the hooks run only where Codex runs plugin hooks, or after
   `sh "<plugin root>/codex/install-hooks.sh"` copied them into `~/.codex/hooks.json` (then trusted
-  in `/hooks`). If the findings do not reach the session, tell the user to run it (see the README,
+  in `/hooks`). If the findings do not reach the session, tell the user to run it (see docs/agents.md,
   "Codex plugin").
 - When the project has `.claude/gate.yaml` or `.agents/gate.yaml` (claude-hook-gate; Codex reads
   `.agents/` first, Claude Code `.claude/`), add the gate rule, matched on the

@@ -73,7 +73,7 @@ end
 		"app/models/statistics_record.rb":      "class StatisticsRecord < ApplicationRecord\n  self.abstract_class = true\nend\n",
 		"packs/pay/spec/models/charge_spec.rb": "RSpec.describe Pay::Charge do\nend\n",
 	})
-	got := evalUnused(toUnusedFiles(parseRepo(t, root)), rules.DefaultConfig())
+	got := evalUnused(t, (parseRepo(t, root)), rules.DefaultConfig())
 	wantFindings(t, got,
 		"unreachable-file|app/controllers/concerns/forgotten.rb",
 		"unreachable-file|app/models/concerns/orphan.rb",
@@ -96,7 +96,7 @@ func TestUnusedRubyGem(t *testing.T) {
 		"spec/spec_helper.rb": "require 'money'\n",
 		"Rakefile":            "require 'bundler/gem_tasks'\n",
 	})
-	wantFindings(t, evalUnused(toUnusedFiles(parseRepo(t, root)), rules.DefaultConfig()))
+	wantFindings(t, evalUnused(t, (parseRepo(t, root)), rules.DefaultConfig()))
 }
 
 // Review findings (false positives): each of these files is used.
@@ -147,7 +147,7 @@ end
 		"app/services/api/unused_client.rb": "module Api\n  class UnusedClient; end\nend\n",
 		"Dockerfile.builder":                "FROM ruby AS build\nRUN make\n",
 	})
-	got := evalUnused(toUnusedFiles(parseRepo(t, root)), rules.DefaultConfig())
+	got := evalUnused(t, (parseRepo(t, root)), rules.DefaultConfig())
 	wantFindings(t, got,
 		"unreachable-file|app/services/api/unused_client.rb",
 		"unused-export|app/services/holder.rb#Holder::Inner", // nothing uses it
@@ -161,7 +161,7 @@ func TestUnusedRubyFreshApp(t *testing.T) {
 		"config/application.rb":            "",
 		"app/models/application_record.rb": "class ApplicationRecord < ActiveRecord::Base\n  self.abstract_class = true\nend\n",
 	})
-	wantFindings(t, evalUnused(toUnusedFiles(parseRepo(t, root)), rules.DefaultConfig()))
+	wantFindings(t, evalUnused(t, (parseRepo(t, root)), rules.DefaultConfig()))
 }
 
 // Conventions of Discourse and its plugins (a plugin is a Rails engine
@@ -219,7 +219,7 @@ end
 		"app/services/runner.rb":             "class Runner\n  def call = Service::StepsInspector::Step.new.inspector\nend\n",
 		"app/controllers/runs_controller.rb": "class RunsController < ApplicationController\n  def index = Runner.new.call\nend\n",
 	})
-	got := evalUnused(toUnusedFiles(parseRepo(t, root)), rules.DefaultConfig())
+	got := evalUnused(t, (parseRepo(t, root)), rules.DefaultConfig())
 	wantFindings(t, got, "unreachable-file|plugins/chat/app/models/chat/orphan.rb")
 }
 
@@ -234,7 +234,7 @@ func TestUnusedRubyGlobOfNestedGem(t *testing.T) {
 		"qa/gems/orchestrator/lib/orchestrator/cli.rb":    "require_rel \"lib/**/*.rb\"\nmodule Orchestrator\n  class Cli; end\nend\n",
 		"qa/gems/orchestrator/lib/orchestrator/helper.rb": "module Orchestrator\n  class Helper; end\nend\n",
 	})
-	wantFindings(t, evalUnused(toUnusedFiles(parseRepo(t, root)), rules.DefaultConfig()),
+	wantFindings(t, evalUnused(t, (parseRepo(t, root)), rules.DefaultConfig()),
 		"unreachable-file|lib/gitlab/orphan.rb")
 }
 
@@ -256,7 +256,7 @@ func TestUnusedRubyOwnNamespaceNamedLikeAGem(t *testing.T) {
 		"lib/paperclip/blur.rb":             "module Paperclip\n  class Blur < Processor\n  end\nend\n",
 		"spec/lib/paperclip/helper_spec.rb": "RSpec.describe 1 do\nend\n", // tests are no namespace of the application
 	})
-	wantFindings(t, evalUnused(toUnusedFiles(parseRepo(t, root)), rules.DefaultConfig()),
+	wantFindings(t, evalUnused(t, (parseRepo(t, root)), rules.DefaultConfig()),
 		"unreachable-file|lib/gitlab/orphan_helper.rb",
 		"unreachable-file|app/graphql/types/orphan_type.rb")
 }
@@ -304,6 +304,6 @@ end
 		"gems/distiller/distiller.gemspec":     "",
 		"gems/distiller/spec/manifest_spec.rb": "RSpec.describe 1 do\n  it { Dir.glob(\"app/**/*.rb\") }\nend\n",
 	})
-	wantFindings(t, evalUnused(toUnusedFiles(parseRepo(t, root)), rules.DefaultConfig()),
+	wantFindings(t, evalUnused(t, (parseRepo(t, root)), rules.DefaultConfig()),
 		"unreachable-file|app/services/forgotten_service.rb")
 }

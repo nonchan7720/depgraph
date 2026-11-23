@@ -33,7 +33,7 @@ What depgraph reports. Every rule can be switched off or given another severity 
 
 Default severity: `error`
 
-Import cycle between packages: for every import on a cycle of at most 8 packages, the shortest cycle through it (up to 50)
+Import cycle between packages: for every import on a cycle of at most 8 packages, the shortest cycle through it (up to 50). An import only Go test files make is not counted: an external test package (`package x_test`) is another package than the one in its directory, and Go builds `install -> v1` with `v1/defaults_test.go -> install`
 
 ### `module-cycle`
 

@@ -406,7 +406,8 @@ func emptyProp(v any) bool {
 // (Package.cyclic): the in-repo packages that are not ignored, without
 // those that import no marked package or that no marked package imports,
 // until none is left to remove. A cycle only goes through packages that
-// both import and are imported inside it, so import-cycle searches the
+// both import and are imported inside it (by an import that is not only a
+// Go test file's: packageEdge of the graph store), so import-cycle searches the
 // marked ones only: in a repository whose imports are mostly a tree (every
 // Go repository) that is a small part of it.
 func (r *Repository) markCyclic(ctx context.Context, ignore []string) error {
@@ -424,8 +425,8 @@ func (r *Repository) markCyclic(ctx context.Context, ignore []string) error {
 		rows, err := r.q.Write(ctx, `
 			MATCH (p:Package {project: $project})
 			WHERE p.cyclic
-			  AND (NOT EXISTS { MATCH (p)-[:IMPORTS]->(q:Package) WHERE q.cyclic AND q <> p }
-			    OR NOT EXISTS { MATCH (q:Package)-[:IMPORTS]->(p) WHERE q.cyclic AND q <> p })
+			  AND (NOT EXISTS { MATCH (p)-[e:IMPORTS]->(q:Package) WHERE q.cyclic AND q <> p AND coalesce(e.test, false) = false }
+			    OR NOT EXISTS { MATCH (q:Package)-[e:IMPORTS]->(p) WHERE q.cyclic AND q <> p AND coalesce(e.test, false) = false })
 			REMOVE p.cyclic
 			RETURN count(p) AS trimmed
 		`, p)

@@ -33,7 +33,7 @@ depgraph が報告する内容です。どのルールも [`.depgraph.yml`](conf
 
 デフォルトの severity: `error`
 
-パッケージ間の循環 import。8 パッケージ以下の循環に乗る import ごとに、それを通る最短の循環（最大 50 件）
+パッケージ間の循環 import。8 パッケージ以下の循環に乗る import ごとに、それを通る最短の循環（最大 50 件）。Go のテストファイルだけが行っている import は数えません。外部テストパッケージ（`package x_test`）はそのディレクトリのパッケージとは別のパッケージで、`install -> v1` と `v1/defaults_test.go -> install` は Go でビルドできるためです
 
 ### `module-cycle`
 

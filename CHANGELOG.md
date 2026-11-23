@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.1.15](https://github.com/nonchan7720/depgraph/compare/v0.1.14...v0.1.15) (2026-11-23)
+
+
+### Bug Fixes
+
+* **store:** delete a project's relationships before its nodes, a batch at a time ([#93](https://github.com/nonchan7720/depgraph/issues/93)) ([9dc90ed](https://github.com/nonchan7720/depgraph/commit/9dc90edee20280abafc09e1d2b846864fa9a1303))
+
+
+### Miscellaneous Chores
+
+* **deps:** update jdx/mise-action action to v5.2.7 ([#96](https://github.com/nonchan7720/depgraph/issues/96)) ([d51a2ce](https://github.com/nonchan7720/depgraph/commit/d51a2ce6fca152cb53ca097eca791fdea81c0a18))
+* **deps:** update mise tools ([#65](https://github.com/nonchan7720/depgraph/issues/65)) ([fbca689](https://github.com/nonchan7720/depgraph/commit/fbca689b38ae4f5f93e056c058ede4823b0f215d))
+* **deps:** update mise tools ([#99](https://github.com/nonchan7720/depgraph/issues/99)) ([3cdc3e7](https://github.com/nonchan7720/depgraph/commit/3cdc3e7db56641d098814e66a2675d38a0b0db47))
+* **deps:** update patch updates ([#98](https://github.com/nonchan7720/depgraph/issues/98)) ([f0e8018](https://github.com/nonchan7720/depgraph/commit/f0e8018d78e4a60c518229212046322df66d222e))
+* **deps:** update web dependencies (non-major) ([#66](https://github.com/nonchan7720/depgraph/issues/66)) ([3d22e85](https://github.com/nonchan7720/depgraph/commit/3d22e8544516ffb56d65968bd352b11fc612f0a3))
+
 ## [0.1.14](https://github.com/nonchan7720/depgraph/compare/v0.1.13...v0.1.14) (2026-11-13)
 
 

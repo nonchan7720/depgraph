@@ -4,7 +4,7 @@ package container
 // digest as docker-compose.yml and the CI service container (a test keeps
 // them equal; Renovate updates all three). Fully qualified so podman never
 // asks which registry a short name means.
-const Image = "docker.io/library/neo4j:5.26.32@sha256:249a1ec6e3c52d82101a5ed33d6ed2b5ed5b0017b21a28c0bfebc335e87fb177"
+const Image = "docker.io/library/neo4j:5.26.32@sha256:42ef3ebfd671ebd01fdebb6dcbe80cf7b45eef2aa3d346ef4132f7ef31e67d2f"
 
 // Memory settings of the managed Neo4j: small, because the graph of one
 // repository is small. The transaction logs are not preallocated (Neo4j
